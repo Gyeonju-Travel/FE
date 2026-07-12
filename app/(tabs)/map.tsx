@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -7,13 +7,19 @@ import {
   ScrollView,
   StyleSheet,
   Image,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { MapPlace } from '@/types/map';
 import { MOCK_MAP_PLACES } from '@/mock/mapPlaces';
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
-import MapPlaceSheet from '@/components/map/MapPlaceSheet';
+import MapPlaceSheet, { SHEET_HEIGHT } from '@/components/map/MapPlaceSheet';
+
+const LOCATION_BTN_BOTTOM = 24;
+const SHEET_GAP = 12;
+const LOCATION_BTN_RAISE = SHEET_HEIGHT + SHEET_GAP - LOCATION_BTN_BOTTOM;
 
 type Category = '전체' | '관광지' | '카페' | '식당';
 
@@ -33,6 +39,7 @@ export default function MapScreen() {
   const mapRef = useRef<KakaoMapHandle>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category>('전체');
   const [selectedPlace, setSelectedPlace] = useState<MapPlace | null>(null);
+  const locationBtnY = useRef(new Animated.Value(0)).current;
 
   const handleMarkerPress = (id: string) => {
     const place = MOCK_MAP_PLACES.find((p) => p.id === id) ?? null;
@@ -40,6 +47,16 @@ export default function MapScreen() {
   };
 
   const handleMapPress = () => setSelectedPlace(null);
+
+  // 내 위치 버튼을 바텀시트가 뜨고 닫히는 것과 같은 타이밍으로 함께 움직임
+  useEffect(() => {
+    Animated.timing(locationBtnY, {
+      toValue: selectedPlace ? -LOCATION_BTN_RAISE : 0,
+      duration: selectedPlace ? 260 : 220,
+      easing: selectedPlace ? Easing.out(Easing.cubic) : Easing.linear,
+      useNativeDriver: true,
+    }).start();
+  }, [selectedPlace]);
 
   return (
     <View style={styles.container}>
@@ -53,27 +70,18 @@ export default function MapScreen() {
 
       {/* 상단 오버레이 */}
       <View style={[styles.overlay, { paddingTop: insets.top + 12 }]}>
-        <View style={styles.searchRow}>
-          <View style={styles.searchBar}>
-            <Image
-              source={require('@/assets/icons/tab-map.png')}
-              style={styles.searchIcon}
-              resizeMode="contain"
-            />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="어디로 떠날까요?"
-              placeholderTextColor={Colors.textMuted}
-              returnKeyType="search"
-            />
-          </View>
-          <TouchableOpacity style={styles.filterBtn} activeOpacity={0.8}>
-            <Image
-              source={require('@/assets/icons/filter.png')}
-              style={styles.filterIcon}
-              resizeMode="contain"
-            />
-          </TouchableOpacity>
+        <View style={styles.searchBar}>
+          <Image
+            source={require('@/assets/icons/search.png')}
+            style={styles.searchIcon}
+            resizeMode="contain"
+          />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="어디로 떠날까요?"
+            placeholderTextColor={Colors.textMuted}
+            returnKeyType="search"
+          />
         </View>
 
         <ScrollView
@@ -128,18 +136,26 @@ export default function MapScreen() {
         </View>
       )}
 
-      {/* 내 위치 버튼 — 항상 고정 */}
-      <TouchableOpacity
-        style={[styles.mapBtn, styles.locationBtn, { bottom: 24 }]}
-        activeOpacity={0.8}
-        onPress={() => mapRef.current?.moveTo(GYEONGJU_LAT, GYEONGJU_LNG)}
+      {/* 내 위치 버튼 — 바텀시트가 뜨면 같이 위로 올라감 */}
+      <Animated.View
+        style={[
+          styles.mapBtn,
+          styles.locationBtn,
+          { bottom: LOCATION_BTN_BOTTOM, transform: [{ translateY: locationBtnY }] },
+        ]}
       >
-        <Image
-          source={require('@/assets/icons/target.png')}
-          style={styles.locationIcon}
-          resizeMode="contain"
-        />
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.locationBtnTouchable}
+          activeOpacity={0.8}
+          onPress={() => mapRef.current?.moveTo(GYEONGJU_LAT, GYEONGJU_LNG)}
+        >
+          <Image
+            source={require('@/assets/icons/target.png')}
+            style={styles.locationIcon}
+            resizeMode="contain"
+          />
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
@@ -156,13 +172,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     gap: 10,
   },
-  searchRow: {
-    flexDirection: 'row',
-    gap: 10,
-    alignItems: 'center',
-  },
   searchBar: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.background,
@@ -177,33 +187,15 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   searchIcon: {
-    width: 16,
-    height: 16,
-    tintColor: Colors.navActive,
+    width: 18,
+    height: 18,
+    tintColor: '#A89E9C',
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
     color: Colors.textBody1,
     padding: 0,
-  },
-  filterBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
-  filterIcon: {
-    width: 20,
-    height: 20,
-    tintColor: '#A89E9C',
   },
   chips: {
     gap: 8,
@@ -291,6 +283,12 @@ const styles = StyleSheet.create({
   locationBtn: {
     position: 'absolute',
     right: Spacing.xl,
+  },
+  locationBtnTouchable: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   locationIcon: {
     width: 22,

@@ -2,26 +2,8 @@ import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
-
-const CATEGORY_ICONS: Record<string, string> = {
-  관광지: '🏛',
-  카페: '☕',
-  식당: '🍴',
-};
-
-const TAG_BG: Record<string, string> = {
-  '전 구역': Colors.secondaryTint,
-  '야외만': Colors.secondaryTint,
-  '이동장 필수': Colors.primaryTint,
-  '목줄 필수': Colors.primaryTint,
-};
-
-const TAG_DOT: Record<string, string> = {
-  '전 구역': Colors.sage,
-  '야외만': Colors.sage,
-  '이동장 필수': Colors.coral,
-  '목줄 필수': Colors.coral,
-};
+import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
+import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
 
 interface Props {
   place: SavedPlace;
@@ -58,25 +40,52 @@ export default function SavedPlaceCard({
       <Image source={{ uri: place.imageUri }} style={styles.image} resizeMode="cover" />
 
       <View style={styles.info}>
-        <View style={styles.categoryBadge}>
-          <Text style={styles.categoryIcon}>{CATEGORY_ICONS[place.category]}</Text>
-          <Text style={styles.categoryText}>{place.category}</Text>
-        </View>
+        {(() => {
+          const cat = CATEGORY_BADGE_STYLE[place.category];
+          return (
+            <Badge
+              label={place.category}
+              variant="filled"
+              tone={cat?.tone}
+              leading={
+                cat && (
+                  <Image
+                    source={cat.icon}
+                    style={[styles.categoryIcon, { tintColor: BADGE_TONE_COLORS[cat.tone].text }]}
+                    resizeMode="contain"
+                  />
+                )
+              }
+            />
+          );
+        })()}
 
         <Text style={styles.name} numberOfLines={1}>
           {place.name}
         </Text>
 
         <View style={styles.tags}>
-          {place.tags.map((tag) => (
-            <View
-              key={tag}
-              style={[styles.tagBox, { backgroundColor: TAG_BG[tag] ?? Colors.secondaryTint }]}
-            >
-              <View style={[styles.tagDot, { backgroundColor: TAG_DOT[tag] ?? Colors.sage }]} />
-              <Text style={styles.tagText}>{tag}</Text>
-            </View>
-          ))}
+          {place.tags.map((tag) => {
+            const cfg = PLACE_TAG_STYLE[tag] ?? DEFAULT_PLACE_TAG_STYLE;
+            return (
+              <Badge
+                key={tag}
+                label={tag}
+                variant="outline"
+                tone={cfg.tone}
+                dot={cfg.dot}
+                leading={
+                  cfg.icon ? (
+                    <Image
+                      source={cfg.icon}
+                      style={[styles.tagIcon, { tintColor: BADGE_TONE_COLORS[cfg.tone].text }]}
+                      resizeMode="contain"
+                    />
+                  ) : undefined
+                }
+              />
+            );
+          })}
         </View>
       </View>
 
@@ -154,25 +163,9 @@ const styles = StyleSheet.create({
     gap: 5,
   },
 
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.primaryTint,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    gap: 3,
-  },
-
   categoryIcon: {
-    fontSize: 10,
-  },
-
-  categoryText: {
-    fontSize: 10,
-    color: Colors.coral,
-    fontWeight: '500',
+    width: 15,
+    height: 15,
   },
 
   name: {
@@ -187,24 +180,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
 
-  tagBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-
-  tagDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-
-  tagText: {
-    fontSize: 11,
-    color: Colors.textBody2,
+  tagIcon: {
+    width: 15,
+    height: 15,
   },
 
 });

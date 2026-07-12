@@ -11,30 +11,12 @@ import {
 } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { MapPlace } from '@/types/map';
+import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
+import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
 
-const SHEET_HEIGHT = 295;
+export const SHEET_HEIGHT = 295;
 const DISMISS_THRESHOLD = 80;
 const DISMISS_VELOCITY = 0.5;
-
-const CATEGORY_IMAGE: Record<string, ReturnType<typeof require> | null> = {
-  관광지: require('@/assets/icons/tour-spot.png'),
-  카페: require('@/assets/icons/hot-coffee.png'),
-  식당: require('@/assets/icons/spoon-and-fork.png'),
-};
-
-const TAG_BG: Record<string, string> = {
-  '전 구역': Colors.secondaryTint,
-  '야외만': Colors.secondaryTint,
-  '이동장 필수': Colors.primaryTint,
-  '목줄 필수': Colors.primaryTint,
-};
-
-const TAG_DOT: Record<string, string> = {
-  '전 구역': Colors.sage,
-  '야외만': Colors.sage,
-  '이동장 필수': Colors.coral,
-  '목줄 필수': Colors.coral,
-};
 
 interface Props {
   place: MapPlace | null;
@@ -131,34 +113,49 @@ export default function MapPlaceSheet({ place, onClose }: Props) {
                   <Text style={styles.name} numberOfLines={1}>
                     {place.name}
                   </Text>
-                  <View style={styles.categoryBadge}>
-                    <Image
-                      source={CATEGORY_IMAGE[place.category]}
-                      style={[styles.categoryIcon, { tintColor: Colors.coral }]}
-                      resizeMode="contain"
-                    />
-                    <Text style={styles.categoryText}>{place.category}</Text>
-                  </View>
+                  {(() => {
+                    const cat = CATEGORY_BADGE_STYLE[place.category];
+                    return (
+                      <Badge
+                        label={place.category}
+                        variant="filled"
+                        tone={cat?.tone}
+                        leading={
+                          cat && (
+                            <Image
+                              source={cat.icon}
+                              style={[styles.categoryIcon, { tintColor: BADGE_TONE_COLORS[cat.tone].text }]}
+                              resizeMode="contain"
+                            />
+                          )
+                        }
+                      />
+                    );
+                  })()}
                 </View>
 
                 <View style={styles.tags}>
-                  {place.tags.map((tag) => (
-                    <View
-                      key={tag}
-                      style={[
-                        styles.tagBox,
-                        { backgroundColor: TAG_BG[tag] ?? Colors.primaryTint },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.tagDot,
-                          { backgroundColor: TAG_DOT[tag] ?? Colors.coral },
-                        ]}
+                  {place.tags.map((tag) => {
+                    const cfg = PLACE_TAG_STYLE[tag] ?? DEFAULT_PLACE_TAG_STYLE;
+                    return (
+                      <Badge
+                        key={tag}
+                        label={tag}
+                        variant="outline"
+                        tone={cfg.tone}
+                        dot={cfg.dot}
+                        leading={
+                          cfg.icon ? (
+                            <Image
+                              source={cfg.icon}
+                              style={[styles.tagIcon, { tintColor: BADGE_TONE_COLORS[cfg.tone].text }]}
+                              resizeMode="contain"
+                            />
+                          ) : undefined
+                        }
                       />
-                      <Text style={styles.tagText}>{tag}</Text>
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               </View>
 
@@ -266,45 +263,18 @@ const styles = StyleSheet.create({
     color: Colors.textBody1,
     flexShrink: 1,
   },
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.primaryTint,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    gap: 3,
-  },
   categoryIcon: {
-    width: 11,
-    height: 11,
-  },
-  categoryText: {
-    fontSize: 10,
-    color: Colors.coral,
-    fontWeight: '500',
+    width: 15,
+    height: 15,
   },
   tags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
   },
-  tagBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: Radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  tagDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  tagText: {
-    fontSize: 11,
-    color: Colors.textBody2,
+  tagIcon: {
+    width: 15,
+    height: 15,
   },
   heartBtn: {
     alignSelf: 'flex-start',

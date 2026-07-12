@@ -10,10 +10,11 @@ interface Props {
   data: string[];
   selectedIdx: number;
   onSelect: (idx: number) => void;
+  /** Only needed when placed inside a row of pickers that should share width equally. */
   flex?: number;
 }
 
-export default function WheelPicker({ data, selectedIdx, onSelect, flex = 1 }: Props) {
+export default function WheelPicker({ data, selectedIdx, onSelect, flex }: Props) {
   const ref = useRef<ScrollView>(null);
   const [current, setCurrent] = useState(selectedIdx);
 
@@ -34,7 +35,7 @@ export default function WheelPicker({ data, selectedIdx, onSelect, flex = 1 }: P
   };
 
   return (
-    <View style={[styles.container, { flex }]}>
+    <View style={[styles.container, flex ? { flex } : null]}>
       <View style={styles.indicator} pointerEvents="none" />
       <ScrollView
         ref={ref}
