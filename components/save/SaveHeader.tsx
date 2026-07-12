@@ -86,11 +86,12 @@ const styles = StyleSheet.create({
   backBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.xs,
+    gap: 12,
   },
   backArrow: {
-    fontSize: 18,
+    fontSize: 22,
     color: Colors.textBody1,
+    lineHeight: 28,
   },
   title: {
     fontSize: 22,

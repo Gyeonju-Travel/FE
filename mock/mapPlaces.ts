@@ -5,7 +5,7 @@ export const MOCK_MAP_PLACES: MapPlace[] = [
     id: 'map-1',
     name: '황리단길 살로우 커피',
     category: '카페',
-    tags: ['전 구역', '이동장 필수'],
+    tags: ['실내석', '이동장'],
     imageUri: 'https://picsum.photos/seed/cafe1/200/200',
     latitude: 35.8331,
     longitude: 129.2122,
