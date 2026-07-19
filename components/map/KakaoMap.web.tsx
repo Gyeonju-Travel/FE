@@ -1,7 +1,7 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { MapPlace } from '@/types/map';
-import { pinUri, currentLocationUri } from './kakaoMapAssets';
+import { categoryPinUri, currentLocationUri } from './kakaoMapAssets';
 
 const KAKAO_JS_KEY = process.env.EXPO_PUBLIC_KAKAO_JS_KEY;
 
@@ -56,7 +56,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
   const centerLng = markers.length > 0 ? markers[0].longitude : longitude;
 
   const markersJson = JSON.stringify(
-    markers.map((m) => ({ id: m.id, lat: m.latitude, lng: m.longitude }))
+    markers.map((m) => ({ id: m.id, lat: m.latitude, lng: m.longitude, category: m.category }))
   );
 
   const src =
@@ -67,7 +67,9 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       lng: String(centerLng),
       level: String(level),
       markers: markersJson,
-      pin: pinUri,
+      pinCafe: categoryPinUri['카페'],
+      pinRestaurant: categoryPinUri['식당'],
+      pinTour: categoryPinUri['관광지'],
       myLoc: currentLocationUri,
       myLocLat: String(DEFAULT_LAT),
       myLocLng: String(DEFAULT_LNG),

@@ -33,6 +33,34 @@
       0% { transform: scale(1); opacity: 0.65; }
       100% { transform: scale(2.4); opacity: 0; }
     }
+    .place-marker {
+      position: relative;
+      width: 72px;
+      height: 82px;
+      cursor: pointer;
+    }
+    .place-marker .pulse {
+      position: absolute;
+      left: 50%;
+      bottom: 27px;
+      width: 28px;
+      height: 28px;
+      margin-left: -14px;
+      border-radius: 50%;
+      animation: my-location-pulse 2.2s ease-out infinite;
+    }
+    .place-marker img {
+      position: absolute;
+      left: 50%;
+      bottom: 0;
+      width: 72px;
+      height: 72px;
+      margin-left: -36px;
+      z-index: 1;
+    }
+    .place-marker--카페 .pulse { background: rgba(201, 123, 94, 0.5); }
+    .place-marker--식당 .pulse { background: rgba(184, 118, 46, 0.5); }
+    .place-marker--관광지 .pulse { background: rgba(90, 138, 106, 0.5); }
   </style>
 </head>
 <body>
@@ -53,7 +81,11 @@
     try {
       markers = JSON.parse(params.get('markers') || '[]');
     } catch (e) {}
-    var markerImageSrc = params.get('pin') || '';
+    var categoryPinUri = {
+      '카페': params.get('pinCafe') || '',
+      '식당': params.get('pinRestaurant') || '',
+      '관광지': params.get('pinTour') || '',
+    };
     var myLocationImageSrc = params.get('myLoc') || '';
     var myLocationLat = parseFloat(params.get('myLocLat')) || centerLat;
     var myLocationLng = parseFloat(params.get('myLocLng')) || centerLng;
@@ -70,21 +102,23 @@
           sendMessage({ type: 'mapClick' });
         });
 
-        var imageSize = new kakao.maps.Size(44, 50);
-        var imageOption = { offset: new kakao.maps.Point(22, 48) };
-        var markerImage = markerImageSrc
-          ? new kakao.maps.MarkerImage(markerImageSrc, imageSize, imageOption)
-          : undefined;
-
         markers.forEach(function (place) {
-          var marker = new kakao.maps.Marker({
-            map: window.kakaoMap,
-            position: new kakao.maps.LatLng(place.lat, place.lng),
-            image: markerImage,
+          var el = document.createElement('div');
+          el.className = 'place-marker place-marker--' + place.category;
+          el.innerHTML =
+            '<div class="pulse"></div>' +
+            '<img src="' + categoryPinUri[place.category] + '" />';
+          el.addEventListener('click', function () {
+            sendMessage({ type: 'markerClick', id: place.id });
           });
 
-          kakao.maps.event.addListener(marker, 'click', function () {
-            sendMessage({ type: 'markerClick', id: place.id });
+          new kakao.maps.CustomOverlay({
+            map: window.kakaoMap,
+            position: new kakao.maps.LatLng(place.lat, place.lng),
+            content: el,
+            xAnchor: 0.5,
+            yAnchor: 1,
+            zIndex: 3,
           });
         });
 
