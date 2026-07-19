@@ -90,7 +90,6 @@ function PlaceCard({
           })}
         </View>
       </View>
-      <Text style={cs.heart}>♡</Text>
     </TouchableOpacity>
   );
 }
@@ -98,23 +97,20 @@ function PlaceCard({
 // ─── ScheduleCard (캘린더 하단 일정 카드) ────────────────────────────────────────
 function ScheduleCard({
   schedule,
-  expanded,
-  onToggle,
   onEdit,
 }: {
   schedule: Schedule;
-  expanded: boolean;
-  onToggle: () => void;
   onEdit: () => void;
 }) {
   const lastPlace = schedule.places[schedule.places.length - 1];
   const title = lastPlace
     ? `${schedule.departureLabel} → ${lastPlace.name} 코스`
     : schedule.departureLabel;
+  const durationHours = Math.max(1, schedule.places.length - 1);
 
   return (
     <View style={ss.scheduleCard}>
-      <TouchableOpacity style={ss.scheduleCardRow} activeOpacity={0.85} onPress={onToggle}>
+      <View style={ss.scheduleCardRow}>
         <Image
           source={{ uri: schedule.places[0]?.imageUri }}
           style={ss.scheduleCardImg}
@@ -130,37 +126,43 @@ function ScheduleCard({
               style={[ss.scheduleCardMetaIcon, { tintColor: Colors.textBody2 }]}
               resizeMode="contain"
             />
-            <Text style={ss.scheduleCardMetaText}>{schedule.places.length}곳 방문</Text>
+            <Text style={ss.scheduleCardMetaText}>{schedule.places.length}곳 경유</Text>
+            <Image
+              source={require('@/assets/icons/clock.png')}
+              style={[ss.scheduleCardMetaIcon, { tintColor: Colors.textBody2, marginLeft: 10 }]}
+              resizeMode="contain"
+            />
+            <Text style={ss.scheduleCardMetaText}>약 {durationHours}시간</Text>
           </View>
         </View>
-        <Text style={ss.scheduleCardChevron}>{expanded ? '︿' : '﹀'}</Text>
-      </TouchableOpacity>
+      </View>
 
-      {expanded && (
-        <View style={ss.scheduleDetail}>
-          <View style={ss.scheduleDetailRow}>
-            <View style={ss.scheduleDetailIconBox}>
-              <Image
-                source={require('@/assets/icons/location.png')}
-                style={{ width: 14, height: 14, tintColor: Colors.textBody2 }}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={ss.scheduleDetailText}>{schedule.departureLabel} · 출발</Text>
-          </View>
-          {schedule.places.map((place, i) => (
-            <View key={place.id} style={ss.scheduleDetailRow}>
-              <Image source={{ uri: place.imageUri }} style={ss.scheduleDetailThumb} resizeMode="cover" />
-              <Text style={ss.scheduleDetailText} numberOfLines={1}>
-                {i + 1}. {place.name}
+      <View style={ss.scheduleDetail}>
+        {schedule.places.map((place, i) => {
+          const isLast = i === schedule.places.length - 1;
+          return (
+            <View key={place.id} style={[ss.timelineRow, !isLast && ss.timelineRowGap]}>
+              <View style={ss.timelineDot}>
+                <Text style={ss.timelineDotText}>{i + 1}</Text>
+              </View>
+              {!isLast && <View style={ss.timelineLine} />}
+              <Image source={{ uri: place.imageUri }} style={ss.timelineThumb} resizeMode="cover" />
+              <Text style={ss.timelineText} numberOfLines={1}>
+                {place.name}
               </Text>
             </View>
-          ))}
-          <TouchableOpacity style={ss.editBtn} activeOpacity={0.85} onPress={onEdit}>
-            <Text style={ss.editBtnText}>수정하기</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+          );
+        })}
+
+        <TouchableOpacity style={ss.editBtn} activeOpacity={0.85} onPress={onEdit}>
+          <Image
+            source={require('@/assets/icons/pencil.png')}
+            style={[ss.editBtnIcon, { tintColor: Colors.coral }]}
+            resizeMode="contain"
+          />
+          <Text style={ss.editBtnText}>수정하기</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -500,7 +502,6 @@ export default function ScheduleScreen() {
   });
   const [showCreate, setShowCreate] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
 
   if (showCreate || editingSchedule) {
@@ -616,8 +617,6 @@ export default function ScheduleScreen() {
               <ScheduleCard
                 key={schedule.id}
                 schedule={schedule}
-                expanded={expandedId === schedule.id}
-                onToggle={() => setExpandedId((id) => (id === schedule.id ? null : schedule.id))}
                 onEdit={() => setEditingSchedule(schedule)}
               />
             ))}
@@ -717,7 +716,6 @@ const cs = StyleSheet.create({
   placeName: { fontSize: 14, fontWeight: '600', color: Colors.textBody1 },
   placeTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
   tagIcon: { width: 15, height: 15 },
-  heart: { fontSize: 20, color: Colors.coral, opacity: 0.4 },
   // 하단 버튼
   bottomBar: {
     paddingHorizontal: Spacing.xl,
@@ -849,7 +847,7 @@ const ss = StyleSheet.create({
     backgroundColor: Colors.background,
     borderWidth: 0.5,
     borderColor: '#EDE8E3',
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     marginBottom: Spacing.sm,
     shadowColor: '#3A3330',
     shadowOpacity: 0.06,
@@ -868,35 +866,51 @@ const ss = StyleSheet.create({
   scheduleCardMetaRow: { flexDirection: 'row', alignItems: 'center' },
   scheduleCardMetaIcon: { width: 13, height: 13, marginRight: 4 },
   scheduleCardMetaText: { fontSize: 12, color: Colors.textBody2 },
-  scheduleCardChevron: { fontSize: 13, color: Colors.textMuted, paddingLeft: 4 },
   scheduleDetail: {
     borderTopWidth: 0.5,
     borderTopColor: '#EDE8E3',
     paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
+    paddingTop: Spacing.lg,
     paddingBottom: Spacing.md,
-    gap: 10,
   },
-  scheduleDetailRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  scheduleDetailIconBox: {
+  timelineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    position: 'relative',
+  },
+  timelineRowGap: { marginBottom: 20 },
+  timelineDot: {
     width: 28,
     height: 28,
-    borderRadius: Radius.sm,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.coral,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineDotText: { fontSize: 13, fontWeight: '700', color: Colors.white },
+  // 원 아래에서 다음 원 위까지 이어지도록 절대 위치로 배치 (thumb 48 - dot 28 만큼 위아래 여백 + 행 간격 20)
+  timelineLine: {
+    position: 'absolute',
+    left: 13,
+    top: 38,
+    width: 2,
+    height: 40,
+    backgroundColor: Colors.primaryBorder,
+  },
+  timelineThumb: { width: 48, height: 48, borderRadius: Radius.sm },
+  timelineText: { flex: 1, fontSize: 14, fontWeight: '600', color: Colors.textBody1 },
+  editBtn: {
+    flexDirection: 'row',
+    marginTop: 16,
+    height: 46,
+    borderRadius: Radius.md,
     backgroundColor: Colors.bgWarm,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
   },
-  scheduleDetailThumb: { width: 28, height: 28, borderRadius: Radius.sm },
-  scheduleDetailText: { flex: 1, fontSize: 13, color: Colors.textBody1, fontWeight: '500' },
-  editBtn: {
-    marginTop: 4,
-    height: 42,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  editBtnIcon: { width: 15, height: 15 },
   editBtnText: { fontSize: 14, fontWeight: '600', color: Colors.coral },
   fab: {
     position: 'absolute',
@@ -905,10 +919,10 @@ const ss = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: Radius.full,
-    backgroundColor: Colors.coral,
+    backgroundColor: '#7F9E85',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: Colors.coral,
+    shadowColor: '#7F9E85',
     shadowOpacity: 0.35,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },

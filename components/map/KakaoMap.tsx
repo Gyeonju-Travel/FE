@@ -2,7 +2,7 @@ import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { MapPlace } from '@/types/map';
-import { pinUri, currentLocationUri } from './kakaoMapAssets';
+import { categoryPinUri, currentLocationUri } from './kakaoMapAssets';
 import { buildKakaoMapHtml } from './kakaoMapHtml';
 
 const KAKAO_JS_KEY = process.env.EXPO_PUBLIC_KAKAO_JS_KEY;
@@ -65,7 +65,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     centerLng,
     level,
     markers,
-    markerImageUri: pinUri,
+    categoryPinUri,
     currentLocationImageUri: currentLocationUri,
     currentLocationLat: DEFAULT_LAT,
     currentLocationLng: DEFAULT_LNG,
