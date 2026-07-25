@@ -1,21 +1,21 @@
 // Official 견주여행 color palette
 export const Colors = {
   // 피치코랄 (Primary)
-  primary: '#C97B5E',
+  primary: '#E8906A',
   primaryDark: '#C87050',
   primaryTint: '#FDF0E8',
   primaryBorder: '#F0C8A8',
 
   // 세이지그린 (Secondary)
-  secondary: '#5A8A6A',
+  secondary: '#7F9E85',
   secondaryDark: '#3A6A4A',
   secondaryTint: '#EEF6F0',
   secondaryBorder: '#C0DDD0',
 
   // Text
   textBody1: '#3A3330',
-  textBody2: '#9A7B5E',
-  muted: '#C9A87C',
+  textBody2: '#A89E9C',
+  muted: '#A89E9C',
 
   // Background & Border
   bg: '#FFFBF6',
@@ -25,24 +25,24 @@ export const Colors = {
   white: '#FFFFFF',
 
   // Aliases
-  coral: '#C97B5E',
+  coral: '#E8906A',
   coralDark: '#C87050',
   coralLight: '#FDF0E8',
   coralBorder: '#F0C8A8',
-  sage: '#5A8A6A',
+  sage: '#7F9E85',
   sageDark: '#3A6A4A',
   background: '#FFFBF6',
   tagBg: '#F4F0E8',
-  tagText: '#9A7B5E',
+  tagText: '#A89E9C',
   cardBg: '#FFFFFF',
   selectedCardBg: '#FDF0E8',
-  checkboxActive: '#C97B5E',
-  navActive: '#C97B5E',
-  navInactive: '#C9A87C',
+  checkboxActive: '#E8906A',
+  navActive: '#E8906A',
+  navInactive: '#A89E9C',
   deleteBtn: '#3A3330',
   textPrimary: '#3A3330',
-  textSecondary: '#9A7B5E',
-  textMuted: '#C9A87C',
+  textSecondary: '#A89E9C',
+  textMuted: '#A89E9C',
 };
 
 export const Typography = {

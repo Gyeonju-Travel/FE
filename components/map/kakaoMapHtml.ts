@@ -1,5 +1,16 @@
 import { MapPlace } from '@/types/map';
 
+export interface RouteMapPlace {
+  id: string;
+  lat: number;
+  lng: number;
+}
+
+export interface RoutePathPoint {
+  lat: number;
+  lng: number;
+}
+
 interface BuildKakaoMapHtmlParams {
   kakaoJsKey?: string;
   centerLat: number;
@@ -10,6 +21,13 @@ interface BuildKakaoMapHtmlParams {
   currentLocationImageUri: string;
   currentLocationLat: number;
   currentLocationLng: number;
+  routePlaces?: RouteMapPlace[];
+  /** 경로보기 지도의 출발지 핀 이미지. routePlaces[0]에 사용된다. */
+  routeStartPinUri?: string;
+  /** 경로보기 지도의 목적지 핀 이미지 (1~5번, 방문 순서대로). routePlaces[1]부터 순서대로 사용된다. */
+  routeNumberPinUris?: string[];
+  /** 인도를 따라가는 실제 보행 경로 좌표. 있으면 실선으로, 없으면 정류장 간 직선(점선)으로 대체 표시. */
+  routePath?: RoutePathPoint[];
 }
 
 export function buildKakaoMapHtml({
@@ -22,11 +40,18 @@ export function buildKakaoMapHtml({
   currentLocationImageUri,
   currentLocationLat,
   currentLocationLng,
+  routePlaces = [],
+  routeStartPinUri = '',
+  routeNumberPinUris = [],
+  routePath = [],
 }: BuildKakaoMapHtmlParams): string {
   const markersJson = JSON.stringify(
     markers.map((m) => ({ id: m.id, lat: m.latitude, lng: m.longitude, category: m.category }))
   );
   const categoryPinJson = JSON.stringify(categoryPinUri);
+  const routePlacesJson = JSON.stringify(routePlaces);
+  const routeNumberPinUrisJson = JSON.stringify(routeNumberPinUris);
+  const routePathJson = JSON.stringify(routePath);
 
   return `
 <!DOCTYPE html>
@@ -92,6 +117,8 @@ export function buildKakaoMapHtml({
     .place-marker--카페 .pulse { background: rgba(201, 123, 94, 0.5); }
     .place-marker--식당 .pulse { background: rgba(184, 118, 46, 0.5); }
     .place-marker--관광지 .pulse { background: rgba(90, 138, 106, 0.5); }
+    .route-marker { width: 40px; height: 48px; cursor: pointer; }
+    .route-marker img { width: 40px; height: 48px; }
   </style>
 </head>
 <body>
@@ -121,6 +148,10 @@ export function buildKakaoMapHtml({
         sendMessage({ type: 'mapClick' });
       });
 
+      kakao.maps.event.addListener(window.kakaoMap, 'tilesloaded', function() {
+        sendMessage({ type: 'mapReady' });
+      });
+
       var places = ${markersJson};
       var categoryPinUri = ${categoryPinJson};
 
@@ -143,6 +174,48 @@ export function buildKakaoMapHtml({
           zIndex: 3,
         });
       });
+
+      var routePlaces = ${routePlacesJson};
+      var routeStartPinUri = '${routeStartPinUri}';
+      var routeNumberPinUris = ${routeNumberPinUrisJson};
+      var routePathPoints = ${routePathJson};
+      if (routePlaces.length > 0) {
+        var hasRealPath = routePathPoints.length > 0;
+        var linePath = (hasRealPath ? routePathPoints : routePlaces).map(function(p) {
+          return new kakao.maps.LatLng(p.lat, p.lng);
+        });
+        new kakao.maps.Polyline({
+          map: window.kakaoMap,
+          path: linePath,
+          strokeWeight: 3,
+          strokeColor: '#E8906A',
+          strokeOpacity: 0.9,
+          strokeStyle: 'dash',
+        });
+
+        routePlaces.forEach(function(place, idx) {
+          var pinUri = idx === 0 ? routeStartPinUri : routeNumberPinUris[idx - 1];
+          var el = document.createElement('div');
+          el.className = 'route-marker';
+          el.innerHTML = '<img src="' + pinUri + '" />';
+          el.addEventListener('click', function() {
+            sendMessage({ type: 'markerClick', id: place.id });
+          });
+
+          new kakao.maps.CustomOverlay({
+            map: window.kakaoMap,
+            position: new kakao.maps.LatLng(place.lat, place.lng),
+            content: el,
+            xAnchor: 0.5,
+            yAnchor: 1,
+            zIndex: idx === 0 ? 6 : 4,
+          });
+        });
+
+        var bounds = new kakao.maps.LatLngBounds();
+        linePath.forEach(function(pos) { bounds.extend(pos); });
+        window.kakaoMap.setBounds(bounds, 80, 80, 80, 80);
+      }
 
       var myLocationContent =
         '<div class="my-location"><div class="pulse"></div>' +

@@ -26,16 +26,18 @@ export default function SavedPlaceCard({
       activeOpacity={0.85}
       style={[styles.card, isSelected && styles.cardSelected]}
     >
-        <TouchableOpacity
-          onPress={onCheckboxPress}
-          activeOpacity={0.7}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
-            {isSelected && <Text style={styles.checkmark}>✓</Text>}
-          </View>
-        </TouchableOpacity>
-      
+        {isEditMode && (
+          <TouchableOpacity
+            onPress={onCheckboxPress}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+              {isSelected && <Text style={styles.checkmark}>✓</Text>}
+            </View>
+          </TouchableOpacity>
+        )}
+
 
       <Image source={{ uri: place.imageUri }} style={styles.image} resizeMode="cover" />
 
@@ -156,6 +158,8 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: Radius.sm,
+    marginLeft: 6,
+    marginRight: 8,
   },
 
   info: {

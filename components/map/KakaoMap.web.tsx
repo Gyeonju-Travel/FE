@@ -1,7 +1,13 @@
 import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { MapPlace } from '@/types/map';
-import { categoryPinUri, currentLocationUri } from './kakaoMapAssets';
+import {
+  categoryPinUri,
+  currentLocationUri,
+  routeStartPinUri,
+  routeNumberPinUris,
+} from './kakaoMapAssets';
+import { RouteMapPlace, RoutePathPoint } from './kakaoMapHtml';
 
 const KAKAO_JS_KEY = process.env.EXPO_PUBLIC_KAKAO_JS_KEY;
 
@@ -19,8 +25,11 @@ interface Props {
   longitude?: number;
   level?: number;
   markers?: MapPlace[];
+  routePlaces?: RouteMapPlace[];
+  routePath?: RoutePathPoint[];
   onMarkerPress?: (id: string) => void;
   onMapPress?: () => void;
+  onMapReady?: () => void;
 }
 
 const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
@@ -29,8 +38,11 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     longitude = DEFAULT_LNG,
     level = 4,
     markers = [],
+    routePlaces = [],
+    routePath = [],
     onMarkerPress,
     onMapPress,
+    onMapReady,
   },
   ref
 ) {
@@ -52,12 +64,18 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     },
   }));
 
-  const centerLat = markers.length > 0 ? markers[0].latitude : latitude;
-  const centerLng = markers.length > 0 ? markers[0].longitude : longitude;
+  const centerLat = routePlaces.length > 0
+    ? routePlaces[0].lat
+    : markers.length > 0 ? markers[0].latitude : latitude;
+  const centerLng = routePlaces.length > 0
+    ? routePlaces[0].lng
+    : markers.length > 0 ? markers[0].longitude : longitude;
 
   const markersJson = JSON.stringify(
     markers.map((m) => ({ id: m.id, lat: m.latitude, lng: m.longitude, category: m.category }))
   );
+  const routePlacesJson = JSON.stringify(routePlaces);
+  const routePathJson = JSON.stringify(routePath);
 
   const src =
     '/kakao-map.html?' +
@@ -73,6 +91,10 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       myLoc: currentLocationUri,
       myLocLat: String(DEFAULT_LAT),
       myLocLng: String(DEFAULT_LNG),
+      routePlaces: routePlacesJson,
+      routeStartPin: routeStartPinUri,
+      routeNumberPins: JSON.stringify(routeNumberPinUris),
+      routePath: routePathJson,
     }).toString();
 
   React.useEffect(() => {
@@ -84,12 +106,14 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
           onMarkerPress?.(data.id);
         } else if (data.type === 'mapClick') {
           onMapPress?.();
+        } else if (data.type === 'mapReady') {
+          onMapReady?.();
         }
       } catch (_) {}
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [onMarkerPress, onMapPress]);
+  }, [onMarkerPress, onMapPress, onMapReady]);
 
   return (
     <View style={styles.map}>

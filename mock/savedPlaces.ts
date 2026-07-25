@@ -7,6 +7,8 @@ export const MOCK_SAVED_PLACES: SavedPlace[] = [
     category: '카페',
     tags: ['실내석', '이동장'],
     imageUri: 'https://picsum.photos/seed/cafe1/200/200',
+    latitude: 35.8331,
+    longitude: 129.2122,
   },
   {
     id: '2',
@@ -14,6 +16,8 @@ export const MOCK_SAVED_PLACES: SavedPlace[] = [
     category: '관광지',
     tags: ['야외석'],
     imageUri: 'https://picsum.photos/seed/park1/200/200',
+    latitude: 35.8323,
+    longitude: 129.2131,
   },
   {
     id: '3',
@@ -21,6 +25,8 @@ export const MOCK_SAVED_PLACES: SavedPlace[] = [
     category: '카페',
     tags: ['실내석', '이동장'],
     imageUri: 'https://picsum.photos/seed/cafe2/200/200',
+    latitude: 35.8285,
+    longitude: 129.2151,
   },
   {
     id: '4',
@@ -28,6 +34,8 @@ export const MOCK_SAVED_PLACES: SavedPlace[] = [
     category: '관광지',
     tags: ['야외석', '리드줄'],
     imageUri: 'https://picsum.photos/seed/temple1/200/200',
+    latitude: 35.7898,
+    longitude: 129.3320,
   },
   {
     id: '5',
@@ -35,6 +43,8 @@ export const MOCK_SAVED_PLACES: SavedPlace[] = [
     category: '관광지',
     tags: ['야외석'],
     imageUri: 'https://picsum.photos/seed/tower1/200/200',
+    latitude: 35.8347,
+    longitude: 129.2194,
   },
   {
     id: '6',
@@ -42,5 +52,7 @@ export const MOCK_SAVED_PLACES: SavedPlace[] = [
     category: '카페',
     tags: ['실내석'],
     imageUri: 'https://picsum.photos/seed/cafe3/200/200',
+    latitude: 35.8335,
+    longitude: 129.2118,
   },
 ];

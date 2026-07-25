@@ -10,7 +10,11 @@ import {
   Animated,
   Easing,
   PanResponder,
+  Dimensions,
+  StyleProp,
+  ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
 import { Schedule } from '@/types/schedule';
@@ -19,12 +23,21 @@ import WheelPicker, { PICKER_H } from '@/components/schedule/WheelPicker';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
 import EditScheduleView from '@/components/schedule/EditScheduleView';
-import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE } from '@/constants/badgeConfig';
+import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
+import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
+import { haversineMeters, estimateWalkMinutes, formatDistance } from '@/utils/distance';
+import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
 
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'];
 const DEPARTURE_OPTIONS = ['황리단길', '금리단길', '첨성대', '교촌마을'];
+const DEPARTURE_COORDS: Record<string, { lat: number; lng: number }> = {
+  황리단길: { lat: 35.8331, lng: 129.2122 },
+  금리단길: { lat: 35.8300, lng: 129.2100 },
+  첨성대: { lat: 35.8347, lng: 129.2194 },
+  교촌마을: { lat: 35.8285, lng: 129.2151 },
+};
 const SHEET_OFFSCREEN_Y = 500;
 const MAX_PLACES = 5;
 const YEAR_BASE = 2024;
@@ -97,10 +110,22 @@ function PlaceCard({
 // ─── ScheduleCard (캘린더 하단 일정 카드) ────────────────────────────────────────
 function ScheduleCard({
   schedule,
+  expanded,
+  onToggle,
   onEdit,
+  onViewRoute,
+  isEditMode,
+  isSelected,
+  onToggleSelect,
 }: {
   schedule: Schedule;
+  expanded: boolean;
+  onToggle: () => void;
   onEdit: () => void;
+  onViewRoute: () => void;
+  isEditMode: boolean;
+  isSelected: boolean;
+  onToggleSelect: () => void;
 }) {
   const lastPlace = schedule.places[schedule.places.length - 1];
   const title = lastPlace
@@ -108,9 +133,73 @@ function ScheduleCard({
     : schedule.departureLabel;
   const durationHours = Math.max(1, schedule.places.length - 1);
 
+  const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
+  const animProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(animProgress, {
+      toValue: expanded ? 1 : 0,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [expanded]);
+
+  const renderDetailContent = () => (
+    <View style={ss.scheduleDetail}>
+      <View style={[ss.timelineRow, ss.timelineRowGap]}>
+        <View style={ss.timelineDepartureDot}>
+          <Text style={ss.timelineDepartureDotText} numberOfLines={1}>
+            출발
+          </Text>
+        </View>
+        <View style={ss.timelineLine} />
+        <View style={ss.timelineDepartureIconBox}>
+          <Image
+            source={require('@/assets/icons/location.png')}
+            style={[ss.timelineDepartureIcon, { tintColor: Colors.textBody2 }]}
+            resizeMode="contain"
+          />
+        </View>
+        <Text style={ss.timelineText} numberOfLines={1}>
+          {schedule.departureLabel}
+        </Text>
+      </View>
+
+      {schedule.places.map((place, i) => {
+        const isLast = i === schedule.places.length - 1;
+        return (
+          <View key={place.id} style={[ss.timelineRow, !isLast && ss.timelineRowGap]}>
+            <View style={ss.timelineDot}>
+              <Text style={ss.timelineDotText}>{i + 1}</Text>
+            </View>
+            {!isLast && <View style={ss.timelineLine} />}
+            <Image source={{ uri: place.imageUri }} style={ss.timelineThumb} resizeMode="cover" />
+            <Text style={ss.timelineText} numberOfLines={1}>
+              {place.name}
+            </Text>
+          </View>
+        );
+      })}
+
+      <TouchableOpacity style={ss.routeBtn} activeOpacity={0.85} onPress={onViewRoute}>
+        <Text style={ss.routeBtnText}>경로보기</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
-    <View style={ss.scheduleCard}>
-      <View style={ss.scheduleCardRow}>
+    <View style={[ss.scheduleCard, isEditMode && isSelected && ss.scheduleCardSelected]}>
+      <TouchableOpacity
+        style={ss.scheduleCardRow}
+        activeOpacity={0.85}
+        onPress={isEditMode ? onToggleSelect : onToggle}
+      >
+        {isEditMode && (
+          <View style={[ss.scheduleCheckbox, isSelected && ss.scheduleCheckboxSelected]}>
+            {isSelected && <Text style={ss.scheduleCheckmark}>✓</Text>}
+          </View>
+        )}
         <Image
           source={{ uri: schedule.places[0]?.imageUri }}
           style={ss.scheduleCardImg}
@@ -135,34 +224,48 @@ function ScheduleCard({
             <Text style={ss.scheduleCardMetaText}>약 {durationHours}시간</Text>
           </View>
         </View>
-      </View>
+        {!isEditMode && (
+          <TouchableOpacity
+            style={ss.cardEditIconBtn}
+            activeOpacity={0.7}
+            onPress={onEdit}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Image
+              source={require('@/assets/icons/pencil.png')}
+              style={[ss.editBtnIcon, { tintColor: Colors.coral }]}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
 
-      <View style={ss.scheduleDetail}>
-        {schedule.places.map((place, i) => {
-          const isLast = i === schedule.places.length - 1;
-          return (
-            <View key={place.id} style={[ss.timelineRow, !isLast && ss.timelineRowGap]}>
-              <View style={ss.timelineDot}>
-                <Text style={ss.timelineDotText}>{i + 1}</Text>
-              </View>
-              {!isLast && <View style={ss.timelineLine} />}
-              <Image source={{ uri: place.imageUri }} style={ss.timelineThumb} resizeMode="cover" />
-              <Text style={ss.timelineText} numberOfLines={1}>
-                {place.name}
-              </Text>
-            </View>
-          );
-        })}
-
-        <TouchableOpacity style={ss.editBtn} activeOpacity={0.85} onPress={onEdit}>
-          <Image
-            source={require('@/assets/icons/pencil.png')}
-            style={[ss.editBtnIcon, { tintColor: Colors.coral }]}
-            resizeMode="contain"
-          />
-          <Text style={ss.editBtnText}>수정하기</Text>
-        </TouchableOpacity>
-      </View>
+      {!isEditMode && (
+        <>
+          <View
+            style={ss.measureClone}
+            pointerEvents="none"
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setMeasuredHeight((prev) => (prev === h ? prev : h));
+            }}
+          >
+            {renderDetailContent()}
+          </View>
+          <Animated.View
+            style={{
+              overflow: 'hidden',
+              height: animProgress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, measuredHeight ?? 0],
+              }),
+              opacity: animProgress,
+            }}
+          >
+            {renderDetailContent()}
+          </Animated.View>
+        </>
+      )}
     </View>
   );
 }
@@ -483,6 +586,311 @@ function CreateScheduleView({
   );
 }
 
+// ─── RouteView (경로보기) ──────────────────────────────────────────────────────
+const SCREEN_H = Dimensions.get('window').height;
+// 바텀시트 snap point: 화면의 20% / 40% / 85%. 시트 컨테이너는 가장 큰 높이(85%)로 고정하고
+// translateY로 아래로 밀어내 낮은 snap point를 표현한다 (완전히 닫히는 상태는 없음).
+const RV_SNAP_RATIOS = { min: 0.2, default: 0.4, max: 0.85 };
+const RV_SHEET_MAX_H = Math.round(SCREEN_H * RV_SNAP_RATIOS.max);
+const RV_SHEET_MIN_H = Math.round(SCREEN_H * RV_SNAP_RATIOS.min);
+const RV_SHEET_DEFAULT_H = Math.round(SCREEN_H * RV_SNAP_RATIOS.default);
+const RV_SNAP_TRANSLATES = [
+  0, // 85% (최대)
+  RV_SHEET_MAX_H - RV_SHEET_DEFAULT_H, // 40% (기본)
+  RV_SHEET_MAX_H - RV_SHEET_MIN_H, // 20% (최소, 완전히 닫히지 않음)
+];
+const RV_DEFAULT_TRANSLATE = RV_SNAP_TRANSLATES[1];
+const RV_MAX_TRANSLATE = RV_SNAP_TRANSLATES[2];
+const RV_DEFAULT_LAT = 35.8562;
+const RV_DEFAULT_LNG = 129.2247;
+const RV_DOT_SIZE = 28;
+const RV_LINE_GAP_TOP = 4;
+const RV_LINE_GAP_BOTTOM = 6;
+
+const DASH_UNIT = 6; // dashSegment(3) + gap(3), 촘촘한 점선
+
+function DashLine({ height }: { height: number }) {
+  const count = Math.max(1, Math.round(height / DASH_UNIT));
+  return (
+    <View style={[rv.dashLineContainer, { height }]}>
+      {Array.from({ length: count }).map((_, i) => (
+        <View key={i} style={rv.dashSegment} />
+      ))}
+    </View>
+  );
+}
+
+// 이동정보 박스까지 포함한 전체 블록(행+도보 배지) 높이를 측정해서, 다음 번호 바로 위까지
+// 점선이 이어지도록 함 (겹치지 않도록 dot 아래/다음 dot 위에 여백을 둠)
+function RouteStopBlock({
+  railStyle,
+  dot,
+  isLast,
+  walkMeters,
+  walkMinutes,
+  children,
+}: {
+  railStyle: StyleProp<ViewStyle>;
+  dot: React.ReactNode;
+  isLast: boolean;
+  walkMeters?: number;
+  walkMinutes?: number;
+  children: React.ReactNode;
+}) {
+  const [blockHeight, setBlockHeight] = useState(0);
+  const lineHeight = Math.max(0, blockHeight - RV_DOT_SIZE - RV_LINE_GAP_TOP - RV_LINE_GAP_BOTTOM);
+  return (
+    <View style={rv.stopBlock} onLayout={(e) => setBlockHeight(e.nativeEvent.layout.height)}>
+      <View style={rv.stopRow}>
+        <View style={railStyle}>{dot}</View>
+        {children}
+      </View>
+      {!isLast && (
+        <View style={rv.dashOverlay}>
+          <DashLine height={lineHeight} />
+        </View>
+      )}
+      {walkMeters != null && <WalkBadge meters={walkMeters} minutes={walkMinutes} />}
+    </View>
+  );
+}
+
+function WalkBadge({ meters, minutes }: { meters: number; minutes?: number }) {
+  return (
+    <View style={rv.walkRow}>
+      <Image
+        source={require('@/assets/icons/walking.png')}
+        style={[rv.walkIcon, { tintColor: Colors.textMuted }]}
+        resizeMode="contain"
+      />
+      <Text style={rv.walkText}>
+        도보 {minutes ?? estimateWalkMinutes(meters)}분 · {formatDistance(meters)}
+      </Text>
+    </View>
+  );
+}
+
+function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => void }) {
+  const insets = useSafeAreaInsets();
+  const mapRef = useRef<KakaoMapHandle>(null);
+  const translateY = useRef(new Animated.Value(RV_DEFAULT_TRANSLATE)).current;
+  const dragStart = useRef(RV_DEFAULT_TRANSLATE);
+  const currentValue = useRef(RV_DEFAULT_TRANSLATE);
+
+  useEffect(() => {
+    const id = translateY.addListener(({ value }) => {
+      currentValue.current = value;
+    });
+    return () => translateY.removeListener(id);
+  }, []);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, { dy }) => Math.abs(dy) > 4,
+      onPanResponderGrant: () => {
+        dragStart.current = currentValue.current;
+      },
+      onPanResponderMove: (_, { dy }) => {
+        const next = Math.min(Math.max(dragStart.current + dy, 0), RV_MAX_TRANSLATE);
+        translateY.setValue(next);
+      },
+      onPanResponderRelease: (_, { dy, vy }) => {
+        const current = Math.min(Math.max(dragStart.current + dy, 0), RV_MAX_TRANSLATE);
+        // 가까운 snap point로 이동하되, 빠르게 스와이프했으면 그 방향의 다음 snap point로 보낸다
+        const FLICK_VELOCITY = 0.6;
+        let target = RV_SNAP_TRANSLATES.reduce((closest, point) =>
+          Math.abs(point - current) < Math.abs(closest - current) ? point : closest
+        );
+        if (vy > FLICK_VELOCITY) {
+          const lower = RV_SNAP_TRANSLATES.filter((p) => p > current);
+          if (lower.length) target = Math.min(...lower);
+        } else if (vy < -FLICK_VELOCITY) {
+          const higher = RV_SNAP_TRANSLATES.filter((p) => p < current);
+          if (higher.length) target = Math.max(...higher);
+        }
+        Animated.spring(translateY, {
+          toValue: target,
+          useNativeDriver: false,
+          bounciness: 4,
+        }).start();
+      },
+    })
+  ).current;
+
+  const controlsBottom = translateY.interpolate({
+    inputRange: [0, RV_MAX_TRANSLATE],
+    outputRange: [RV_SHEET_MAX_H + 16, RV_SHEET_MIN_H + 16],
+  });
+
+  const departureCoord = DEPARTURE_COORDS[schedule.departureLabel] ?? {
+    lat: schedule.places[0]?.latitude,
+    lng: schedule.places[0]?.longitude,
+  };
+  const routePlaces = [
+    { id: 'departure', lat: departureCoord.lat, lng: departureCoord.lng },
+    ...schedule.places.map((p) => ({ id: p.id, lat: p.latitude, lng: p.longitude })),
+  ];
+  const stops: LatLng[] = routePlaces.map((p) => ({ lat: p.lat, lng: p.lng }));
+
+  // Tmap 보행자 경로안내 API로 각 구간(정류장 사이)의 실제 도보 경로/거리/시간을 가져온다.
+  // 키가 없거나 요청이 실패한 구간은 null로 남아 haversine 직선거리로 대체된다.
+  const [segments, setSegments] = useState<(PedestrianRouteResult | null)[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      stops.slice(0, -1).map((from, i) => fetchPedestrianRoute(from, stops[i + 1]))
+    ).then((results) => {
+      if (!cancelled) setSegments(results);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [schedule.id]);
+
+  const firstPlace = schedule.places[0];
+  const departureToFirstMeters = segments[0]?.distanceMeters ?? (firstPlace
+    ? haversineMeters(departureCoord.lat, departureCoord.lng, firstPlace.latitude, firstPlace.longitude)
+    : 0);
+  const departureToFirstMinutes = segments[0]?.durationMinutes;
+
+  // 구간별로 실제 경로를 이어붙인다. 두 지점이 너무 가까워 Tmap이 거절하는 등
+  // 특정 구간만 못 받아온 경우, 그 구간만 직선으로 대체하고 나머지는 실제 경로를 그대로 쓴다.
+  const routePath: LatLng[] = stops
+    .slice(0, -1)
+    .flatMap((from, i) => segments[i]?.path ?? [from, stops[i + 1]]);
+
+  return (
+    <View style={rv.safeArea}>
+      <KakaoMap ref={mapRef} routePlaces={routePlaces} routePath={routePath} />
+
+      <View style={rv.overlaySafeArea} pointerEvents="box-none">
+        <TouchableOpacity
+          style={[rv.backBtn, { top: insets.top + 12 }]}
+          activeOpacity={0.8}
+          onPress={onBack}
+        >
+          <Text style={rv.backArrow}>←</Text>
+        </TouchableOpacity>
+
+        <Animated.View style={[rv.zoomContainer, { bottom: controlsBottom }]}>
+          <TouchableOpacity style={rv.zoomBtn} activeOpacity={0.7} onPress={() => mapRef.current?.zoomIn()}>
+            <Text style={rv.zoomBtnText}>+</Text>
+          </TouchableOpacity>
+          <View style={rv.zoomDivider} />
+          <TouchableOpacity style={rv.zoomBtn} activeOpacity={0.7} onPress={() => mapRef.current?.zoomOut()}>
+            <Text style={rv.zoomBtnText}>−</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        <Animated.View style={[rv.locationBtn, { bottom: controlsBottom }]}>
+          <TouchableOpacity
+            style={rv.locationBtnTouchable}
+            activeOpacity={0.8}
+            onPress={() => mapRef.current?.moveTo(RV_DEFAULT_LAT, RV_DEFAULT_LNG)}
+          >
+            <Image
+              source={require('@/assets/icons/target.png')}
+              style={rv.locationIcon}
+              resizeMode="contain"
+            />
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+
+      <Animated.View style={[rv.sheet, { height: RV_SHEET_MAX_H, transform: [{ translateY }] }]}>
+        <View {...panResponder.panHandlers}>
+          <View style={rv.handleArea}>
+            <View style={rv.handle} />
+          </View>
+        </View>
+        <ScrollView style={rv.sheetScroll} showsVerticalScrollIndicator={false} contentContainerStyle={rv.sheetContent}>
+          <RouteStopBlock
+            railStyle={rv.departureRail}
+            isLast={schedule.places.length === 0}
+            walkMeters={schedule.places.length > 0 ? departureToFirstMeters : undefined}
+            walkMinutes={schedule.places.length > 0 ? departureToFirstMinutes : undefined}
+            dot={
+              <View style={rv.stopDepartureDot}>
+                <Text style={rv.stopDepartureDotText} numberOfLines={1}>
+                  출발
+                </Text>
+              </View>
+            }
+          >
+            <View style={rv.stopDepartureIconBox}>
+              <Image
+                source={require('@/assets/icons/location.png')}
+                style={[rv.catIcon, { tintColor: Colors.textBody2, width: 18, height: 18 }]}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={rv.stopName} numberOfLines={1}>
+              {schedule.departureLabel}
+            </Text>
+          </RouteStopBlock>
+
+          {schedule.places.map((place, i) => {
+            const isLast = i === schedule.places.length - 1;
+            const next = schedule.places[i + 1];
+            const segment = segments[i + 1];
+            const meters = segment?.distanceMeters ?? (next
+              ? haversineMeters(place.latitude, place.longitude, next.latitude, next.longitude)
+              : 0);
+            const catStyle = CATEGORY_BADGE_STYLE[place.category];
+
+            return (
+              <RouteStopBlock
+                key={place.id}
+                railStyle={rv.stopRail}
+                isLast={isLast}
+                walkMeters={!isLast ? meters : undefined}
+                walkMinutes={!isLast ? segment?.durationMinutes : undefined}
+                dot={
+                  <View style={rv.stopDot}>
+                    <Text style={rv.stopDotText}>{i + 1}</Text>
+                  </View>
+                }
+              >
+                <Image source={{ uri: place.imageUri }} style={rv.stopThumb} resizeMode="cover" />
+                <View style={rv.stopInfo}>
+                  <View style={rv.stopNameRow}>
+                    <Text style={rv.stopName} numberOfLines={1}>
+                      {place.name}
+                    </Text>
+                    {catStyle && (
+                      <Badge
+                        label={place.category}
+                        variant="filled"
+                        tone={catStyle.tone}
+                        leading={
+                          <Image
+                            source={catStyle.icon}
+                            style={[rv.catIcon, { tintColor: BADGE_TONE_COLORS[catStyle.tone].text }]}
+                            resizeMode="contain"
+                          />
+                        }
+                      />
+                    )}
+                  </View>
+                  <View style={rv.tagsRow}>
+                    {place.tags.map((tag) => {
+                      const cfg = PLACE_TAG_STYLE[tag] ?? DEFAULT_PLACE_TAG_STYLE;
+                      return (
+                        <Badge key={tag} label={tag} variant="outline" tone={cfg.tone} dot={cfg.dot} />
+                      );
+                    })}
+                  </View>
+                </View>
+              </RouteStopBlock>
+            );
+          })}
+        </ScrollView>
+      </Animated.View>
+    </View>
+  );
+}
+
 // ─── ScheduleScreen ───────────────────────────────────────────────────────────
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -503,6 +911,31 @@ export default function ScheduleScreen() {
   const [showCreate, setShowCreate] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<string>>(new Set());
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [viewingRouteSchedule, setViewingRouteSchedule] = useState<Schedule | null>(null);
+
+  const exitScheduleEditMode = () => {
+    setIsEditMode(false);
+    setSelectedScheduleIds(new Set());
+  };
+
+  const toggleScheduleSelect = (id: string) => {
+    setSelectedScheduleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  if (viewingRouteSchedule) {
+    return (
+      <RouteView schedule={viewingRouteSchedule} onBack={() => setViewingRouteSchedule(null)} />
+    );
+  }
 
   if (showCreate || editingSchedule) {
     return (
@@ -545,6 +978,19 @@ export default function ScheduleScreen() {
     (s) => s.year === selectedDate.year && s.month === selectedDate.month && s.day === selectedDate.day
   );
 
+  const handleSelectAllSchedules = () => {
+    if (selectedScheduleIds.size === daySchedules.length) {
+      setSelectedScheduleIds(new Set());
+    } else {
+      setSelectedScheduleIds(new Set(daySchedules.map((s) => s.id)));
+    }
+  };
+
+  const handleDeleteSchedules = () => {
+    setSchedules((prev) => prev.filter((s) => !selectedScheduleIds.has(s.id)));
+    exitScheduleEditMode();
+  };
+
   const cells: (number | null)[] = [
     ...Array(firstDay).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -584,7 +1030,12 @@ export default function ScheduleScreen() {
                     style={ss.dayCell}
                     activeOpacity={day ? 0.7 : 1}
                     disabled={!day}
-                    onPress={() => day && setSelectedDate({ year, month, day })}
+                    onPress={() => {
+                      if (!day) return;
+                      setSelectedDate({ year, month, day });
+                      setExpandedId(null);
+                      exitScheduleEditMode();
+                    }}
                   >
                     <View style={[ss.dayInner, selectedCell && ss.todayCircle]}>
                       <Text style={[ss.dayText, ci === 0 && ss.sundayText, selectedCell && ss.todayText]}>
@@ -612,12 +1063,39 @@ export default function ScheduleScreen() {
                 {DOW_KR[new Date(selectedDate.year, selectedDate.month, selectedDate.day).getDay()]})
               </Text>
               <Text style={ss.dayHeaderCount}> · {daySchedules.length}개 일정</Text>
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity onPress={() => (isEditMode ? exitScheduleEditMode() : setIsEditMode(true))}>
+                <Text style={ss.dayHeaderEditBtn}>{isEditMode ? '취소' : '편집'}</Text>
+              </TouchableOpacity>
             </View>
+
+            {isEditMode && (
+              <View style={ss.selectAllRow}>
+                <TouchableOpacity onPress={handleSelectAllSchedules}>
+                  <Text style={ss.selectAllText}>전체선택</Text>
+                </TouchableOpacity>
+                <Text
+                  style={[
+                    ss.selectedCountText,
+                    selectedScheduleIds.size > 0 && ss.selectedCountTextActive,
+                  ]}
+                >
+                  {selectedScheduleIds.size}개 선택됨
+                </Text>
+              </View>
+            )}
+
             {daySchedules.map((schedule) => (
               <ScheduleCard
                 key={schedule.id}
                 schedule={schedule}
+                expanded={expandedId === schedule.id}
+                onToggle={() => setExpandedId((id) => (id === schedule.id ? null : schedule.id))}
                 onEdit={() => setEditingSchedule(schedule)}
+                onViewRoute={() => setViewingRouteSchedule(schedule)}
+                isEditMode={isEditMode}
+                isSelected={selectedScheduleIds.has(schedule.id)}
+                onToggleSelect={() => toggleScheduleSelect(schedule.id)}
               />
             ))}
           </ScrollView>
@@ -634,9 +1112,30 @@ export default function ScheduleScreen() {
         )}
       </View>
 
-      <TouchableOpacity style={ss.fab} activeOpacity={0.85} onPress={() => setShowCreate(true)}>
-        <Image source={require('@/assets/icons/add.png')} style={ss.fabIcon} resizeMode="contain" />
-      </TouchableOpacity>
+      {isEditMode && daySchedules.length > 0 ? (
+        <View style={ss.deleteBar}>
+          <TouchableOpacity
+            onPress={selectedScheduleIds.size > 0 ? handleDeleteSchedules : undefined}
+            activeOpacity={selectedScheduleIds.size > 0 ? 0.85 : 1}
+            style={selectedScheduleIds.size > 0 ? ss.deleteBtnActive : ss.deleteBtn}
+          >
+            <Image
+              source={require('@/assets/icons/bin.png')}
+              style={[ss.binIcon, { tintColor: selectedScheduleIds.size > 0 ? Colors.coral : Colors.textMuted }]}
+              resizeMode="contain"
+            />
+            <Text style={selectedScheduleIds.size > 0 ? ss.deleteBtnTextActive : ss.deleteBtnText}>
+              {selectedScheduleIds.size > 0 ? `삭제하기 (${selectedScheduleIds.size})` : '삭제하기'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity style={ss.fab} activeOpacity={0.85} onPress={() => setShowCreate(true)}>
+          <Image source={require('@/assets/icons/add.png')} style={ss.fabIcon} resizeMode="contain" />
+        </TouchableOpacity>
+      )}
+
+      <Toast message={toastMsg} onHide={() => setToastMsg(null)} />
     </SafeAreaView>
   );
 }
@@ -804,7 +1303,7 @@ const ss = StyleSheet.create({
     borderColor: Colors.border,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.lg,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.xl,
     shadowColor: '#3A3330',
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -837,12 +1336,28 @@ const ss = StyleSheet.create({
   dayHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.lg,
+    paddingLeft: 6,
+    paddingRight: 6,
     gap: 6,
   },
   dayHeaderIcon: { width: 16, height: 16 },
   dayHeaderText: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
   dayHeaderCount: { fontSize: 13, color: Colors.textMuted },
+  dayHeaderEditBtn: { fontSize: 14, fontWeight: '500', color: Colors.textBody2 },
+  selectAllRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.bgWarm,
+    borderRadius: 10,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  selectAllText: { fontSize: 14, color: Colors.sage, fontWeight: '500' },
+  selectedCountText: { fontSize: 13, color: Colors.textMuted },
+  selectedCountTextActive: { color: Colors.coral, fontWeight: '600' },
   scheduleCard: {
     backgroundColor: Colors.background,
     borderWidth: 0.5,
@@ -854,24 +1369,46 @@ const ss = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 1 },
   },
+  scheduleCardSelected: { backgroundColor: Colors.primaryTint, borderColor: Colors.primaryBorder },
   scheduleCardRow: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: Spacing.md,
     gap: Spacing.md,
   },
+  scheduleCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.background,
+    flexShrink: 0,
+  },
+  scheduleCheckboxSelected: { backgroundColor: Colors.checkboxActive, borderColor: Colors.checkboxActive },
+  scheduleCheckmark: { color: Colors.white, fontSize: 12, fontWeight: '700' },
   scheduleCardImg: { width: 64, height: 64, borderRadius: Radius.sm },
   scheduleCardInfo: { flex: 1, gap: 6 },
   scheduleCardTitle: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
   scheduleCardMetaRow: { flexDirection: 'row', alignItems: 'center' },
   scheduleCardMetaIcon: { width: 13, height: 13, marginRight: 4 },
   scheduleCardMetaText: { fontSize: 12, color: Colors.textBody2 },
+  cardEditIconBtn: { padding: 4 },
   scheduleDetail: {
     borderTopWidth: 0.5,
     borderTopColor: '#EDE8E3',
     paddingHorizontal: Spacing.md,
     paddingTop: Spacing.lg,
     paddingBottom: Spacing.md,
+  },
+  measureClone: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    opacity: 0,
   },
   timelineRow: {
     flexDirection: 'row',
@@ -889,6 +1426,25 @@ const ss = StyleSheet.create({
     justifyContent: 'center',
   },
   timelineDotText: { fontSize: 13, fontWeight: '700', color: Colors.white },
+  timelineDepartureDot: {
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineDepartureDotText: { fontSize: 11, fontWeight: '700', color: Colors.white },
+  timelineDepartureIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgWarm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineDepartureIcon: { width: 18, height: 18 },
   // 원 아래에서 다음 원 위까지 이어지도록 절대 위치로 배치 (thumb 48 - dot 28 만큼 위아래 여백 + 행 간격 20)
   timelineLine: {
     position: 'absolute',
@@ -900,18 +1456,16 @@ const ss = StyleSheet.create({
   },
   timelineThumb: { width: 48, height: 48, borderRadius: Radius.sm },
   timelineText: { flex: 1, fontSize: 14, fontWeight: '600', color: Colors.textBody1 },
-  editBtn: {
-    flexDirection: 'row',
+  editBtnIcon: { width: 15, height: 15 },
+  routeBtn: {
     marginTop: 16,
     height: 46,
     borderRadius: Radius.md,
-    backgroundColor: Colors.bgWarm,
+    backgroundColor: Colors.coral,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
   },
-  editBtnIcon: { width: 15, height: 15 },
-  editBtnText: { fontSize: 14, fontWeight: '600', color: Colors.coral },
+  routeBtnText: { fontSize: 14, fontWeight: '600', color: Colors.white },
   fab: {
     position: 'absolute',
     bottom: 32,
@@ -929,4 +1483,178 @@ const ss = StyleSheet.create({
     elevation: 6,
   },
   fabIcon: { width: 24, height: 24, tintColor: Colors.white },
+  deleteBar: {
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.background,
+  },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F4F0E8',
+    borderRadius: 16,
+    height: 52,
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: '#F4F0E8',
+  },
+  deleteBtnActive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.bg,
+    borderRadius: 16,
+    height: 52,
+    gap: Spacing.sm,
+    borderWidth: 0.5,
+    borderColor: Colors.coral,
+  },
+  binIcon: { width: 18, height: 18 },
+  deleteBtnText: { fontSize: 15, fontWeight: '600', color: Colors.textMuted },
+  deleteBtnTextActive: { fontSize: 15, fontWeight: '600', color: Colors.coral },
+});
+
+// ─── 경로보기 스타일 (rv) ──────────────────────────────────────────────────────
+const rv = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: Colors.background },
+  overlaySafeArea: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  backBtn: {
+    position: 'absolute',
+    top: 12,
+    left: Spacing.xl,
+    width: 40,
+    height: 40,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#3A3330',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  backArrow: { fontSize: 20, color: Colors.textBody1 },
+  zoomContainer: {
+    position: 'absolute',
+    left: Spacing.xl,
+    width: 46,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 251, 246, 0.92)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  zoomBtn: { height: 46, alignItems: 'center', justifyContent: 'center' },
+  zoomDivider: { height: 1, backgroundColor: 'rgba(58, 51, 48, 0.12)', marginHorizontal: 8 },
+  zoomBtnText: { fontSize: 22, lineHeight: 26, color: Colors.textBody1, fontWeight: '300' },
+  locationBtn: {
+    position: 'absolute',
+    right: Spacing.xl,
+    width: 46,
+    height: 46,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  locationBtnTouchable: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+  locationIcon: { width: 22, height: 22, tintColor: '#A89E9C' },
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#3A3330',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -2 },
+    elevation: 10,
+  },
+  handleArea: { alignItems: 'center', paddingTop: 16, paddingBottom: 16 },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#D9D4CF' },
+  sheetScroll: { flex: 1 },
+  sheetContent: { paddingHorizontal: Spacing.xl, paddingBottom: 24 },
+  stopBlock: { position: 'relative' },
+  dashOverlay: { position: 'absolute', top: RV_DOT_SIZE + RV_LINE_GAP_TOP, left: 13 },
+  stopRow: { flexDirection: 'row', gap: 12 },
+  stopRail: { width: 28, alignItems: 'center' },
+  departureRail: { minWidth: 28, alignItems: 'center' },
+  stopDot: {
+    width: 28,
+    height: 28,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.coral,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stopDotText: { fontSize: 12, fontWeight: '700', color: Colors.white },
+  stopDepartureDot: {
+    minWidth: 28,
+    height: 28,
+    paddingHorizontal: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stopDepartureDotText: { fontSize: 11, fontWeight: '700', color: Colors.white },
+  stopDepartureIconBox: {
+    width: 56,
+    height: 56,
+    marginBottom: Spacing.lg,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.bgWarm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dashLineContainer: {
+    width: 2,
+    overflow: 'hidden',
+    alignItems: 'center',
+    gap: 3,
+  },
+  dashSegment: { width: 2, height: 3, borderRadius: 1, backgroundColor: Colors.primaryBorder },
+  stopThumb: { width: 56, height: 56, borderRadius: Radius.sm },
+  stopInfo: { flex: 1, gap: 6, paddingBottom: 20 },
+  stopNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  stopName: { fontSize: 15, fontWeight: '700', color: Colors.textBody1, flexShrink: 1 },
+  catIcon: { width: 13, height: 13 },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  walkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginLeft: 40,
+    marginBottom: 14,
+    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  walkIcon: { width: 13, height: 13, alignSelf: 'center' },
+  walkText: { fontSize: 12, lineHeight: 16, color: Colors.textMuted, textAlignVertical: 'center' },
 });

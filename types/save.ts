@@ -6,4 +6,6 @@ export interface SavedPlace {
   category: Exclude<PlaceCategory, '전체'>;
   tags: string[];
   imageUri: string;
+  latitude: number;
+  longitude: number;
 }

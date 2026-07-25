@@ -2,8 +2,13 @@ import React, { forwardRef, useImperativeHandle, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { MapPlace } from '@/types/map';
-import { categoryPinUri, currentLocationUri } from './kakaoMapAssets';
-import { buildKakaoMapHtml } from './kakaoMapHtml';
+import {
+  categoryPinUri,
+  currentLocationUri,
+  routeStartPinUri,
+  routeNumberPinUris,
+} from './kakaoMapAssets';
+import { buildKakaoMapHtml, RouteMapPlace, RoutePathPoint } from './kakaoMapHtml';
 
 const KAKAO_JS_KEY = process.env.EXPO_PUBLIC_KAKAO_JS_KEY;
 
@@ -21,8 +26,11 @@ interface Props {
   longitude?: number;
   level?: number;
   markers?: MapPlace[];
+  routePlaces?: RouteMapPlace[];
+  routePath?: RoutePathPoint[];
   onMarkerPress?: (id: string) => void;
   onMapPress?: () => void;
+  onMapReady?: () => void;
 }
 
 const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
@@ -31,8 +39,11 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     longitude = DEFAULT_LNG,
     level = 4,
     markers = [],
+    routePlaces = [],
+    routePath = [],
     onMarkerPress,
     onMapPress,
+    onMapReady,
   },
   ref
 ) {
@@ -56,8 +67,12 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     },
   }));
 
-  const centerLat = markers.length > 0 ? markers[0].latitude : latitude;
-  const centerLng = markers.length > 0 ? markers[0].longitude : longitude;
+  const centerLat = routePlaces.length > 0
+    ? routePlaces[0].lat
+    : markers.length > 0 ? markers[0].latitude : latitude;
+  const centerLng = routePlaces.length > 0
+    ? routePlaces[0].lng
+    : markers.length > 0 ? markers[0].longitude : longitude;
 
   const html = buildKakaoMapHtml({
     kakaoJsKey: KAKAO_JS_KEY,
@@ -69,6 +84,10 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     currentLocationImageUri: currentLocationUri,
     currentLocationLat: DEFAULT_LAT,
     currentLocationLng: DEFAULT_LNG,
+    routePlaces,
+    routeStartPinUri,
+    routeNumberPinUris,
+    routePath,
   });
 
   const handleMessage = (event: WebViewMessageEvent) => {
@@ -78,6 +97,8 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         onMarkerPress?.(data.id);
       } else if (data.type === 'mapClick') {
         onMapPress?.();
+      } else if (data.type === 'mapReady') {
+        onMapReady?.();
       }
     } catch (_) {}
   };
