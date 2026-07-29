@@ -7,9 +7,10 @@ interface Props {
   subtitle?: string;
   onHide: () => void;
   duration?: number;
+  bottom?: number;
 }
 
-export default function Toast({ message, subtitle, onHide, duration = 2000 }: Props) {
+export default function Toast({ message, subtitle, onHide, duration = 2000, bottom }: Props) {
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -25,7 +26,10 @@ export default function Toast({ message, subtitle, onHide, duration = 2000 }: Pr
   if (!message) return null;
 
   return (
-    <Animated.View style={[styles.container, { opacity }]} pointerEvents="box-none">
+    <Animated.View
+      style={[styles.container, bottom !== undefined && { bottom }, { opacity }]}
+      pointerEvents="box-none"
+    >
       <View style={styles.iconCircle}>
         <Image source={require('@/assets/icons/pets.png')} style={styles.icon} resizeMode="contain" />
       </View>
@@ -52,6 +56,8 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     bottom: 86,
+    zIndex: 999,
+    elevation: 999,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -65,7 +71,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
   },
   iconCircle: {
     width: 36,

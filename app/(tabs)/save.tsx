@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   View,
   FlatList,
@@ -7,25 +7,48 @@ import {
   SafeAreaView,
   Text,
   TouchableOpacity,
-  Image,
 } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { PlaceCategory, SavedPlace } from '@/types/save';
-import { MOCK_SAVED_PLACES } from '@/mock/savedPlaces';
+import { getBookmarks, deleteBookmarks, ApiError } from '@/utils/api';
+import { getAccessToken } from '@/utils/authStorage';
+import { toSavedPlace } from '@/utils/placeMappers';
 
 import SaveHeader from '@/components/save/SaveHeader';
 import SaveSummaryCard from '@/components/save/SaveSummaryCard';
 import CategoryChip from '@/components/save/CategoryChip';
 import SavedPlaceCard from '@/components/save/SavedPlaceCard';
 import EmptyState from '@/components/save/EmptyState';
+import Toast from '@/components/ui/Toast';
+import BinIcon from '@/assets/icons/bin.svg';
 
 const CATEGORIES: PlaceCategory[] = ['전체', '관광지', '카페', '식당'];
 
 export default function SaveScreen() {
-  const [places, setPlaces] = useState<SavedPlace[]>(MOCK_SAVED_PLACES);
+  const [places, setPlaces] = useState<SavedPlace[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<PlaceCategory>('전체');
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const fetchBookmarks = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const result = await getBookmarks(undefined, token);
+      setPlaces(result.map(toSavedPlace));
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '저장한 장소를 불러오지 못했어요.';
+      setToastMsg(message);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchBookmarks();
+    }, [fetchBookmarks])
+  );
 
   const filteredPlaces = useMemo(() => {
     if (selectedCategory === '전체') return places;
@@ -42,8 +65,15 @@ export default function SaveScreen() {
   };
 
   const handleCardPress = (id: string) => {
-    if (!isEditMode) return;
-    toggleSelect(id);
+    if (isEditMode) {
+      toggleSelect(id);
+      return;
+    }
+    router.push({ pathname: '/(tabs)/map', params: { placeId: id } });
+  };
+
+  const handleFindPlace = () => {
+    router.push('/(tabs)/map');
   };
 
   const handleSelectAll = () => {
@@ -54,10 +84,19 @@ export default function SaveScreen() {
     }
   };
 
-  const handleDelete = () => {
-    setPlaces((prev) => prev.filter((p) => !selectedIds.has(p.id)));
-    setSelectedIds(new Set());
-    setIsEditMode(false);
+  const handleDelete = async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    const ids = Array.from(selectedIds);
+    try {
+      await deleteBookmarks(ids.map(Number), token);
+      setPlaces((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+      setSelectedIds(new Set());
+      setIsEditMode(false);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '삭제에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setToastMsg(message);
+    }
   };
 
   const isEmpty = places.length === 0;
@@ -79,11 +118,6 @@ export default function SaveScreen() {
           />
         ))}
       </ScrollView>
-      {!isEditMode && (
-        <TouchableOpacity style={styles.sortRow} activeOpacity={0.7}>
-          <Text style={styles.sortText}>최신순 ∨</Text>
-        </TouchableOpacity>
-      )}
     </>
   );
 
@@ -100,7 +134,7 @@ export default function SaveScreen() {
             isEditMode={isEditMode}
             selectedCount={selectedIds.size}
             onEditPress={() => { setIsEditMode(true); setSelectedIds(new Set()); }}
-            onDeletePress={() => {}}
+            onDeletePress={selectedIds.size > 0 ? handleDelete : () => {}}
             onBackPress={() => { setIsEditMode(false); setSelectedIds(new Set()); }}
             onSelectAll={handleSelectAll}
           />
@@ -110,7 +144,7 @@ export default function SaveScreen() {
         {isEmpty ? (
           /* flex: 1로 남은 공간 모두 사용 */
           <View style={styles.emptyContent}>
-            <EmptyState onFindPlace={() => {}} />
+            <EmptyState onFindPlace={handleFindPlace} />
           </View>
         ) : (
           <FlatList
@@ -141,24 +175,22 @@ export default function SaveScreen() {
                 activeOpacity={selectedIds.size > 0 ? 0.85 : 1}
                 style={selectedIds.size > 0 ? styles.deleteBtnActive : styles.deleteBtn}
               >
-                <Image
-                  source={require('@/assets/icons/bin.png')}
-                  style={[styles.binIcon, { tintColor: selectedIds.size > 0 ? Colors.coral : Colors.textMuted }]}
-                  resizeMode="contain"
-                />
+                <BinIcon width={18} height={18} color={selectedIds.size > 0 ? Colors.coral : Colors.textMuted} />
                 <Text style={selectedIds.size > 0 ? styles.deleteBtnTextActive : styles.deleteBtnText}>
                   {selectedIds.size > 0 ? `삭제하기 (${selectedIds.size})` : '삭제하기'}
                 </Text>
               </TouchableOpacity>
             ) : (
               /* + 장소 추가하기 버튼 */
-              <TouchableOpacity style={styles.addBtn} activeOpacity={0.75}>
+              <TouchableOpacity style={styles.addBtn} activeOpacity={0.75} onPress={handleFindPlace}>
                 <Text style={styles.addBtnText}>+ 장소 추가하기</Text>
               </TouchableOpacity>
             )}
           </View>
         )}
       </View>
+
+      <Toast message={toastMsg} onHide={() => setToastMsg(null)} />
     </SafeAreaView>
   );
 }
@@ -186,14 +218,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     paddingBottom: Spacing.md,
     paddingTop: Spacing.md,
-  },
-  sortRow: {
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.sm,
-  },
-  sortText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
   },
   list: {
     paddingBottom: Spacing.sm,
@@ -245,10 +269,6 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     borderWidth: 0.5,
     borderColor: Colors.coral,
-  },
-  binIcon: {
-    width: 18,
-    height: 18,
   },
   deleteBtnText: {
     fontSize: 15,

@@ -13,6 +13,9 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import { MapPlace } from '@/types/map';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
+import MapPlaceIcon from '@/assets/icons/map-place.svg';
+import TelephoneIcon from '@/assets/icons/telephone.svg';
+import MapHoursIcon from '@/assets/icons/map-hours.svg';
 
 export const SHEET_HEIGHT = 295;
 const DISMISS_THRESHOLD = 80;
@@ -21,9 +24,10 @@ const DISMISS_VELOCITY = 0.5;
 interface Props {
   place: MapPlace | null;
   onClose: () => void;
+  onToggleLike?: (place: MapPlace, liked: boolean) => void;
 }
 
-export default function MapPlaceSheet({ place, onClose }: Props) {
+export default function MapPlaceSheet({ place, onClose, onToggleLike }: Props) {
   const animY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const [visible, setVisible] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -102,11 +106,17 @@ export default function MapPlaceSheet({ place, onClose }: Props) {
           <>
             {/* 장소 카드 */}
             <View style={styles.cardRow}>
-              <Image
-                source={{ uri: place.imageUri }}
-                style={styles.image}
-                resizeMode="cover"
-              />
+              {place.imageUri ? (
+                <Image
+                  source={{ uri: place.imageUri }}
+                  style={styles.image}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={[styles.image, styles.imageFallback]}>
+                  <MapPlaceIcon width={24} height={24} color={Colors.textMuted} />
+                </View>
+              )}
 
               <View style={styles.info}>
                 <View style={styles.nameRow}>
@@ -121,13 +131,7 @@ export default function MapPlaceSheet({ place, onClose }: Props) {
                         variant="filled"
                         tone={cat?.tone}
                         leading={
-                          cat && (
-                            <Image
-                              source={cat.icon}
-                              style={[styles.categoryIcon, { tintColor: BADGE_TONE_COLORS[cat.tone].text }]}
-                              resizeMode="contain"
-                            />
-                          )
+                          cat && <cat.Icon width={15} height={15} color={BADGE_TONE_COLORS[cat.tone].text} />
                         }
                       />
                     );
@@ -145,12 +149,8 @@ export default function MapPlaceSheet({ place, onClose }: Props) {
                         tone={cfg.tone}
                         dot={cfg.dot}
                         leading={
-                          cfg.icon ? (
-                            <Image
-                              source={cfg.icon}
-                              style={[styles.tagIcon, { tintColor: BADGE_TONE_COLORS[cfg.tone].text }]}
-                              resizeMode="contain"
-                            />
+                          cfg.Icon ? (
+                            <cfg.Icon width={15} height={15} color={BADGE_TONE_COLORS[cfg.tone].text} />
                           ) : undefined
                         }
                       />
@@ -162,7 +162,11 @@ export default function MapPlaceSheet({ place, onClose }: Props) {
               <TouchableOpacity
                 style={styles.heartBtn}
                 activeOpacity={0.7}
-                onPress={() => setLiked((v) => !v)}
+                onPress={() => {
+                  const next = !liked;
+                  setLiked(next);
+                  onToggleLike?.(place, next);
+                }}
               >
                 <Text style={[styles.heart, liked && styles.heartActive]}>
                   {liked ? '♥' : '♡'}
@@ -176,27 +180,15 @@ export default function MapPlaceSheet({ place, onClose }: Props) {
             {/* 정보 rows */}
             <View style={styles.infoRows}>
               <View style={styles.infoRow}>
-                <Image
-                  source={require('@/assets/icons/location.png')}
-                  style={[styles.infoIcon, { tintColor: Colors.textBody2 }]}
-                  resizeMode="contain"
-                />
+                <MapPlaceIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
                 <Text style={styles.infoText}>{place.address}</Text>
               </View>
               <View style={styles.infoRow}>
-                <Image
-                  source={require('@/assets/icons/telephone.png')}
-                  style={[styles.infoIcon, { tintColor: Colors.textBody2 }]}
-                  resizeMode="contain"
-                />
+                <TelephoneIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
                 <Text style={styles.infoText}>{place.phone}</Text>
               </View>
               <View style={styles.infoRow}>
-                <Image
-                  source={require('@/assets/icons/clock.png')}
-                  style={[styles.infoIcon, { tintColor: Colors.textBody2 }]}
-                  resizeMode="contain"
-                />
+                <MapHoursIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
                 <Text style={styles.infoText}>{place.hours}</Text>
               </View>
             </View>
@@ -247,6 +239,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.sm,
     flexShrink: 0,
   },
+  imageFallback: {
+    backgroundColor: '#F4F0E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   info: {
     flex: 1,
     gap: 8,
@@ -263,18 +260,10 @@ const styles = StyleSheet.create({
     color: Colors.textBody1,
     flexShrink: 1,
   },
-  categoryIcon: {
-    width: 15,
-    height: 15,
-  },
   tags: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-  },
-  tagIcon: {
-    width: 15,
-    height: 15,
   },
   heartBtn: {
     alignSelf: 'flex-start',
@@ -300,11 +289,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-  },
-  infoIcon: {
-    width: 15,
-    height: 15,
-    marginTop: 2,
   },
   infoText: {
     flex: 1,

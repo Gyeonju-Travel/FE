@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,34 @@ import {
   StyleSheet,
   SafeAreaView,
   Switch,
-  Alert,
   ActivityIndicator,
   StyleProp,
   ViewStyle,
   Modal,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Spacing } from '@/constants/theme';
-import { MOCK_DOG_PROFILES } from '@/mock/dogProfiles';
+import EditProfileIcon from '@/assets/icons/edit-profile.svg';
+import WithdrawIcon from '@/assets/icons/withdraw.svg';
+import RecordPlaceIcon from '@/assets/icons/record-place.svg';
+import RecordTimeIcon from '@/assets/icons/record-time.svg';
+import PencilIcon from '@/assets/icons/pencil.svg';
+import MenuDiaryIcon from '@/assets/icons/menu-diary.svg';
+import MenuReportIcon from '@/assets/icons/menu-report.svg';
+import MenuSettingsIcon from '@/assets/icons/menu-settings.svg';
+import ReportSearchIcon from '@/assets/icons/report-search.svg';
+import SettingAlarmIcon from '@/assets/icons/setting-alarm.svg';
+import SettingInquiryIcon from '@/assets/icons/setting-inquiry.svg';
+import SettingTermsIcon from '@/assets/icons/setting-terms.svg';
+import SettingPrivacyIcon from '@/assets/icons/setting-privacy.svg';
+import SettingLogoutIcon from '@/assets/icons/setting-logout.svg';
+import EditCameraIcon from '@/assets/icons/edit-camera.svg';
+import EditSizeIcon from '@/assets/icons/edit-size.svg';
+import StampProgressIllustration from '@/assets/mypage/stamp-progress.svg';
+import ProfileBottomLandscape from '@/assets/mypage/profile-bottom-landscape.svg';
 import { MOCK_TRAVEL_HISTORY } from '@/mock/travelHistory';
 import { MOCK_SCRAP_DATA } from '@/mock/stampAlbum';
 import { DogProfile } from '@/types/mypage';
@@ -26,10 +44,35 @@ import { ScrapData, RouteStop, TravelBadgeData } from '@/types/stampAlbum';
 import { calculateFootprintCount } from '@/utils/footprintCalculator';
 import { haversineMeters } from '@/utils/distance';
 import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
+import {
+  logout as logoutApi,
+  withdraw as withdrawApi,
+  getMyPets,
+  getPetDetail,
+  registerPet,
+  updatePetProfile,
+  ApiError,
+} from '@/utils/api';
+import { getAccessToken, clearTokens } from '@/utils/authStorage';
+import {
+  toDogSummary,
+  toDogFromRepresentative,
+  toDogDetail,
+  sizeToApi,
+  genderToApi,
+  personalityToApi,
+} from '@/utils/petMappers';
 import { useScrapCapture } from '@/hooks/useScrapCapture';
 import KakaoMap from '@/components/map/KakaoMap';
 import Badge from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
+import { showAlert } from '@/components/ui/AppAlert';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const PROFILE_TOP_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 350) / 390;
+// 이미지 상단 여백을 당겨서 첨성대 탑 전체(꼭대기~받침대)가 카드에 가리지 않고 보이게 한다.
+const PROFILE_TOP_LANDSCAPE_OFFSET = -PROFILE_TOP_LANDSCAPE_HEIGHT * 0.32;
+const PROFILE_BOTTOM_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 90) / 390;
 
 const STAMP_SLOTS = 5;
 const REPORT_CONDITIONS = ['전 구역', '야외만', '이동장 필수', '목줄 필수'];
@@ -97,10 +140,12 @@ function SettingsRow({ icon, title, subtitle, onPress, right, danger, grouped, i
 // ─── 회원탈퇴 확인/완료 모달 ───────────────────────────────────────────────────
 function WithdrawConfirmModal({
   visible,
+  loading,
   onCancel,
   onConfirm,
 }: {
   visible: boolean;
+  loading?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -118,11 +163,21 @@ function WithdrawConfirmModal({
           <Text style={wd.title}>정말 탈퇴하시겠어요?</Text>
           <Text style={wd.subtitle}>탈퇴 버튼 선택 시 계정이 삭제되며{'\n'}복구되지 않습니다.</Text>
           <View style={wd.btnRow}>
-            <TouchableOpacity style={[wd.btn, wd.btnOutline]} activeOpacity={0.85} onPress={onCancel}>
+            <TouchableOpacity
+              style={[wd.btn, wd.btnOutline]}
+              activeOpacity={0.85}
+              onPress={onCancel}
+              disabled={loading}
+            >
               <Text style={wd.btnOutlineText}>계속 이용하기</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[wd.btn, wd.btnWarn]} activeOpacity={0.85} onPress={onConfirm}>
-              <Text style={wd.btnFilledText}>탈퇴하기</Text>
+            <TouchableOpacity
+              style={[wd.btn, wd.btnWarn]}
+              activeOpacity={0.85}
+              onPress={onConfirm}
+              disabled={loading}
+            >
+              {loading ? <ActivityIndicator color={Colors.white} /> : <Text style={wd.btnFilledText}>탈퇴하기</Text>}
             </TouchableOpacity>
           </View>
         </View>
@@ -219,7 +274,43 @@ function InquiryView({ onBack }: { onBack: () => void }) {
 function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditProfile: () => void }) {
   const [pushEnabled, setPushEnabled] = useState(true);
   const [withdrawStep, setWithdrawStep] = useState<'confirm' | 'success' | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
   const [showInquiry, setShowInquiry] = useState(false);
+
+  const handleLogout = async () => {
+    const token = await getAccessToken();
+    if (token) {
+      try {
+        await logoutApi(token);
+      } catch (e) {
+        // 서버 로그아웃이 실패해도 로컬 토큰은 지우고 로그인 화면으로 보낸다.
+      }
+    }
+    await clearTokens();
+    router.replace('/login');
+  };
+
+  const handleWithdrawConfirm = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      showAlert('회원탈퇴', '로그인 정보가 없어요. 다시 로그인해주세요.');
+      setWithdrawStep(null);
+      router.replace('/login');
+      return;
+    }
+    setWithdrawing(true);
+    try {
+      await withdrawApi(token);
+      await clearTokens();
+      setWithdrawStep('success');
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '탈퇴에 실패했어요. 잠시 후 다시 시도해주세요.';
+      showAlert('회원탈퇴 실패', message);
+      setWithdrawStep(null);
+    } finally {
+      setWithdrawing(false);
+    }
+  };
 
   if (showInquiry) {
     return <InquiryView onBack={() => setShowInquiry(false)} />;
@@ -237,13 +328,7 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
         <Text style={st.groupLabel}>계정 관리</Text>
         <SettingsRow
-          icon={
-            <Image
-              source={require('@/assets/icons/tab-mypage.png')}
-              style={[st.rowIcon, { tintColor: Colors.coral }]}
-              resizeMode="contain"
-            />
-          }
+          icon={<EditProfileIcon width={20} height={20} color={Colors.coral} />}
           title="정보 수정"
           subtitle="사진·이름·종·크기·나이·성향 변경"
           onPress={onEditProfile}
@@ -251,7 +336,7 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
 
         <Text style={st.groupLabel}>알림 설정</Text>
         <SettingsRow
-          icon={<Text style={st.rowEmojiIcon}>🔔</Text>}
+          icon={<SettingAlarmIcon width={20} height={20} color={Colors.coral} />}
           title="푸시 알림 설정"
           subtitle="여행 알림·스탬프 알림"
           right={
@@ -267,15 +352,20 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
         <Text style={st.groupLabel}>서비스</Text>
         <View style={st.groupCard}>
           <SettingsRow
-            icon={<Text style={st.rowEmojiIcon}>💬</Text>}
+            icon={<SettingInquiryIcon width={20} height={20} color={Colors.coral} />}
             title="문의하기"
             subtitle="불편사항·개선 제안"
             grouped
             onPress={() => setShowInquiry(true)}
           />
-          <SettingsRow icon={<Text style={st.rowEmojiIcon}>📄</Text>} title="이용약관" subtitle="" grouped />
           <SettingsRow
-            icon={<Text style={st.rowEmojiIcon}>🛡️</Text>}
+            icon={<SettingTermsIcon width={20} height={20} color={Colors.coral} />}
+            title="이용약관"
+            subtitle=""
+            grouped
+          />
+          <SettingsRow
+            icon={<SettingPrivacyIcon width={20} height={20} color={Colors.coral} />}
             title="개인정보 처리방침"
             subtitle=""
             grouped
@@ -284,15 +374,14 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
         </View>
 
         <Text style={st.groupLabel}>로그인 관리</Text>
-        <SettingsRow icon={<Text style={st.rowEmojiIcon}>🚪</Text>} title="로그아웃" subtitle="" />
         <SettingsRow
-          icon={
-            <Image
-              source={require('@/assets/icons/bin.png')}
-              style={[st.rowIcon, { tintColor: DANGER_COLOR }]}
-              resizeMode="contain"
-            />
-          }
+          icon={<SettingLogoutIcon width={20} height={20} color={Colors.coral} />}
+          title="로그아웃"
+          subtitle=""
+          onPress={handleLogout}
+        />
+        <SettingsRow
+          icon={<WithdrawIcon width={20} height={20} color={DANGER_COLOR} />}
           title="회원탈퇴"
           subtitle="탈퇴 시 모든 데이터가 삭제돼요"
           danger
@@ -304,14 +393,15 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
 
       <WithdrawConfirmModal
         visible={withdrawStep === 'confirm'}
+        loading={withdrawing}
         onCancel={() => setWithdrawStep(null)}
-        onConfirm={() => setWithdrawStep('success')}
+        onConfirm={handleWithdrawConfirm}
       />
       <WithdrawSuccessModal
         visible={withdrawStep === 'success'}
         onConfirm={() => {
           setWithdrawStep(null);
-          onBack();
+          router.replace('/login');
         }}
       />
     </SafeAreaView>
@@ -371,11 +461,7 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
 
         <Text style={rp.label}>주소</Text>
         <View style={rp.searchInputRow}>
-          <Image
-            source={require('@/assets/icons/search.png')}
-            style={rp.searchIcon}
-            resizeMode="contain"
-          />
+          <ReportSearchIcon width={16} height={16} color={Colors.textMuted} />
           <TextInput
             style={rp.searchInputText}
             placeholder="주소 검색"
@@ -512,17 +598,9 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
                   <View style={th.cardBody}>
                     <Text style={th.cardTitle}>{item.title}</Text>
                     <View style={th.cardMetaRow}>
-                      <Image
-                        source={require('@/assets/icons/location.png')}
-                        style={[th.metaIcon, { tintColor: Colors.textBody2 }]}
-                        resizeMode="contain"
-                      />
+                      <RecordPlaceIcon width={14} height={14} color={Colors.textBody2} />
                       <Text style={th.metaText}>{item.visitedCount}곳 방문</Text>
-                      <Image
-                        source={require('@/assets/icons/clock.png')}
-                        style={[th.metaIcon, { tintColor: Colors.textBody2, marginLeft: Spacing.md }]}
-                        resizeMode="contain"
-                      />
+                      <RecordTimeIcon width={14} height={14} color={Colors.textBody2} style={{ marginLeft: Spacing.md }} />
                       <Text style={th.metaText}>{item.duration}</Text>
                     </View>
                   </View>
@@ -722,7 +800,7 @@ function StampAlbumScreen({ scrap, onBack }: { scrap: ScrapData; onBack: () => v
   const pickPhoto = async (index: number) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
+      showAlert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -845,29 +923,38 @@ function EditProfileView({
   const [sizeType, setSizeType] = useState(dog?.sizeType ?? DOG_SIZE_OPTIONS[1].value);
   const [age, setAge] = useState(dog ? String(dog.age) : '');
   const [gender, setGender] = useState<DogProfile['gender']>(dog?.gender ?? '남아');
-  const [tags, setTags] = useState<string[]>(
-    dog?.personalityTags.filter((tag) => PERSONALITY_OPTIONS.includes(tag)) ?? []
+  const [personality, setPersonality] = useState<string>(
+    dog?.personalityTags.find((tag) => PERSONALITY_OPTIONS.includes(tag)) ?? PERSONALITY_OPTIONS[0]
   );
+  const [saving, setSaving] = useState(false);
 
-  const toggleTag = (tag: string) => {
-    setTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
-  };
-
-  const handleSave = () => {
-    const id = dog?.id ?? `dog-${Date.now()}`;
-    onSave({
-      id,
-      name: name.trim() || '이름 없음',
-      photoUri: dog?.photoUri ?? `https://picsum.photos/seed/${id}/200/200`,
-      breed: breed.trim(),
-      sizeType,
-      age: Number(age) || 1,
-      gender,
-      personalityTags: tags,
-      isPrimary: dog?.isPrimary ?? false,
-      stampCount: dog?.stampCount ?? 0,
-      visitedPlacesCount: dog?.visitedPlacesCount ?? 0,
-    });
+  const handleSave = async () => {
+    if (!name.trim() || !breed.trim() || !age) {
+      showAlert('반려견 프로필', '이름, 견종, 나이를 입력해주세요.');
+      return;
+    }
+    const token = await getAccessToken();
+    if (!token) return;
+    setSaving(true);
+    try {
+      const body = {
+        name: name.trim(),
+        breed: breed.trim(),
+        size: sizeToApi(sizeType),
+        age: Number(age) || 1,
+        gender: genderToApi(gender),
+        personality: personalityToApi(personality),
+      };
+      const result = isNew
+        ? await registerPet(body, token)
+        : await updatePetProfile(Number(dog!.id), body, token);
+      onSave(toDogDetail(result, dog?.isPrimary ?? false));
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '저장에 실패했어요. 잠시 후 다시 시도해주세요.';
+      showAlert('반려견 프로필', message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -888,7 +975,7 @@ function EditProfileView({
               <View style={ep.avatar} />
             )}
             <TouchableOpacity style={ep.cameraBtn} activeOpacity={0.8}>
-              <Text style={ep.cameraBtnText}>📷</Text>
+              <EditCameraIcon width={16} height={14} color={Colors.textBody2} />
             </TouchableOpacity>
           </View>
         </View>
@@ -922,14 +1009,10 @@ function EditProfileView({
                 activeOpacity={0.8}
                 onPress={() => setSizeType(opt.value)}
               >
-                <Image
-                  source={require('@/assets/icons/puppy.png')}
-                  style={{
-                    width: opt.iconSize,
-                    height: opt.iconSize,
-                    tintColor: selected ? Colors.white : Colors.textMuted,
-                  }}
-                  resizeMode="contain"
+                <EditSizeIcon
+                  width={opt.iconSize}
+                  height={opt.iconSize}
+                  color={selected ? Colors.white : Colors.textMuted}
                 />
                 <Text style={[ep.sizeLabel, selected && ep.sizeLabelSelected]}>{opt.label}</Text>
               </TouchableOpacity>
@@ -968,13 +1051,13 @@ function EditProfileView({
         <Text style={ep.label}>성향</Text>
         <View style={ep.tagRow}>
           {PERSONALITY_OPTIONS.map((tag) => {
-            const selected = tags.includes(tag);
+            const selected = personality === tag;
             return (
               <TouchableOpacity
                 key={tag}
                 style={[ep.tagChip, selected && ep.tagChipSelected]}
                 activeOpacity={0.8}
-                onPress={() => toggleTag(tag)}
+                onPress={() => setPersonality(tag)}
               >
                 <Text style={[ep.tagChipText, selected && ep.tagChipTextSelected]}>{tag}</Text>
               </TouchableOpacity>
@@ -984,8 +1067,8 @@ function EditProfileView({
       </ScrollView>
 
       <View style={ep.bottomBar}>
-        <TouchableOpacity style={ep.saveBtn} activeOpacity={0.85} onPress={handleSave}>
-          <Text style={ep.saveBtnText}>저장하기</Text>
+        <TouchableOpacity style={ep.saveBtn} activeOpacity={0.85} onPress={handleSave} disabled={saving}>
+          {saving ? <ActivityIndicator color={Colors.white} /> : <Text style={ep.saveBtnText}>저장하기</Text>}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -1011,23 +1094,24 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={sg.scrollContent}>
         <View style={sg.progressCard}>
-          <Text style={sg.progressLabel}>진행률</Text>
-          <View style={sg.progressValueRow}>
-            <Text style={sg.progressEarned}>{EARNED_STAMP_COUNT}</Text>
-            <Text style={sg.progressTotal}>/ {TOTAL_STAMP_COUNT}</Text>
-            <Text style={sg.progressUnit}>개</Text>
-          </View>
-          <View style={sg.progressTrack}>
-            <View style={[sg.progressFill, { width: `${progressRatio * 100}%` }]} />
+          <View style={sg.progressCardRow}>
+            <View style={sg.progressCardText}>
+              <Text style={sg.progressLabel}>진행률</Text>
+              <View style={sg.progressValueRow}>
+                <Text style={sg.progressEarned}>{EARNED_STAMP_COUNT}</Text>
+                <Text style={sg.progressTotal}>/ {TOTAL_STAMP_COUNT}</Text>
+                <Text style={sg.progressUnit}>개</Text>
+              </View>
+              <View style={sg.progressTrack}>
+                <View style={[sg.progressFill, { width: `${progressRatio * 100}%` }]} />
+              </View>
+            </View>
+            <StampProgressIllustration width={110} height={108} />
           </View>
         </View>
 
         <View style={sg.sectionHeaderRow}>
           <Text style={sg.sectionTitle}>획득한 스탬프</Text>
-          <View style={sg.sortRow}>
-            <Text style={sg.sortText}>최신순</Text>
-            <Text style={sg.sortChevron}>⌄</Text>
-          </View>
         </View>
 
         <View style={sg.stampGrid}>
@@ -1039,7 +1123,7 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
 
       <View style={sg.hintCard}>
         <View style={sg.hintTitleRow}>
-          <Text style={sg.hintLeaf}>🌱</Text>
+          <Image source={require('@/assets/mypage/stamp-hint-leaf.png')} style={sg.hintLeaf} resizeMode="contain" />
           <Text style={sg.hintTitle}>다음 스탬프 힌트</Text>
         </View>
         <View style={sg.hintBodyRow}>
@@ -1053,16 +1137,73 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
 
 export default function MyPageScreen() {
   const insets = useSafeAreaInsets();
-  const [dogProfiles, setDogProfiles] = useState(MOCK_DOG_PROFILES);
-  const [selectedDogId, setSelectedDogId] = useState(
-    MOCK_DOG_PROFILES.find((d) => d.isPrimary)?.id ?? MOCK_DOG_PROFILES[0].id
-  );
+  const [dogProfiles, setDogProfiles] = useState<DogProfile[]>([]);
+  const [selectedDogId, setSelectedDogId] = useState<string | null>(null);
+  const [loadingPets, setLoadingPets] = useState(true);
+  const [petsError, setPetsError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showReportPlace, setShowReportPlace] = useState(false);
   const [showTravelHistory, setShowTravelHistory] = useState(false);
   const [showStampGallery, setShowStampGallery] = useState(false);
   const [profileEditorMode, setProfileEditorMode] = useState<'edit' | 'add' | null>(null);
   const dog = dogProfiles.find((d) => d.id === selectedDogId) ?? dogProfiles[0];
+
+  const loadPets = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      setLoadingPets(false);
+      return;
+    }
+    setLoadingPets(true);
+    try {
+      const list = await getMyPets(token);
+      const summaries: DogProfile[] = [];
+      let primaryId: string | null = null;
+      if (list.representativePet) {
+        summaries.push(toDogFromRepresentative(list.representativePet));
+        primaryId = String(list.representativePet.petId);
+      }
+      list.otherPets.forEach((p) => summaries.push(toDogSummary(p, false)));
+      setDogProfiles(summaries);
+      setSelectedDogId((prev) =>
+        prev && summaries.some((d) => d.id === prev) ? prev : primaryId ?? summaries[0]?.id ?? null
+      );
+    } catch (e) {
+      setPetsError(e instanceof ApiError ? e.message : '반려견 정보를 불러오지 못했어요.');
+    } finally {
+      setLoadingPets(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPets();
+  }, [loadPets]);
+
+  useEffect(() => {
+    if (!selectedDogId) return;
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) return;
+      try {
+        const detail = await getPetDetail(Number(selectedDogId), token);
+        setDogProfiles((prev) =>
+          prev.map((d) => (d.id === selectedDogId ? toDogDetail(detail, d.isPrimary) : d))
+        );
+      } catch (e) {
+        // 상세 조회 실패는 조용히 무시 — 목록의 기본 정보는 이미 표시돼 있음
+      }
+    })();
+  }, [selectedDogId]);
+
+  if (loadingPets && dogProfiles.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingCenter}>
+          <ActivityIndicator color={Colors.coral} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (showSettings) {
     return (
@@ -1080,7 +1221,7 @@ export default function MyPageScreen() {
     return <ReportPlaceView onBack={() => setShowReportPlace(false)} />;
   }
 
-  if (showTravelHistory) {
+  if (showTravelHistory && dog) {
     return <TravelHistoryView dog={dog} onBack={() => setShowTravelHistory(false)} />;
   }
 
@@ -1106,87 +1247,116 @@ export default function MyPageScreen() {
     );
   }
 
+  if (!dog) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingCenter}>
+          <Text style={styles.emptyDogTitle}>등록된 반려견이 없어요</Text>
+          <TouchableOpacity
+            style={styles.emptyDogBtn}
+            activeOpacity={0.85}
+            onPress={() => setProfileEditorMode('add')}
+          >
+            <Text style={styles.emptyDogBtnText}>반려견 등록하기</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
-        {/* 타이틀 */}
-        <View style={styles.headerBg}>
-          <Text style={styles.pageTitle}>마이페이지</Text>
-        </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+      >
+        {/* 타이틀 + 프로필 카드 + 함께 하는 강아지 (배경에 경주 랜드마크 일러스트) */}
+        <View style={styles.profileSection}>
+          <Image
+            source={require('@/assets/mypage/profile-top-landscape.png')}
+            style={[
+              styles.profileTopLandscape,
+              { width: SCREEN_WIDTH, height: PROFILE_TOP_LANDSCAPE_HEIGHT, top: PROFILE_TOP_LANDSCAPE_OFFSET },
+            ]}
+            resizeMode="stretch"
+          />
 
-        {/* 프로필 카드 */}
-        <View style={styles.profileCard}>
-          <View style={styles.avatarWrap}>
-            <Image source={{ uri: dog.photoUri }} style={styles.avatar} resizeMode="cover" />
-            {dog.isPrimary && (
-              <View style={styles.primaryBadge}>
-                <Text style={styles.primaryBadgeText}>대표</Text>
-              </View>
-            )}
+          {/* 타이틀 */}
+          <View style={styles.headerBg}>
+            <Text style={styles.pageTitle}>마이페이지</Text>
           </View>
 
-          <View style={styles.profileInfo}>
-            <View style={styles.nameRow}>
-              <Text style={styles.dogName}>{dog.name}</Text>
-              <Image
-                source={require('@/assets/icons/pets.png')}
-                style={[styles.pawIcon, { tintColor: Colors.coral }]}
-                resizeMode="contain"
-              />
+          {/* 프로필 카드 */}
+          <View style={styles.profileCard}>
+            <View style={styles.avatarWrap}>
+              <Image source={{ uri: dog.photoUri }} style={styles.avatar} resizeMode="cover" />
+              {dog.isPrimary && (
+                <View style={styles.primaryBadge}>
+                  <Text style={styles.primaryBadgeText}>대표</Text>
+                </View>
+              )}
             </View>
-            <View style={styles.metaRow}>
-              <Text style={styles.dogMeta}>
-                {dog.breed} · {dog.sizeType} · {dog.age}살
-              </Text>
-              <TouchableOpacity onPress={() => setProfileEditorMode('edit')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+
+            <View style={styles.profileInfo}>
+              <View style={styles.nameRow}>
+                <Text style={styles.dogName}>{dog.name}</Text>
                 <Image
-                  source={require('@/assets/icons/pencil.png')}
-                  style={[styles.editIcon, { tintColor: Colors.textMuted }]}
+                  source={require('@/assets/mypage/dog-name-paw.png')}
+                  style={styles.pawIcon}
                   resizeMode="contain"
                 />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.tagsRow}>
-              {dog.personalityTags.map((tag) => (
-                <Badge key={tag} label={tag} variant="filled" tone="neutral" style={styles.profileTagBadge} />
-              ))}
+              </View>
+              <View style={styles.metaRow}>
+                <Text style={styles.dogMeta}>
+                  {dog.breed} · {dog.sizeType} · {dog.age}살
+                </Text>
+                <TouchableOpacity onPress={() => setProfileEditorMode('edit')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <PencilIcon width={14} height={14} color={Colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.tagsRow}>
+                {dog.personalityTags.map((tag) => (
+                  <Badge key={tag} label={tag} variant="filled" tone="neutral" style={styles.profileTagBadge} />
+                ))}
+              </View>
             </View>
           </View>
-        </View>
 
-        {/* 함께 하는 강아지 */}
-        <View style={[styles.section, styles.sectionBordered]}>
-          <Text style={styles.sectionTitle}>함께 하는 강아지</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dogListRow}>
-            {dogProfiles.map((d) => {
-              const selected = d.id === selectedDogId;
-              return (
-                <TouchableOpacity
-                  key={d.id}
-                  style={styles.dogItem}
-                  activeOpacity={0.8}
-                  onPress={() => setSelectedDogId(d.id)}
-                >
-                  <Image
-                    source={{ uri: d.photoUri }}
-                    style={[styles.dogItemAvatar, selected && styles.dogItemAvatarSelected]}
-                    resizeMode="cover"
-                  />
-                  <Text style={[styles.dogItemName, selected && styles.dogItemNameSelected]}>{d.name}</Text>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={styles.dogItem}
-              activeOpacity={0.8}
-              onPress={() => setProfileEditorMode('add')}
-            >
-              <View style={styles.addDogCircle}>
-                <Text style={styles.addDogPlus}>+</Text>
-              </View>
-              <Text style={styles.dogItemName}>추가하기</Text>
-            </TouchableOpacity>
-          </ScrollView>
+          {/* 함께 하는 강아지 */}
+          <View style={[styles.section, styles.sectionBordered]}>
+            <Text style={styles.sectionTitle}>함께 하는 강아지</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dogListRow}>
+              {dogProfiles.map((d) => {
+                const selected = d.id === selectedDogId;
+                return (
+                  <TouchableOpacity
+                    key={d.id}
+                    style={styles.dogItem}
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedDogId(d.id)}
+                  >
+                    <Image
+                      source={{ uri: d.photoUri }}
+                      style={[styles.dogItemAvatar, selected && styles.dogItemAvatarSelected]}
+                      resizeMode="cover"
+                    />
+                    <Text style={[styles.dogItemName, selected && styles.dogItemNameSelected]}>{d.name}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                style={styles.dogItem}
+                activeOpacity={0.8}
+                onPress={() => setProfileEditorMode('add')}
+              >
+                <View style={styles.addDogCircle}>
+                  <Text style={styles.addDogPlus}>+</Text>
+                </View>
+                <Text style={styles.dogItemName}>추가하기</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
         </View>
 
         {/* 스탬프 */}
@@ -1207,55 +1377,59 @@ export default function MyPageScreen() {
         {/* 메뉴 */}
         <View style={styles.menuList}>
           <MenuRow
-            icon={
-              <Image
-                source={require('@/assets/icons/diary.png')}
-                style={[styles.menuIcon, { tintColor: Colors.coral }]}
-                resizeMode="contain"
-              />
-            }
+            icon={<MenuDiaryIcon width={20} height={20} color={Colors.coral} />}
             title="여행 기록"
             subtitle="함께한 여행을 돌아보세요"
-            onPress={() => setShowTravelHistory(true)}
+            onPress={() => dog && setShowTravelHistory(true)}
           />
           <MenuRow
-            icon={
-              <Image
-                source={require('@/assets/icons/location.png')}
-                style={[styles.menuIcon, { tintColor: Colors.coral }]}
-                resizeMode="contain"
-              />
-            }
+            icon={<MenuReportIcon width={20} height={20} color={Colors.coral} />}
             title="장소 제보"
             subtitle="함께 갈 수 있는 곳을 공유해요"
             onPress={() => setShowReportPlace(true)}
           />
           <MenuRow
-            icon={
-              <Image
-                source={require('@/assets/icons/option.png')}
-                style={[styles.menuIcon, { tintColor: Colors.coral }]}
-                resizeMode="contain"
-              />
-            }
+            icon={<MenuSettingsIcon width={20} height={20} color={Colors.coral} />}
             title="설정"
             subtitle="알림, 계정 및 앱 설정을 관리해요"
             onPress={() => setShowSettings(true)}
             isLast
           />
         </View>
+
+        <ProfileBottomLandscape
+          width={SCREEN_WIDTH}
+          height={PROFILE_BOTTOM_LANDSCAPE_HEIGHT}
+          style={styles.profileBottomLandscape}
+        />
       </ScrollView>
+
+      <Toast message={petsError} onHide={() => setPetsError(null)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
+  loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg, paddingHorizontal: Spacing.xl },
+  emptyDogTitle: { fontSize: 16, fontWeight: '600', color: Colors.textBody1 },
+  emptyDogBtn: {
+    backgroundColor: Colors.coral,
+    borderRadius: Radius.lg,
+    height: 48,
+    paddingHorizontal: Spacing.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyDogBtnText: { fontSize: 15, fontWeight: '600', color: Colors.white },
   headerBg: {
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.xl,
   },
   pageTitle: { fontSize: 22, fontWeight: '700', color: Colors.textBody1 },
+  profileSection: { position: 'relative' },
+  profileTopLandscape: { position: 'absolute', left: 0, right: 0, top: 0 },
+  profileBottomLandscape: { marginTop: Spacing.xl },
   profileCard: {
     flexDirection: 'row',
     marginHorizontal: Spacing.xl,
@@ -1287,7 +1461,6 @@ const styles = StyleSheet.create({
   dogName: { fontSize: 20, fontWeight: '700', color: Colors.textBody1 },
   pawIcon: { width: 16, height: 16 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  editIcon: { width: 14, height: 14 },
   dogMeta: { fontSize: 13, color: Colors.textBody2 },
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   profileTagBadge: { height: 20 },
@@ -1369,7 +1542,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  menuIcon: { width: 20, height: 20 },
   menuTextCol: { flex: 1, gap: 2 },
   menuTitle: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
   menuSubtitle: { fontSize: 12, color: Colors.textMuted },
@@ -1429,8 +1601,6 @@ const st = StyleSheet.create({
     justifyContent: 'center',
   },
   rowIconBoxDanger: { backgroundColor: DANGER_BG },
-  rowIcon: { width: 20, height: 20 },
-  rowEmojiIcon: { fontSize: 18, textAlign: 'center' },
   rowTextCol: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
   rowTitleDanger: { color: DANGER_COLOR },
@@ -1613,7 +1783,6 @@ const rp = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     height: 50,
   },
-  searchIcon: { width: 16, height: 16, tintColor: Colors.textMuted },
   searchInputText: { flex: 1, fontSize: 14, color: Colors.textBody1, padding: 0 },
   conditionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   conditionChip: {
@@ -1738,7 +1907,6 @@ const th = StyleSheet.create({
   cardBody: { padding: Spacing.lg, gap: 6 },
   cardTitle: { fontSize: 16, color: Colors.textBody1 },
   cardMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  metaIcon: { width: 14, height: 14 },
   metaText: { fontSize: 13, color: Colors.textBody2, marginRight: Spacing.xs },
 });
 
@@ -1781,7 +1949,6 @@ const ep = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  cameraBtnText: { fontSize: 15 },
   label: { fontSize: 15, fontWeight: '600', color: Colors.textBody1, marginBottom: 10, marginTop: Spacing.xl },
   input: {
     backgroundColor: Colors.background,
@@ -1884,6 +2051,13 @@ const sg = StyleSheet.create({
     padding: Spacing.lg,
     marginBottom: Spacing.xl,
   },
+  progressCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: Spacing.md,
+  },
+  progressCardText: { flex: 1 },
   progressLabel: { fontSize: 14, fontWeight: '600', color: Colors.textBody1, marginBottom: Spacing.sm },
   progressValueRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: Spacing.md },
   progressEarned: { fontSize: 30, fontWeight: '700', color: Colors.secondary, lineHeight: 34 },
@@ -1907,9 +2081,6 @@ const sg = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: Colors.textBody1 },
-  sortRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  sortText: { fontSize: 13, color: Colors.textMuted },
-  sortChevron: { fontSize: 13, color: Colors.textMuted, marginTop: -3 },
   stampGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1937,7 +2108,7 @@ const sg = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   hintTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  hintLeaf: { fontSize: 15 },
+  hintLeaf: { width: 15, height: 18 },
   hintTitle: { fontSize: 14, fontWeight: '700', color: Colors.secondary },
   hintBodyRow: {
     flexDirection: 'row',

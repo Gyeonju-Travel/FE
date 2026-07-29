@@ -1,34 +1,39 @@
-import React from 'react';
-import { Tabs } from 'expo-router';
-import { Image, Text, View, StyleSheet } from 'react-native';
+import React, { useEffect } from 'react';
+import { Tabs, router } from 'expo-router';
+import { Text, View, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/theme';
+import { getAccessToken } from '@/utils/authStorage';
+import TabHomeIcon from '@/assets/icons/tab-home.svg';
+import TabHomeActiveIcon from '@/assets/icons/tab-home-active.svg';
+import TabMapIcon from '@/assets/icons/tab-map.svg';
+import TabMapActiveIcon from '@/assets/icons/tab-map-active.svg';
+import TabSaveIcon from '@/assets/icons/tab-save.svg';
+import TabSaveActiveIcon from '@/assets/icons/tab-save-active.svg';
+import TabScheduleIcon from '@/assets/icons/tab-schedule.svg';
+import TabScheduleActiveIcon from '@/assets/icons/tab-schedule-active.svg';
+import TabMypageIcon from '@/assets/icons/tab-mypage.svg';
+import TabMypageActiveIcon from '@/assets/icons/tab-mypage-active.svg';
 
 const ICONS = {
-  home: require('@/assets/icons/tab-home.png'),
-  map: require('@/assets/icons/tab-map.png'),
-  save: require('@/assets/icons/tab-save.png'),
-  schedule: require('@/assets/icons/tab-schedule.png'),
-  mypage: require('@/assets/icons/tab-mypage.png'),
+  home: { outline: TabHomeIcon, active: TabHomeActiveIcon },
+  map: { outline: TabMapIcon, active: TabMapActiveIcon },
+  save: { outline: TabSaveIcon, active: TabSaveActiveIcon },
+  schedule: { outline: TabScheduleIcon, active: TabScheduleActiveIcon },
+  mypage: { outline: TabMypageIcon, active: TabMypageActiveIcon },
 };
 
 interface TabIconProps {
-  source: ReturnType<typeof require>;
+  icons: { outline: React.FC<{ width?: number; height?: number; color?: string }>; active: React.FC<{ width?: number; height?: number; color?: string }> };
   label: string;
   focused: boolean;
 }
 
-function TabIcon({ source, label, focused }: TabIconProps) {
+function TabIcon({ icons, label, focused }: TabIconProps) {
+  const Icon = focused ? icons.active : icons.outline;
   return (
     <View style={styles.tabItem}>
-      <Image
-        source={source}
-        style={[
-          styles.icon,
-          { tintColor: focused ? Colors.navActive : Colors.navInactive },
-        ]}
-        resizeMode="contain"
-      />
+      <Icon width={20} height={20} color={focused ? Colors.navActive : Colors.navInactive} />
       <Text style={[styles.label, focused && styles.labelActive]}>{label}</Text>
     </View>
   );
@@ -36,6 +41,12 @@ function TabIcon({ source, label, focused }: TabIconProps) {
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    getAccessToken().then((token) => {
+      if (!token) router.replace('/login');
+    });
+  }, []);
 
   return (
     <Tabs
@@ -63,7 +74,7 @@ export default function TabLayout() {
         name="index"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={ICONS.home} label="홈" focused={focused} />
+            <TabIcon icons={ICONS.home} label="홈" focused={focused} />
           ),
         }}
       />
@@ -71,7 +82,7 @@ export default function TabLayout() {
         name="map"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={ICONS.map} label="지도" focused={focused} />
+            <TabIcon icons={ICONS.map} label="지도" focused={focused} />
           ),
         }}
       />
@@ -79,7 +90,7 @@ export default function TabLayout() {
         name="save"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={ICONS.save} label="저장" focused={focused} />
+            <TabIcon icons={ICONS.save} label="저장" focused={focused} />
           ),
         }}
       />
@@ -87,7 +98,7 @@ export default function TabLayout() {
         name="schedule"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={ICONS.schedule} label="일정" focused={focused} />
+            <TabIcon icons={ICONS.schedule} label="일정" focused={focused} />
           ),
         }}
       />
@@ -95,7 +106,7 @@ export default function TabLayout() {
         name="mypage"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon source={ICONS.mypage} label="마이" focused={focused} />
+            <TabIcon icons={ICONS.mypage} label="마이" focused={focused} />
           ),
         }}
       />
@@ -109,10 +120,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 3,
     width: 56,
-  },
-  icon: {
-    width: 20,
-    height: 20,
   },
   label: {
     fontSize: 11,

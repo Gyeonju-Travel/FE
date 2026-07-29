@@ -4,6 +4,7 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
+import MapPlaceIcon from '@/assets/icons/map-place.svg';
 
 interface Props {
   place: SavedPlace;
@@ -39,7 +40,13 @@ export default function SavedPlaceCard({
         )}
 
 
-      <Image source={{ uri: place.imageUri }} style={styles.image} resizeMode="cover" />
+      {place.imageUri ? (
+        <Image source={{ uri: place.imageUri }} style={styles.image} resizeMode="cover" />
+      ) : (
+        <View style={[styles.image, styles.imageFallback]}>
+          <MapPlaceIcon width={22} height={22} color={Colors.textMuted} />
+        </View>
+      )}
 
       <View style={styles.info}>
         {(() => {
@@ -50,13 +57,7 @@ export default function SavedPlaceCard({
               variant="filled"
               tone={cat?.tone}
               leading={
-                cat && (
-                  <Image
-                    source={cat.icon}
-                    style={[styles.categoryIcon, { tintColor: BADGE_TONE_COLORS[cat.tone].text }]}
-                    resizeMode="contain"
-                  />
-                )
+                cat && <cat.Icon width={15} height={15} color={BADGE_TONE_COLORS[cat.tone].text} />
               }
             />
           );
@@ -77,12 +78,8 @@ export default function SavedPlaceCard({
                 tone={cfg.tone}
                 dot={cfg.dot}
                 leading={
-                  cfg.icon ? (
-                    <Image
-                      source={cfg.icon}
-                      style={[styles.tagIcon, { tintColor: BADGE_TONE_COLORS[cfg.tone].text }]}
-                      resizeMode="contain"
-                    />
+                  cfg.Icon ? (
+                    <cfg.Icon width={15} height={15} color={BADGE_TONE_COLORS[cfg.tone].text} />
                   ) : undefined
                 }
               />
@@ -161,15 +158,15 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     marginRight: 8,
   },
+  imageFallback: {
+    backgroundColor: '#F4F0E8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   info: {
     flex: 1,
     gap: 5,
-  },
-
-  categoryIcon: {
-    width: 15,
-    height: 15,
   },
 
   name: {
@@ -182,11 +179,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-  },
-
-  tagIcon: {
-    width: 15,
-    height: 15,
   },
 
 });

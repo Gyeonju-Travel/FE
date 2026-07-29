@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
+import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
 
 const ROW_HEIGHT = 68;
 const ROW_GAP = 12;
@@ -196,14 +197,10 @@ export default function EditScheduleView({
               )}
 
               {item.place ? (
-                <Image source={{ uri: item.place.imageUri }} style={es.thumb} resizeMode="cover" />
+                <Image source={{ uri: item.place.imageUri ?? undefined }} style={es.thumb} resizeMode="cover" />
               ) : (
                 <View style={es.departureIcon}>
-                  <Image
-                    source={require('@/assets/icons/location.png')}
-                    style={{ width: 18, height: 18, tintColor: Colors.textBody2 }}
-                    resizeMode="contain"
-                  />
+                  <ScheduleWaypointIcon width={18} height={18} color={Colors.textBody2} />
                 </View>
               )}
 

@@ -9,13 +9,23 @@ import {
   Image,
   Animated,
   Easing,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { MapPlace } from '@/types/map';
-import { MOCK_MAP_PLACES } from '@/mock/mapPlaces';
+import { searchPlaces, getPlaceDetail, saveBookmark, deleteBookmarks, PlaceCategoryCode, ApiError } from '@/utils/api';
+import { getAccessToken } from '@/utils/authStorage';
+import { toMapPlace, toMapPlaceDetail } from '@/utils/placeMappers';
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
 import MapPlaceSheet, { SHEET_HEIGHT } from '@/components/map/MapPlaceSheet';
+import Toast from '@/components/ui/Toast';
+import FilterAllIcon from '@/assets/icons/filter-all.svg';
+import FilterTourIcon from '@/assets/icons/filter-tour.svg';
+import FilterCafeIcon from '@/assets/icons/filter-cafe.svg';
+import FilterFoodIcon from '@/assets/icons/filter-food.svg';
+import MapMyLocationIcon from '@/assets/icons/map-mylocation.svg';
 
 const LOCATION_BTN_BOTTOM = 24;
 const SHEET_GAP = 12;
@@ -23,12 +33,18 @@ const LOCATION_BTN_RAISE = SHEET_HEIGHT + SHEET_GAP - LOCATION_BTN_BOTTOM;
 
 type Category = '전체' | '관광지' | '카페' | '식당';
 
-const CATEGORIES: { label: Category; icon: ReturnType<typeof require> }[] = [
-  { label: '전체', icon: require('@/assets/icons/pets.png') },
-  { label: '관광지', icon: require('@/assets/icons/tour-spot.png') },
-  { label: '카페', icon: require('@/assets/icons/hot-coffee.png') },
-  { label: '식당', icon: require('@/assets/icons/spoon-and-fork.png') },
+const CATEGORIES: { label: Category; Icon: React.FC<{ width?: number; height?: number; color?: string }> }[] = [
+  { label: '전체', Icon: FilterAllIcon },
+  { label: '관광지', Icon: FilterTourIcon },
+  { label: '카페', Icon: FilterCafeIcon },
+  { label: '식당', Icon: FilterFoodIcon },
 ];
+
+const CATEGORY_CODE: Record<Exclude<Category, '전체'>, PlaceCategoryCode> = {
+  관광지: 'ATTRACTION',
+  카페: 'CAFE',
+  식당: 'RESTAURANT',
+};
 
 // 경주 중심 좌표
 const GYEONGJU_LAT = 35.8562;
@@ -36,17 +52,145 @@ const GYEONGJU_LNG = 129.2247;
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
+  const { placeId } = useLocalSearchParams<{ placeId?: string }>();
   const mapRef = useRef<KakaoMapHandle>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category>('전체');
   const [selectedPlace, setSelectedPlace] = useState<MapPlace | null>(null);
+  const [places, setPlaces] = useState<MapPlace[]>([]);
+  const [keyword, setKeyword] = useState('');
+  const [searchResults, setSearchResults] = useState<MapPlace[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
   const locationBtnY = useRef(new Animated.Value(0)).current;
 
-  const handleMarkerPress = (id: string) => {
-    const place = MOCK_MAP_PLACES.find((p) => p.id === id) ?? null;
-    setSelectedPlace(place);
+  const fetchPlaces = async (category: Category) => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const result = await searchPlaces(
+        {
+          categories: category === '전체' ? undefined : [CATEGORY_CODE[category]],
+          size: 200,
+        },
+        token
+      );
+      setPlaces(result.places.map(toMapPlace));
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '장소 정보를 불러오지 못했어요.';
+      setToastMsg(message);
+    }
   };
 
-  const handleMapPress = () => setSelectedPlace(null);
+  useEffect(() => {
+    fetchPlaces(selectedCategory);
+  }, [selectedCategory]);
+
+  const openPlaceDetail = async (place: MapPlace) => {
+    setSelectedPlace(place);
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const detail = await getPlaceDetail(Number(place.id), token);
+      setSelectedPlace((prev) => (prev?.id === place.id ? toMapPlaceDetail(detail) : prev));
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '장소 상세 정보를 불러오지 못했어요.';
+      setToastMsg(message);
+    }
+  };
+
+  const handleMarkerPress = (id: string) => {
+    const place = places.find((p) => p.id === id) ?? searchResults.find((p) => p.id === id);
+    if (place) openPlaceDetail(place);
+  };
+
+  // 저장 탭에서 특정 장소를 눌러 넘어온 경우, 그 장소로 이동하고 상세 바텀시트를 연다.
+  useEffect(() => {
+    if (!placeId) return;
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) return;
+      try {
+        const detail = await getPlaceDetail(Number(placeId), token);
+        const place = toMapPlaceDetail(detail);
+        setSelectedPlace(place);
+        mapRef.current?.moveTo(place.latitude, place.longitude);
+      } catch (e) {
+        const message = e instanceof ApiError ? e.message : '장소 정보를 불러오지 못했어요.';
+        setToastMsg(message);
+      }
+    })();
+  }, [placeId]);
+
+  const performSearch = async (kw: string) => {
+    const token = await getAccessToken();
+    if (!token) return;
+    setSearching(true);
+    try {
+      const result = await searchPlaces({ keyword: kw, size: 30 }, token);
+      setSearchResults(result.places.map(toMapPlace));
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '검색에 실패했어요.';
+      setToastMsg(message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // 타이핑할 때마다 자동으로 검색 (300ms 디바운스)
+  useEffect(() => {
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    const timer = setTimeout(() => {
+      performSearch(trimmed);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [keyword]);
+
+  const handleSearchSubmit = () => {
+    const trimmed = keyword.trim();
+    if (trimmed) performSearch(trimmed);
+  };
+
+  const handleClearSearch = () => {
+    setKeyword('');
+    setSearchResults([]);
+    Keyboard.dismiss();
+  };
+
+  const handleSearchResultPress = (place: MapPlace) => {
+    setKeyword('');
+    setSearchResults([]);
+    Keyboard.dismiss();
+    mapRef.current?.moveTo(place.latitude, place.longitude);
+    openPlaceDetail(place);
+  };
+
+  const handleToggleLike = async (place: MapPlace, liked: boolean) => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      if (liked) {
+        await saveBookmark(Number(place.id), token);
+        setToastMsg('저장 목록에 추가했어요.');
+      } else {
+        await deleteBookmarks([Number(place.id)], token);
+        setToastMsg('저장을 취소했어요.');
+      }
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '요청에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setToastMsg(message);
+    }
+  };
+
+  const handleMapPress = () => {
+    setSelectedPlace(null);
+    setSearchResults([]);
+    Keyboard.dismiss();
+  };
 
   // 내 위치 버튼을 바텀시트가 뜨고 닫히는 것과 같은 타이밍으로 함께 움직임
   useEffect(() => {
@@ -63,7 +207,7 @@ export default function MapScreen() {
       {/* 카카오맵 */}
       <KakaoMap
         ref={mapRef}
-        markers={MOCK_MAP_PLACES}
+        markers={places}
         onMarkerPress={handleMarkerPress}
         onMapPress={handleMapPress}
       />
@@ -81,39 +225,71 @@ export default function MapScreen() {
             placeholder="어디로 떠날까요?"
             placeholderTextColor={Colors.textMuted}
             returnKeyType="search"
+            value={keyword}
+            onChangeText={setKeyword}
+            onSubmitEditing={handleSearchSubmit}
           />
+          {keyword.length > 0 && (
+            <TouchableOpacity onPress={handleClearSearch} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.searchClear}>×</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-        >
-          {CATEGORIES.map(({ label, icon }) => {
-            const active = selectedCategory === label;
-            return (
-              <TouchableOpacity
-                key={label}
-                onPress={() => setSelectedCategory(label)}
-                style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
-                activeOpacity={0.8}
-              >
-                <Image
-                  source={icon}
-                  style={[styles.chipIcon, { tintColor: active ? Colors.white : Colors.navActive }]}
-                  resizeMode="contain"
-                />
-                <Text style={[styles.chipLabel, active ? styles.chipLabelActive : styles.chipLabelInactive]}>
-                  {label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+        {searchResults.length > 0 ? (
+          <View style={styles.searchResultsCard}>
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.searchResultsScroll}>
+              {searchResults.map((place) => (
+                <TouchableOpacity
+                  key={place.id}
+                  style={styles.searchResultItem}
+                  activeOpacity={0.7}
+                  onPress={() => handleSearchResultPress(place)}
+                >
+                  <Text style={styles.searchResultName} numberOfLines={1}>
+                    {place.name}
+                  </Text>
+                  <Text style={styles.searchResultAddress} numberOfLines={1}>
+                    {place.address}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : searching ? (
+          <View style={styles.searchResultsCard}>
+            <Text style={styles.searchEmptyText}>검색 중...</Text>
+          </View>
+        ) : keyword.length > 0 ? null : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chips}
+          >
+            {CATEGORIES.map(({ label, Icon }) => {
+              const active = selectedCategory === label;
+              return (
+                <TouchableOpacity
+                  key={label}
+                  onPress={() => setSelectedCategory(label)}
+                  style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
+                  activeOpacity={0.8}
+                >
+                  <Icon width={14} height={14} color={active ? Colors.white : Colors.navActive} />
+                  <Text style={[styles.chipLabel, active ? styles.chipLabelActive : styles.chipLabelInactive]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
       </View>
 
       {/* 바텀시트 */}
-      <MapPlaceSheet place={selectedPlace} onClose={handleMapPress} />
+      <MapPlaceSheet place={selectedPlace} onClose={handleMapPress} onToggleLike={handleToggleLike} />
+
+      <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={20} />
 
       {/* 줌 버튼 — 바텀시트가 닫혀있을 때만 표시 */}
       {!selectedPlace && (
@@ -149,11 +325,7 @@ export default function MapScreen() {
           activeOpacity={0.8}
           onPress={() => mapRef.current?.moveTo(GYEONGJU_LAT, GYEONGJU_LNG)}
         >
-          <Image
-            source={require('@/assets/icons/target.png')}
-            style={styles.locationIcon}
-            resizeMode="contain"
-          />
+          <MapMyLocationIcon width={22} height={22} color="#A89E9C" />
         </TouchableOpacity>
       </Animated.View>
     </View>
@@ -197,6 +369,46 @@ const styles = StyleSheet.create({
     color: Colors.textBody1,
     padding: 0,
   },
+  searchClear: {
+    fontSize: 18,
+    color: Colors.textMuted,
+    paddingHorizontal: 2,
+  },
+  searchResultsCard: {
+    backgroundColor: Colors.background,
+    borderRadius: Radius.lg,
+    paddingVertical: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  searchResultsScroll: {
+    maxHeight: 280,
+  },
+  searchResultItem: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    gap: 3,
+  },
+  searchResultName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textBody1,
+  },
+  searchResultAddress: {
+    fontSize: 12,
+    color: Colors.textBody2,
+  },
+  searchEmptyText: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    paddingVertical: Spacing.lg,
+    textAlign: 'center',
+  },
   chips: {
     gap: 8,
     paddingRight: Spacing.xl,
@@ -219,10 +431,6 @@ const styles = StyleSheet.create({
   },
   chipInactive: {
     backgroundColor: Colors.background,
-  },
-  chipIcon: {
-    width: 14,
-    height: 14,
   },
   chipLabel: {
     fontSize: 13,
@@ -289,10 +497,5 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  locationIcon: {
-    width: 22,
-    height: 22,
-    tintColor: '#A89E9C',
   },
 });

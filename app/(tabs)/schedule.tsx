@@ -18,7 +18,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
 import { Schedule } from '@/types/schedule';
-import { MOCK_SAVED_PLACES } from '@/mock/savedPlaces';
+import { getBookmarks, ApiError } from '@/utils/api';
+import { getAccessToken } from '@/utils/authStorage';
+import { toSavedPlace } from '@/utils/placeMappers';
 import WheelPicker, { PICKER_H } from '@/components/schedule/WheelPicker';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
@@ -27,6 +29,16 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
 import { haversineMeters, estimateWalkMinutes, formatDistance } from '@/utils/distance';
 import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
+import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
+import ScheduleTimeIcon from '@/assets/icons/schedule-time.svg';
+import ScheduleEditIcon from '@/assets/icons/schedule-edit.svg';
+import ScheduleDepartureIcon from '@/assets/icons/schedule-departure.svg';
+import ScheduleDateIcon from '@/assets/icons/schedule-date.svg';
+import WalkingIcon from '@/assets/icons/walking.svg';
+import MapMyLocationIcon from '@/assets/icons/map-mylocation.svg';
+import TabScheduleIcon from '@/assets/icons/tab-schedule.svg';
+import BinIcon from '@/assets/icons/bin.svg';
+import ScheduleEmptyIllustration from '@/assets/schedule/empty-illustration.svg';
 
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
@@ -74,7 +86,7 @@ function PlaceCard({
       <View style={[cs.checkbox, selected && cs.checkboxFilled, disabled && cs.checkboxDisabled]}>
         {selected && <Text style={cs.checkmark}>✓</Text>}
       </View>
-      <Image source={{ uri: place.imageUri }} style={cs.placeImg} resizeMode="cover" />
+      <Image source={{ uri: place.imageUri ?? undefined }} style={cs.placeImg} resizeMode="cover" />
       <View style={cs.placeInfo}>
         <Text style={cs.placeName} numberOfLines={1}>
           {place.name}
@@ -90,12 +102,8 @@ function PlaceCard({
                 tone={cfg.tone}
                 dot={cfg.dot}
                 leading={
-                  cfg.icon ? (
-                    <Image
-                      source={cfg.icon}
-                      style={[cs.tagIcon, { tintColor: BADGE_TONE_COLORS[cfg.tone].text }]}
-                      resizeMode="contain"
-                    />
+                  cfg.Icon ? (
+                    <cfg.Icon width={15} height={15} color={BADGE_TONE_COLORS[cfg.tone].text} />
                   ) : undefined
                 }
               />
@@ -155,11 +163,7 @@ function ScheduleCard({
         </View>
         <View style={ss.timelineLine} />
         <View style={ss.timelineDepartureIconBox}>
-          <Image
-            source={require('@/assets/icons/location.png')}
-            style={[ss.timelineDepartureIcon, { tintColor: Colors.textBody2 }]}
-            resizeMode="contain"
-          />
+          <ScheduleWaypointIcon width={18} height={18} color={Colors.textBody2} />
         </View>
         <Text style={ss.timelineText} numberOfLines={1}>
           {schedule.departureLabel}
@@ -174,7 +178,7 @@ function ScheduleCard({
               <Text style={ss.timelineDotText}>{i + 1}</Text>
             </View>
             {!isLast && <View style={ss.timelineLine} />}
-            <Image source={{ uri: place.imageUri }} style={ss.timelineThumb} resizeMode="cover" />
+            <Image source={{ uri: place.imageUri ?? undefined }} style={ss.timelineThumb} resizeMode="cover" />
             <Text style={ss.timelineText} numberOfLines={1}>
               {place.name}
             </Text>
@@ -201,7 +205,7 @@ function ScheduleCard({
           </View>
         )}
         <Image
-          source={{ uri: schedule.places[0]?.imageUri }}
+          source={{ uri: schedule.places[0]?.imageUri ?? undefined }}
           style={ss.scheduleCardImg}
           resizeMode="cover"
         />
@@ -210,16 +214,13 @@ function ScheduleCard({
             {title}
           </Text>
           <View style={ss.scheduleCardMetaRow}>
-            <Image
-              source={require('@/assets/icons/location.png')}
-              style={[ss.scheduleCardMetaIcon, { tintColor: Colors.textBody2 }]}
-              resizeMode="contain"
-            />
+            <ScheduleWaypointIcon width={13} height={13} color={Colors.textBody2} style={ss.scheduleCardMetaIcon} />
             <Text style={ss.scheduleCardMetaText}>{schedule.places.length}곳 경유</Text>
-            <Image
-              source={require('@/assets/icons/clock.png')}
-              style={[ss.scheduleCardMetaIcon, { tintColor: Colors.textBody2, marginLeft: 10 }]}
-              resizeMode="contain"
+            <ScheduleTimeIcon
+              width={13}
+              height={13}
+              color={Colors.textBody2}
+              style={[ss.scheduleCardMetaIcon, { marginLeft: 10 }]}
             />
             <Text style={ss.scheduleCardMetaText}>약 {durationHours}시간</Text>
           </View>
@@ -231,11 +232,7 @@ function ScheduleCard({
             onPress={onEdit}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Image
-              source={require('@/assets/icons/pencil.png')}
-              style={[ss.editBtnIcon, { tintColor: Colors.coral }]}
-              resizeMode="contain"
-            />
+            <ScheduleEditIcon width={15} height={15} color={Colors.coral} />
           </TouchableOpacity>
         )}
       </TouchableOpacity>
@@ -300,6 +297,27 @@ function CreateScheduleView({
   );
   const [pickerType, setPickerType] = useState<'location' | 'date' | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
+  const [loadingPlaces, setLoadingPlaces] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) {
+        setLoadingPlaces(false);
+        return;
+      }
+      try {
+        const result = await getBookmarks(undefined, token);
+        setSavedPlaces(result.map(toSavedPlace));
+      } catch (e) {
+        const message = e instanceof ApiError ? e.message : '저장한 장소를 불러오지 못했어요.';
+        setToastMsg(message);
+      } finally {
+        setLoadingPlaces(false);
+      }
+    })();
+  }, []);
 
   // 바텀시트 애니메이션 (지도 화면의 장소 시트와 동일한 방식)
   const sheetY = useRef(new Animated.Value(SHEET_OFFSCREEN_Y)).current;
@@ -378,7 +396,7 @@ function CreateScheduleView({
     setPickerType(null);
   };
 
-  const maxSelectable = Math.min(MAX_PLACES, MOCK_SAVED_PLACES.length);
+  const maxSelectable = Math.min(MAX_PLACES, savedPlaces.length);
 
   const togglePlace = (id: string) => {
     setSelectedIds((prev) => {
@@ -399,10 +417,10 @@ function CreateScheduleView({
       setSelectedIds(new Set());
       return;
     }
-    if (MOCK_SAVED_PLACES.length > MAX_PLACES) {
+    if (savedPlaces.length > MAX_PLACES) {
       setToastMsg(`장소는 최대 ${MAX_PLACES}개까지만 선택할 수 있어요.`);
     }
-    setSelectedIds(new Set(MOCK_SAVED_PLACES.slice(0, maxSelectable).map((p) => p.id)));
+    setSelectedIds(new Set(savedPlaces.slice(0, maxSelectable).map((p) => p.id)));
   };
 
   const [showEdit, setShowEdit] = useState(false);
@@ -429,7 +447,7 @@ function CreateScheduleView({
     return (
       <EditScheduleView
         departureLabel={DEPARTURE_OPTIONS[departureIdx]}
-        places={MOCK_SAVED_PLACES.filter((p) => selectedIds.has(p.id))}
+        places={savedPlaces.filter((p) => selectedIds.has(p.id))}
         isEditing={isEditing}
         onBack={() => setShowEdit(false)}
         onSaved={(finalPlaces) => {
@@ -465,11 +483,7 @@ function CreateScheduleView({
         {/* 출발지 설정 */}
         <Text style={cs.sectionLabel}>출발지 설정</Text>
         <TouchableOpacity style={cs.selectorRow} onPress={openLocation} activeOpacity={0.8}>
-          <Image
-            source={require('@/assets/icons/location.png')}
-            style={[cs.rowIcon, { tintColor: Colors.textBody2 }]}
-            resizeMode="contain"
-          />
+          <ScheduleDepartureIcon width={16} height={16} color={Colors.textBody2} />
           {departureIdx !== null ? (
             <Text style={cs.selectorText}>{DEPARTURE_OPTIONS[departureIdx]}</Text>
           ) : (
@@ -481,11 +495,7 @@ function CreateScheduleView({
         {/* 날짜 선택 */}
         <Text style={[cs.sectionLabel, { marginTop: Spacing.xl }]}>날짜 선택</Text>
         <TouchableOpacity style={cs.selectorRow} onPress={openDate} activeOpacity={0.8}>
-          <Image
-            source={require('@/assets/icons/clock.png')}
-            style={[cs.rowIcon, { tintColor: Colors.textBody2 }]}
-            resizeMode="contain"
-          />
+          <ScheduleDateIcon width={16} height={16} color={Colors.textBody2} />
           {dateText ? (
             <Text style={cs.selectorText}>{dateText}</Text>
           ) : (
@@ -501,7 +511,12 @@ function CreateScheduleView({
             <Text style={cs.selectAll}>전체 선택</Text>
           </TouchableOpacity>
         </View>
-        {MOCK_SAVED_PLACES.map((place) => {
+        {loadingPlaces ? (
+          <Text style={cs.selectorPlaceholder}>저장한 장소를 불러오는 중...</Text>
+        ) : savedPlaces.length === 0 ? (
+          <Text style={cs.selectorPlaceholder}>저장한 장소가 없어요. 지도에서 장소를 저장해보세요.</Text>
+        ) : null}
+        {savedPlaces.map((place) => {
           const selected = selectedIds.has(place.id);
           return (
             <PlaceCard
@@ -658,11 +673,7 @@ function RouteStopBlock({
 function WalkBadge({ meters, minutes }: { meters: number; minutes?: number }) {
   return (
     <View style={rv.walkRow}>
-      <Image
-        source={require('@/assets/icons/walking.png')}
-        style={[rv.walkIcon, { tintColor: Colors.textMuted }]}
-        resizeMode="contain"
-      />
+      <WalkingIcon width={13} height={13} color={Colors.textMuted} style={rv.walkIcon} />
       <Text style={rv.walkText}>
         도보 {minutes ?? estimateWalkMinutes(meters)}분 · {formatDistance(meters)}
       </Text>
@@ -789,11 +800,7 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
             activeOpacity={0.8}
             onPress={() => mapRef.current?.moveTo(RV_DEFAULT_LAT, RV_DEFAULT_LNG)}
           >
-            <Image
-              source={require('@/assets/icons/target.png')}
-              style={rv.locationIcon}
-              resizeMode="contain"
-            />
+            <MapMyLocationIcon width={22} height={22} color="#A89E9C" />
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -819,11 +826,7 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
             }
           >
             <View style={rv.stopDepartureIconBox}>
-              <Image
-                source={require('@/assets/icons/location.png')}
-                style={[rv.catIcon, { tintColor: Colors.textBody2, width: 18, height: 18 }]}
-                resizeMode="contain"
-              />
+              <ScheduleWaypointIcon width={18} height={18} color={Colors.textBody2} />
             </View>
             <Text style={rv.stopName} numberOfLines={1}>
               {schedule.departureLabel}
@@ -852,7 +855,7 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
                   </View>
                 }
               >
-                <Image source={{ uri: place.imageUri }} style={rv.stopThumb} resizeMode="cover" />
+                <Image source={{ uri: place.imageUri ?? undefined }} style={rv.stopThumb} resizeMode="cover" />
                 <View style={rv.stopInfo}>
                   <View style={rv.stopNameRow}>
                     <Text style={rv.stopName} numberOfLines={1}>
@@ -864,11 +867,7 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
                         variant="filled"
                         tone={catStyle.tone}
                         leading={
-                          <Image
-                            source={catStyle.icon}
-                            style={[rv.catIcon, { tintColor: BADGE_TONE_COLORS[catStyle.tone].text }]}
-                            resizeMode="contain"
-                          />
+                          <catStyle.Icon width={13} height={13} color={BADGE_TONE_COLORS[catStyle.tone].text} />
                         }
                       />
                     )}
@@ -1053,11 +1052,7 @@ export default function ScheduleScreen() {
         {daySchedules.length > 0 ? (
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
             <View style={ss.dayHeaderRow}>
-              <Image
-                source={require('@/assets/icons/tab-schedule.png')}
-                style={[ss.dayHeaderIcon, { tintColor: Colors.textBody1 }]}
-                resizeMode="contain"
-              />
+              <TabScheduleIcon width={16} height={16} color={Colors.textBody1} />
               <Text style={ss.dayHeaderText}>
                 {selectedDate.month + 1}월 {selectedDate.day}일 (
                 {DOW_KR[new Date(selectedDate.year, selectedDate.month, selectedDate.day).getDay()]})
@@ -1101,13 +1096,9 @@ export default function ScheduleScreen() {
           </ScrollView>
         ) : (
           <View style={ss.emptyCard}>
-            <Image
-              source={require('@/assets/icons/tab-schedule.png')}
-              style={ss.emptyIcon}
-              resizeMode="contain"
-            />
+            <ScheduleEmptyIllustration width={280} height={141} style={{ marginBottom: Spacing.md }} />
             <Text style={ss.emptyTitle}>저장된 일정이 없어요</Text>
-            <Text style={ss.emptySubtitle}>새 일정 탭에서 일정을 만들어 보세요</Text>
+            <Text style={ss.emptySubtitle}>하단 + 버튼을 누른 후 새 일정을 만들어 보세요</Text>
           </View>
         )}
       </View>
@@ -1119,11 +1110,7 @@ export default function ScheduleScreen() {
             activeOpacity={selectedScheduleIds.size > 0 ? 0.85 : 1}
             style={selectedScheduleIds.size > 0 ? ss.deleteBtnActive : ss.deleteBtn}
           >
-            <Image
-              source={require('@/assets/icons/bin.png')}
-              style={[ss.binIcon, { tintColor: selectedScheduleIds.size > 0 ? Colors.coral : Colors.textMuted }]}
-              resizeMode="contain"
-            />
+            <BinIcon width={18} height={18} color={selectedScheduleIds.size > 0 ? Colors.coral : Colors.textMuted} />
             <Text style={selectedScheduleIds.size > 0 ? ss.deleteBtnTextActive : ss.deleteBtnText}>
               {selectedScheduleIds.size > 0 ? `삭제하기 (${selectedScheduleIds.size})` : '삭제하기'}
             </Text>
@@ -1164,7 +1151,6 @@ const cs = StyleSheet.create({
     height: 52,
     gap: 10,
   },
-  rowIcon: { width: 16, height: 16 },
   selectorText: { flex: 1, fontSize: 14, color: Colors.textBody1 },
   selectorPlaceholder: { flex: 1, fontSize: 14, color: Colors.textMuted },
   chevron: { fontSize: 18, color: Colors.textMuted, lineHeight: 22 },
@@ -1329,9 +1315,8 @@ const ss = StyleSheet.create({
   todayText: { color: Colors.white, fontWeight: '600' },
   scheduleDot: { width: 4, height: 4, borderRadius: 2, marginTop: 3, backgroundColor: 'transparent' },
   scheduleDotVisible: { backgroundColor: Colors.coral },
-  emptyCard: { backgroundColor: Colors.bgWarm, borderRadius: Radius.lg, paddingVertical: 40, alignItems: 'center', gap: 6 },
-  emptyIcon: { width: 32, height: 32, marginBottom: 4, tintColor: Colors.coral },
-  emptyTitle: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
+  emptyCard: { paddingTop: Spacing.xxl, paddingVertical: 40, alignItems: 'center', gap: 6 },
+  emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary },
   emptySubtitle: { fontSize: 13, color: Colors.textMuted },
   dayHeaderRow: {
     flexDirection: 'row',
@@ -1341,7 +1326,6 @@ const ss = StyleSheet.create({
     paddingRight: 6,
     gap: 6,
   },
-  dayHeaderIcon: { width: 16, height: 16 },
   dayHeaderText: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
   dayHeaderCount: { fontSize: 13, color: Colors.textMuted },
   dayHeaderEditBtn: { fontSize: 14, fontWeight: '500', color: Colors.textBody2 },
@@ -1510,7 +1494,6 @@ const ss = StyleSheet.create({
     borderWidth: 0.5,
     borderColor: Colors.coral,
   },
-  binIcon: { width: 18, height: 18 },
   deleteBtnText: { fontSize: 15, fontWeight: '600', color: Colors.textMuted },
   deleteBtnTextActive: { fontSize: 15, fontWeight: '600', color: Colors.coral },
 });
@@ -1574,7 +1557,6 @@ const rv = StyleSheet.create({
     elevation: 4,
   },
   locationBtnTouchable: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-  locationIcon: { width: 22, height: 22, tintColor: '#A89E9C' },
   sheet: {
     position: 'absolute',
     left: 0,

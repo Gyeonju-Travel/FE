@@ -1,9 +1,19 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, LayoutChangeEvent, ActivityIndicator } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import SizeSmallIcon from '@/assets/icons/size-small.svg';
+import SizeMediumIcon from '@/assets/icons/size-medium.svg';
+import SizeLargeIcon from '@/assets/icons/size-large.svg';
+import OnboardingCameraIcon from '@/assets/login/onboarding-camera.svg';
+import OnboardingCafeIcon from '@/assets/login/onboarding-cafe.svg';
+import OnboardingNatureIcon from '@/assets/login/onboarding-nature.svg';
+import { registerPet, ApiError } from '@/utils/api';
+import { getAccessToken } from '@/utils/authStorage';
+import { sizeToApi } from '@/utils/petMappers';
+import { showAlert } from '@/components/ui/AppAlert';
 
-// NOTE: 아직 앱 진입 흐름(예: 첫 실행 시 이동, 로그인 후 이동)과 연결되지 않은 상태.
-// 실제로 온보딩을 붙일 때 여기(handleNext의 3단계 완료 분기)에서 다음 화면으로 이동시키면 된다.
+type IconComponent = React.FC<{ width?: number; height?: number; color?: string }>;
 
 type Step = 1 | 2 | 3;
 
@@ -14,23 +24,23 @@ const STEP_TITLES: [string, string][] = [
 ];
 
 const TRAVEL_PREF_OPTIONS = [
-  { id: 'photo-spot', label: '사진 찍기 좋은 관광지' },
-  { id: 'cafe', label: '분위기 좋은 카페' },
-  { id: 'nature-walk', label: '산책하기 좋은 자연 경관' },
+  { id: 'photo-spot', label: '사진 찍기 좋은 관광지', Icon: OnboardingCameraIcon },
+  { id: 'cafe', label: '분위기 좋은 카페', Icon: OnboardingCafeIcon },
+  { id: 'nature-walk', label: '산책하기 좋은 자연 경관', Icon: OnboardingNatureIcon },
 ];
 
 const DOG_SIZE_OPTIONS = [
-  { value: '소형견', iconSize: 26 },
-  { value: '중형견', iconSize: 38 },
-  { value: '대형견', iconSize: 50 },
+  { value: '소형견', iconSize: 44, Icon: SizeSmallIcon },
+  { value: '중형견', iconSize: 62, Icon: SizeMediumIcon },
+  { value: '대형견', iconSize: 80, Icon: SizeLargeIcon },
 ];
 
-const WALK_STYLE_OPTIONS = [
-  { id: 'short', label: '짧은 산책을 선호해요' },
-  { id: 'long', label: '긴 산책도 거뜬해요' },
+const WALK_STYLE_OPTIONS: { id: string; label: string; personality: 'RELAXED' | 'ACTIVE' }[] = [
+  { id: 'short', label: '짧은 산책을 선호해요', personality: 'RELAXED' },
+  { id: 'long', label: '긴 산책도 거뜬해요', personality: 'ACTIVE' },
 ];
 
-function StepIndicator({ currentStep }: { currentStep: Step }) {
+function StepIndicator({ currentStep, onStepPress }: { currentStep: Step; onStepPress: (step: Step) => void }) {
   return (
     <View style={ob.stepRow}>
       {([1, 2, 3] as Step[]).map((step, idx) => {
@@ -39,13 +49,18 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
         return (
           <React.Fragment key={step}>
             {idx > 0 && <View style={ob.stepLine} />}
-            <View style={[ob.stepDot, isCurrent && ob.stepDotCurrent, isDone && ob.stepDotDone]}>
+            <TouchableOpacity
+              activeOpacity={0.75}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              onPress={() => onStepPress(step)}
+              style={[ob.stepDot, isCurrent && ob.stepDotCurrent, isDone && ob.stepDotDone]}
+            >
               {isDone ? (
                 <Text style={ob.stepDotCheck}>✓</Text>
               ) : (
                 <Text style={[ob.stepDotText, isCurrent && ob.stepDotTextCurrent]}>{step}</Text>
               )}
-            </View>
+            </TouchableOpacity>
           </React.Fragment>
         );
       })}
@@ -55,10 +70,12 @@ function StepIndicator({ currentStep }: { currentStep: Step }) {
 
 function OptionListItem({
   label,
+  Icon,
   selected,
   onPress,
 }: {
   label: string;
+  Icon?: IconComponent;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -68,7 +85,9 @@ function OptionListItem({
       activeOpacity={0.8}
       onPress={onPress}
     >
-      <View style={ob.optionAvatar} />
+      <View style={ob.optionAvatar}>
+        {Icon && <Icon width={18} height={16} color={Colors.white} />}
+      </View>
       <Text style={ob.optionLabel} numberOfLines={1} ellipsizeMode="tail">
         {label}
       </Text>
@@ -82,11 +101,13 @@ function OptionListItem({
 function SizeOption({
   label,
   iconSize,
+  Icon,
   selected,
   onPress,
 }: {
   label: string;
   iconSize: number;
+  Icon: React.FC<{ width?: number; height?: number }>;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -96,36 +117,120 @@ function SizeOption({
       activeOpacity={0.85}
       onPress={onPress}
     >
-      <Image
-        source={require('@/assets/icons/puppy.png')}
-        style={{ width: iconSize, height: iconSize, tintColor: Colors.textMuted }}
-        resizeMode="contain"
-      />
+      <Icon width={iconSize} height={iconSize} />
       <Text style={ob.sizeLabel}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
-function PrimaryButton({ label, onPress }: { label: string; onPress: () => void }) {
+function PrimaryButton({
+  label,
+  onPress,
+  loading,
+}: {
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+}) {
   return (
-    <TouchableOpacity style={ob.primaryBtn} activeOpacity={0.85} onPress={onPress}>
-      <Text style={ob.primaryBtnText}>{label}</Text>
+    <TouchableOpacity style={ob.primaryBtn} activeOpacity={0.85} onPress={onPress} disabled={loading}>
+      {loading ? <ActivityIndicator color={Colors.white} /> : <Text style={ob.primaryBtnText}>{label}</Text>}
     </TouchableOpacity>
   );
 }
 
+/**
+ * 스텝 인디케이터 → 질문 텍스트 → 선택 박스 세 블록을 배치한다.
+ * 선택 박스는 이 컴포넌트의 전체 높이 기준 정중앙에 오고, 질문 텍스트는
+ * 스텝 인디케이터와 선택 박스 사이 간격의 정중앙에 오도록 각 블록의
+ * 실측 높이를 바탕으로 위/아래 간격(gap)을 계산해 배치한다.
+ * (absolute/translateY 대신 margin 값을 계산해 순수 flex 흐름 안에서 배치)
+ */
+function CenteredStage({
+  stepIndicator,
+  question,
+  options,
+}: {
+  stepIndicator: React.ReactNode;
+  question: React.ReactNode;
+  options: React.ReactNode;
+}) {
+  const [areaHeight, setAreaHeight] = useState(0);
+  const [stepHeight, setStepHeight] = useState(0);
+  const [questionHeight, setQuestionHeight] = useState(0);
+  const [optionsHeight, setOptionsHeight] = useState(0);
+
+  const onAreaLayout = (e: LayoutChangeEvent) => setAreaHeight(e.nativeEvent.layout.height);
+  const onStepLayout = (e: LayoutChangeEvent) => setStepHeight(e.nativeEvent.layout.height);
+  const onQuestionLayout = (e: LayoutChangeEvent) => setQuestionHeight(e.nativeEvent.layout.height);
+  const onOptionsLayout = (e: LayoutChangeEvent) => setOptionsHeight(e.nativeEvent.layout.height);
+
+  const ready = areaHeight > 0 && stepHeight > 0 && questionHeight > 0 && optionsHeight > 0;
+  // 선택 박스 중심이 areaHeight/2에 오도록, 질문 텍스트 위/아래 간격을 동일하게(gap) 계산.
+  const gap = ready
+    ? Math.max(0, (areaHeight - optionsHeight - 2 * stepHeight - 2 * questionHeight) / 4)
+    : 0;
+
+  return (
+    <View style={ob.stage} onLayout={onAreaLayout}>
+      <View onLayout={onStepLayout}>{stepIndicator}</View>
+      <View onLayout={onQuestionLayout} style={{ marginTop: gap, opacity: ready ? 1 : 0 }}>
+        {question}
+      </View>
+      <View onLayout={onOptionsLayout} style={{ marginTop: gap, opacity: ready ? 1 : 0 }}>
+        {options}
+      </View>
+    </View>
+  );
+}
+
 export default function OnboardingScreen() {
+  const { dogName } = useLocalSearchParams<{ dogName?: string }>();
   const [step, setStep] = useState<Step>(1);
   const [travelPref, setTravelPref] = useState(TRAVEL_PREF_OPTIONS[0].id);
   const [dogSize, setDogSize] = useState(DOG_SIZE_OPTIONS[0].value);
   const [walkStyle, setWalkStyle] = useState(WALK_STYLE_OPTIONS[0].id);
+  const [registering, setRegistering] = useState(false);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (step < 3) {
       setStep((s) => (s + 1) as Step);
       return;
     }
-    // 3단계 완료 - 다음 화면 연결은 아직 미구현
+    const token = await getAccessToken();
+    if (!token) {
+      router.replace('/(tabs)');
+      return;
+    }
+    setRegistering(true);
+    try {
+      const personality = WALK_STYLE_OPTIONS.find((o) => o.id === walkStyle)?.personality ?? 'RELAXED';
+      await registerPet(
+        {
+          name: dogName ?? '',
+          breed: '믹스',
+          size: sizeToApi(dogSize),
+          age: 1,
+          gender: 'MALE',
+          personality,
+        },
+        token
+      );
+      router.replace('/(tabs)');
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '반려견 등록에 실패했어요. 잠시 후 다시 시도해주세요.';
+      showAlert('반려견 등록', message);
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const handleBack = () => {
+    if (step > 1) {
+      setStep((s) => (s - 1) as Step);
+      return;
+    }
+    router.back();
   };
 
   const [titleLine1, titleLine2] = STEP_TITLES[step - 1];
@@ -133,57 +238,77 @@ export default function OnboardingScreen() {
   return (
     <SafeAreaView style={ob.safeArea}>
       <View style={ob.content}>
-        <StepIndicator currentStep={step} />
+        <TouchableOpacity
+          style={ob.backBtn}
+          onPress={handleBack}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Text style={ob.backArrow}>←</Text>
+        </TouchableOpacity>
 
-        <Text style={ob.title}>
-          {titleLine1}
-          {'\n'}
-          {titleLine2}
-        </Text>
+        <CenteredStage
+          stepIndicator={<StepIndicator currentStep={step} onStepPress={setStep} />}
+          question={
+            <Text style={ob.title}>
+              {titleLine1}
+              {'\n'}
+              {titleLine2}
+            </Text>
+          }
+          options={
+            <>
+              {step === 1 && (
+                <View>
+                  {TRAVEL_PREF_OPTIONS.map((opt) => (
+                    <OptionListItem
+                      key={opt.id}
+                      label={opt.label}
+                      Icon={opt.Icon}
+                      selected={travelPref === opt.id}
+                      onPress={() => setTravelPref(opt.id)}
+                    />
+                  ))}
+                </View>
+              )}
 
-        {step === 1 && (
-          <View>
-            {TRAVEL_PREF_OPTIONS.map((opt) => (
-              <OptionListItem
-                key={opt.id}
-                label={opt.label}
-                selected={travelPref === opt.id}
-                onPress={() => setTravelPref(opt.id)}
-              />
-            ))}
-          </View>
-        )}
+              {step === 2 && (
+                <View style={ob.sizeRow}>
+                  {DOG_SIZE_OPTIONS.map((opt) => (
+                    <SizeOption
+                      key={opt.value}
+                      label={opt.value}
+                      iconSize={opt.iconSize}
+                      Icon={opt.Icon}
+                      selected={dogSize === opt.value}
+                      onPress={() => setDogSize(opt.value)}
+                    />
+                  ))}
+                </View>
+              )}
 
-        {step === 2 && (
-          <View style={ob.sizeRow}>
-            {DOG_SIZE_OPTIONS.map((opt) => (
-              <SizeOption
-                key={opt.value}
-                label={opt.value}
-                iconSize={opt.iconSize}
-                selected={dogSize === opt.value}
-                onPress={() => setDogSize(opt.value)}
-              />
-            ))}
-          </View>
-        )}
-
-        {step === 3 && (
-          <View>
-            {WALK_STYLE_OPTIONS.map((opt) => (
-              <OptionListItem
-                key={opt.id}
-                label={opt.label}
-                selected={walkStyle === opt.id}
-                onPress={() => setWalkStyle(opt.id)}
-              />
-            ))}
-          </View>
-        )}
+              {step === 3 && (
+                <View>
+                  {WALK_STYLE_OPTIONS.map((opt) => (
+                    <OptionListItem
+                      key={opt.id}
+                      label={opt.label}
+                      selected={walkStyle === opt.id}
+                      onPress={() => setWalkStyle(opt.id)}
+                    />
+                  ))}
+                </View>
+              )}
+            </>
+          }
+        />
       </View>
 
       <View style={ob.bottomBar}>
-        <PrimaryButton label={step < 3 ? '다음' : '견주 여행 즐기러 가기'} onPress={handleNext} />
+        <PrimaryButton
+          label={step < 3 ? '다음' : '견주 여행 즐기러 가기'}
+          onPress={handleNext}
+          loading={registering}
+        />
       </View>
     </SafeAreaView>
   );
@@ -191,12 +316,14 @@ export default function OnboardingScreen() {
 
 const ob = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
-  content: { flex: 1, paddingHorizontal: Spacing.xl, paddingTop: Spacing.xxl },
+  content: { flex: 1, paddingHorizontal: Spacing.xl },
+  backBtn: { marginTop: Spacing.xl, marginBottom: Spacing.md },
+  backArrow: { fontSize: 22, color: Colors.textBody1 },
+  stage: { flex: 1 },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: Spacing.xxl,
   },
   stepDot: {
     width: 36,
@@ -220,7 +347,6 @@ const ob = StyleSheet.create({
     color: Colors.textBody1,
     textAlign: 'center',
     lineHeight: 30,
-    marginBottom: Spacing.xxl,
   },
   optionRow: {
     flexDirection: 'row',
@@ -237,15 +363,21 @@ const ob = StyleSheet.create({
   optionRowSelected: {
     borderColor: Colors.coral,
     borderWidth: 1.5,
-    backgroundColor: Colors.primaryTint,
+    shadowColor: '#8A8580',
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   optionAvatar: {
     width: 48,
     height: 48,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryBorder,
+    backgroundColor: Colors.coral,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  optionLabel: { flex: 1, fontSize: 15, color: Colors.textBody1 },
+  optionLabel: { flex: 1, fontSize: 15, color: Colors.textBody1, textAlign: 'center' },
   optionCheckbox: {
     width: 24,
     height: 24,
@@ -255,13 +387,14 @@ const ob = StyleSheet.create({
     backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
   },
   optionCheckboxSelected: { backgroundColor: Colors.coral, borderColor: Colors.coral },
   optionCheckMark: { fontSize: 14, fontWeight: '700', color: Colors.white },
   sizeRow: { flexDirection: 'row', gap: Spacing.sm },
   sizeBox: {
     flex: 1,
-    height: 140,
+    height: 190,
     borderRadius: Radius.md,
     borderWidth: 1,
     borderColor: Colors.border,

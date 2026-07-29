@@ -1,13 +1,17 @@
 import React from 'react';
-import { TouchableOpacity, Text, Image, StyleSheet } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { PlaceCategory } from '@/types/save';
+import FilterAllIcon from '@/assets/icons/filter-all.svg';
+import FilterTourIcon from '@/assets/icons/filter-tour.svg';
+import FilterCafeIcon from '@/assets/icons/filter-cafe.svg';
+import FilterFoodIcon from '@/assets/icons/filter-food.svg';
 
-const CATEGORY_ICONS: Record<PlaceCategory, ReturnType<typeof require>> = {
-  전체: require('@/assets/icons/pets.png'),
-  관광지: require('@/assets/icons/tour-spot.png'),
-  카페: require('@/assets/icons/hot-coffee.png'),
-  식당: require('@/assets/icons/spoon-and-fork.png'),
+const CATEGORY_ICONS: Record<PlaceCategory, React.FC<{ width?: number; height?: number; color?: string }>> = {
+  전체: FilterAllIcon,
+  관광지: FilterTourIcon,
+  카페: FilterCafeIcon,
+  식당: FilterFoodIcon,
 };
 
 interface Props {
@@ -17,17 +21,14 @@ interface Props {
 }
 
 export default function CategoryChip({ label, active, onPress }: Props) {
+  const Icon = CATEGORY_ICONS[label];
   return (
     <TouchableOpacity
       onPress={onPress}
       style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
       activeOpacity={0.7}
     >
-      <Image
-        source={CATEGORY_ICONS[label]}
-        style={[styles.icon, { tintColor: active ? Colors.white : Colors.textBody2 }]}
-        resizeMode="contain"
-      />
+      <Icon width={14} height={14} color={active ? Colors.white : Colors.textBody2} />
       <Text style={[styles.label, active ? styles.labelActive : styles.labelInactive]}>
         {label}
       </Text>
@@ -52,10 +53,6 @@ const styles = StyleSheet.create({
   },
   chipInactive: {
     backgroundColor: Colors.bgWarm,
-  },
-  icon: {
-    width: 14,
-    height: 14,
   },
   label: {
     fontSize: 13,

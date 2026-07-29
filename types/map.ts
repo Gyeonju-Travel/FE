@@ -3,7 +3,7 @@ export interface MapPlace {
   name: string;
   category: '관광지' | '카페' | '식당';
   tags: string[];
-  imageUri: string;
+  imageUri: string | null;
   latitude: number;
   longitude: number;
   address: string;
