@@ -1040,18 +1040,18 @@ function EditProfileView({
         <Text style={ep.label}>성별</Text>
         <View style={ep.genderRow}>
           <TouchableOpacity
-            style={[ep.genderBtn, gender === '남아' && ep.genderBtnSelected]}
+            style={[ep.genderBtn, gender === '남아' && ep.genderBtnSelectedMale]}
             activeOpacity={0.8}
             onPress={() => setGender('남아')}
           >
-            <Text style={[ep.genderBtnText, gender === '남아' && ep.genderBtnTextSelected]}>♂ 남아</Text>
+            <Text style={[ep.genderBtnText, gender === '남아' && ep.genderBtnTextSelectedMale]}>♂ 남아</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[ep.genderBtn, gender === '여아' && ep.genderBtnSelected]}
+            style={[ep.genderBtn, gender === '여아' && ep.genderBtnSelectedFemale]}
             activeOpacity={0.8}
             onPress={() => setGender('여아')}
           >
-            <Text style={[ep.genderBtnText, gender === '여아' && ep.genderBtnTextSelected]}>♀ 여아</Text>
+            <Text style={[ep.genderBtnText, gender === '여아' && ep.genderBtnTextSelectedFemale]}>♀ 여아</Text>
           </TouchableOpacity>
         </View>
 
@@ -2011,12 +2011,17 @@ const ep = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  genderBtnSelected: {
-    backgroundColor: Colors.secondary,
-    borderColor: Colors.secondary,
+  genderBtnSelectedMale: {
+    backgroundColor: Colors.secondaryTint,
+    borderColor: Colors.secondaryBorder,
+  },
+  genderBtnSelectedFemale: {
+    backgroundColor: Colors.primaryTint,
+    borderColor: Colors.primaryBorder,
   },
   genderBtnText: { fontSize: 15, color: Colors.textBody2 },
-  genderBtnTextSelected: { color: Colors.white, fontWeight: '600' },
+  genderBtnTextSelectedMale: { color: Colors.secondaryDark, fontWeight: '600' },
+  genderBtnTextSelectedFemale: { color: Colors.primaryDark, fontWeight: '600' },
   tagRow: { flexDirection: 'row', gap: Spacing.sm },
   tagChip: {
     flex: 1,

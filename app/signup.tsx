@@ -27,11 +27,28 @@ import { showAlert } from '@/components/ui/AppAlert';
 type Gender = '여성' | '남성';
 
 const BIRTH_YEAR_BASE = 1940;
-const BIRTH_YEARS = Array.from({ length: new Date().getFullYear() - BIRTH_YEAR_BASE + 1 }, (_, i) => `${BIRTH_YEAR_BASE + i}년`);
+const MIN_SIGNUP_AGE = 14;
+const today = new Date();
+// 만 14세가 되는 가장 최근 생일 = 오늘로부터 14년 전 같은 날짜. 이보다 늦은 생년월일은 선택할 수 없다.
+const MAX_BIRTH_YEAR = today.getFullYear() - MIN_SIGNUP_AGE;
+const MAX_BIRTH_MONTH_IDX = today.getMonth();
+const MAX_BIRTH_DAY = today.getDate();
+
+const BIRTH_YEARS = Array.from({ length: MAX_BIRTH_YEAR - BIRTH_YEAR_BASE + 1 }, (_, i) => `${BIRTH_YEAR_BASE + i}년`);
 const MONTHS = Array.from({ length: 12 }, (_, i) => `${i + 1}월`);
+const getMonthsArr = (yearIdx: number) => {
+  const maxMonthIdx = BIRTH_YEAR_BASE + yearIdx === MAX_BIRTH_YEAR ? MAX_BIRTH_MONTH_IDX : 11;
+  return MONTHS.slice(0, maxMonthIdx + 1);
+};
 const getDaysCount = (yearIdx: number, monthIdx: number) => new Date(BIRTH_YEAR_BASE + yearIdx, monthIdx + 1, 0).getDate();
-const getDaysArr = (yearIdx: number, monthIdx: number) =>
-  Array.from({ length: getDaysCount(yearIdx, monthIdx) }, (_, i) => `${i + 1}일`);
+const getDaysArr = (yearIdx: number, monthIdx: number) => {
+  const daysInMonth = getDaysCount(yearIdx, monthIdx);
+  const maxDay =
+    BIRTH_YEAR_BASE + yearIdx === MAX_BIRTH_YEAR && monthIdx === MAX_BIRTH_MONTH_IDX
+      ? Math.min(daysInMonth, MAX_BIRTH_DAY)
+      : daysInMonth;
+  return Array.from({ length: maxDay }, (_, i) => `${i + 1}일`);
+};
 
 const DEFAULT_YEAR_IDX = Math.max(0, new Date().getFullYear() - 25 - BIRTH_YEAR_BASE);
 
@@ -72,6 +89,11 @@ function BirthDatePickerModal({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const monthsArr = getMonthsArr(yearIdx);
+  const clampedMonthIdx = Math.min(monthIdx, monthsArr.length - 1);
+  const daysArr = getDaysArr(yearIdx, clampedMonthIdx);
+  const clampedDayIdx = Math.min(dayIdx, daysArr.length - 1);
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={onClose} />
@@ -83,23 +105,28 @@ function BirthDatePickerModal({
             selectedIdx={yearIdx}
             flex={1}
             onSelect={(i) => {
-              const max = getDaysCount(i, monthIdx) - 1;
-              onChange({ yearIdx: i, dayIdx: Math.min(dayIdx, max) });
+              const nextMonths = getMonthsArr(i);
+              const nextMonthIdx = Math.min(monthIdx, nextMonths.length - 1);
+              const nextDays = getDaysArr(i, nextMonthIdx);
+              const nextDayIdx = Math.min(dayIdx, nextDays.length - 1);
+              onChange({ yearIdx: i, monthIdx: nextMonthIdx, dayIdx: nextDayIdx });
             }}
           />
           <WheelPicker
-            data={MONTHS}
-            selectedIdx={monthIdx}
+            key={`month-${yearIdx}`}
+            data={monthsArr}
+            selectedIdx={clampedMonthIdx}
             flex={1}
             onSelect={(i) => {
-              const max = getDaysCount(yearIdx, i) - 1;
-              onChange({ monthIdx: i, dayIdx: Math.min(dayIdx, max) });
+              const nextDays = getDaysArr(yearIdx, i);
+              const nextDayIdx = Math.min(dayIdx, nextDays.length - 1);
+              onChange({ monthIdx: i, dayIdx: nextDayIdx });
             }}
           />
           <WheelPicker
-            key={`day-${yearIdx}-${monthIdx}`}
-            data={getDaysArr(yearIdx, monthIdx)}
-            selectedIdx={Math.min(dayIdx, getDaysCount(yearIdx, monthIdx) - 1)}
+            key={`day-${yearIdx}-${clampedMonthIdx}`}
+            data={daysArr}
+            selectedIdx={clampedDayIdx}
             flex={1}
             onSelect={(i) => onChange({ dayIdx: i })}
           />

@@ -1,6 +1,9 @@
 import { router } from 'expo-router';
 import { clearTokens } from './authStorage';
 
+// 백엔드(EXPO_PUBLIC_API_BASE_URL)와 통신하는 코드는 반드시 이 파일의 request()/requestMultipart()를
+// 통해서만 fetch를 호출한다. 새 API 함수를 추가할 때도 이 두 헬퍼를 거치면 [API →]/[API ←]/[API ✕]
+// 로그가 자동으로 남으므로, 다른 곳에서 직접 fetch로 백엔드를 호출하지 않는다.
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL;
 
 interface ApiEnvelope<T> {
@@ -16,6 +19,17 @@ export class ApiError extends Error {
     super(message);
     this.code = code;
   }
+}
+
+const SENSITIVE_KEYS = ['password', 'passwordConfirmation', 'newPassword', 'newPasswordConfirmation'];
+
+function redact(body: unknown): unknown {
+  if (!body || typeof body !== 'object') return body;
+  const clone: Record<string, unknown> = { ...(body as Record<string, unknown>) };
+  for (const key of SENSITIVE_KEYS) {
+    if (key in clone) clone[key] = '***';
+  }
+  return clone;
 }
 
 type QueryParams = Record<string, string | number | string[] | undefined>;
@@ -39,25 +53,44 @@ async function request<T>(
   path: string,
   options: { method?: string; body?: unknown; accessToken?: string; params?: QueryParams } = {}
 ): Promise<T> {
+  const method = options.method ?? 'GET';
+
   if (!API_BASE_URL) {
+    console.error('[API] EXPO_PUBLIC_API_BASE_URL이 설정되지 않았습니다. .env를 확인하세요.');
     throw new ApiError('서버 주소가 설정되지 않았어요.', 'NO_API_BASE_URL');
   }
+
+  const url = `${API_BASE_URL}${path}${buildQueryString(options.params)}`;
+  console.log(`[API →] ${method} ${path}`, options.body ? redact(options.body) : '');
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (options.accessToken) {
     headers.Authorization = `Bearer ${options.accessToken}`;
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}${buildQueryString(options.params)}`, {
-    method: options.method ?? 'GET',
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (networkError) {
+    console.error(`[API ✕ 네트워크 오류] ${method} ${path}`, networkError);
+    throw networkError;
+  }
 
   const text = await response.text();
   const json: ApiEnvelope<T> | null = text ? JSON.parse(text) : null;
 
+  console.log(`[API ←] ${response.status} ${method} ${path}`, json ?? text);
+
   if (!response.ok || !json || !json.isSuccess) {
+    console.error(`[API ✕ 실패] ${method} ${path}`, {
+      status: response.status,
+      code: json?.code,
+      message: json?.message,
+    });
     // 인증이 필요한 요청에서 토큰이 만료/무효 처리된 경우 로그인 화면으로 되돌린다.
     // (로그인/회원가입 자체의 401은 accessToken을 안 실었으니 여기 해당 안 됨)
     if (response.status === 401 && options.accessToken) {
@@ -82,8 +115,11 @@ async function requestMultipart<T>(
   imageUri?: string | null
 ): Promise<T> {
   if (!API_BASE_URL) {
+    console.error('[API] EXPO_PUBLIC_API_BASE_URL이 설정되지 않았습니다. .env를 확인하세요.');
     throw new ApiError('서버 주소가 설정되지 않았어요.', 'NO_API_BASE_URL');
   }
+
+  console.log(`[API →] ${method} ${path} (multipart)`, redact(requestPart), imageUri ? '+ image' : '');
 
   const form = new FormData();
   form.append('request', new Blob([JSON.stringify(requestPart)], { type: 'application/json' }));
@@ -94,16 +130,29 @@ async function requestMultipart<T>(
     form.append('image', { uri: imageUri, name: `photo.${extension}`, type: mimeType } as unknown as Blob);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    });
+  } catch (networkError) {
+    console.error(`[API ✕ 네트워크 오류] ${method} ${path}`, networkError);
+    throw networkError;
+  }
 
   const text = await response.text();
   const json: ApiEnvelope<T> | null = text ? JSON.parse(text) : null;
 
+  console.log(`[API ←] ${response.status} ${method} ${path}`, json ?? text);
+
   if (!response.ok || !json || !json.isSuccess) {
+    console.error(`[API ✕ 실패] ${method} ${path}`, {
+      status: response.status,
+      code: json?.code,
+      message: json?.message,
+    });
     if (response.status === 401) {
       await clearTokens();
       router.replace('/login');

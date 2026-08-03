@@ -28,6 +28,31 @@ const PLACE_SLOT = CARD_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
 const DEPARTURE_ID = '__departure__';
 const LONG_PRESS_MS = 250;
 
+/** 출발지에서 시작해 매번 가장 가까운 다음 장소를 이어붙이는 최근접 이웃 방식으로 정렬한다 (경로가 꼬이지 않도록). */
+function sortByNearestNeighbor(places: SavedPlace[], start?: { lat: number; lng: number }): SavedPlace[] {
+  if (!start || places.length <= 1) return places;
+  const remaining = [...places];
+  const sorted: SavedPlace[] = [];
+  let currentLat = start.lat;
+  let currentLng = start.lng;
+  while (remaining.length > 0) {
+    let nearestIdx = 0;
+    let nearestDist = Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const dist = haversineMeters(currentLat, currentLng, remaining[i].latitude, remaining[i].longitude);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestIdx = i;
+      }
+    }
+    const [next] = remaining.splice(nearestIdx, 1);
+    sorted.push(next);
+    currentLat = next.latitude;
+    currentLng = next.longitude;
+  }
+  return sorted;
+}
+
 function slotHeightAt(index: number): number {
   return index === 0 ? DEPARTURE_HEIGHT : CARD_HEIGHT;
 }
@@ -73,7 +98,7 @@ export default function EditScheduleView({
 }: Props) {
   const [order, setOrder] = useState<RowItem[]>(() => [
     { id: DEPARTURE_ID },
-    ...places.map((p) => ({ id: p.id, place: p })),
+    ...sortByNearestNeighbor(places, departureCoord).map((p) => ({ id: p.id, place: p })),
   ]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 

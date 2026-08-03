@@ -47,7 +47,7 @@ import ScheduleEmptyIllustration from '@/assets/schedule/empty-illustration.svg'
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'];
-const DEPARTURE_OPTIONS = ['교촌마을', '황리단길', '계림', '월정교', '경주읍성', '첨성대'];
+const DEPARTURE_OPTIONS = ['황리단길', '금리단길', '첨성대', '교촌마을'];
 
 /** DB에 등록된 출발지 장소들을 이름으로 찾아 위경도/사진을 가져온다. */
 async function fetchDeparturePlaces(): Promise<Record<string, MapPlace>> {

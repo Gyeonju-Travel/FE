@@ -42,11 +42,14 @@ export default function LoginScreen() {
       return;
     }
     setLoading(true);
+    console.log('[로그인] 시도:', email);
     try {
       const result = await login({ email, password });
+      console.log('[로그인] 성공. memberId:', result.memberId, 'onboardingCompleted:', result.onboardingCompleted);
       await saveTokens(result.accessToken, result.refreshToken);
       router.replace(result.onboardingCompleted ? '/(tabs)' : '/signup-complete');
     } catch (e) {
+      console.error('[로그인] 실패:', e);
       setLoginApiError('이메일 또는 비밀번호가 올바르지 않습니다.');
     } finally {
       setLoading(false);
