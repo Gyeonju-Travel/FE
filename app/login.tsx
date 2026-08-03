@@ -16,29 +16,38 @@ import LoginIllustration from '@/assets/login/login-illustration.svg';
 import EmailIcon from '@/assets/login/field-email.svg';
 import PasswordIcon from '@/assets/login/field-password.svg';
 import EyeIcon from '@/assets/login/field-password-eye.svg';
-import { login, ApiError } from '@/utils/api';
+import { login } from '@/utils/api';
 import { saveTokens } from '@/utils/authStorage';
-import { showAlert } from '@/components/ui/AppAlert';
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [loginApiError, setLoginApiError] = useState<string | null>(null);
+
+  const emailError = email.length > 0 && !EMAIL_REGEX.test(email)
+    ? '이메일 주소 형식으로 입력해 주세요'
+    : submitted && !email
+    ? '이메일을 입력해 주세요.'
+    : null;
+  const passwordError = submitted && !password ? '비밀번호를 입력해 주세요.' : loginApiError;
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      showAlert('로그인', '이메일과 비밀번호를 입력해주세요.');
+    setSubmitted(true);
+    if (!email || !password || emailError) {
       return;
     }
     setLoading(true);
     try {
       const result = await login({ email, password });
       await saveTokens(result.accessToken, result.refreshToken);
-      router.replace('/(tabs)');
+      router.replace(result.onboardingCompleted ? '/(tabs)' : '/signup-complete');
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : '로그인에 실패했어요. 잠시 후 다시 시도해주세요.';
-      showAlert('로그인 실패', message);
+      setLoginApiError('이메일 또는 비밀번호가 올바르지 않습니다.');
     } finally {
       setLoading(false);
     }
@@ -60,18 +69,26 @@ export default function LoginScreen() {
             Icon={EmailIcon}
             placeholder="이메일"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(t) => {
+              setEmail(t);
+              setLoginApiError(null);
+            }}
             autoCapitalize="none"
             keyboardType="email-address"
+            error={emailError}
           />
           <FormField
             Icon={PasswordIcon}
             placeholder="비밀번호"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(t) => {
+              setPassword(t);
+              setLoginApiError(null);
+            }}
             secureTextEntry={!showPassword}
             textContentType="oneTimeCode"
             trailing={<EyeToggle visible={showPassword} onPress={() => setShowPassword((v) => !v)} Icon={EyeIcon} />}
+            error={passwordError}
           />
 
           <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={handleLogin} disabled={loading}>

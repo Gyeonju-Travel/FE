@@ -18,9 +18,12 @@ interface BuildKakaoMapHtmlParams {
   level: number;
   markers: MapPlace[];
   categoryPinUri: Record<MapPlace['category'], string>;
+  categoryPinUriSaved: Record<MapPlace['category'], string>;
+  /** 저장(하트)한 장소 id 목록. 여기 포함된 마커는 세이지 그린 핀으로 표시된다. */
+  likedPlaceIds?: string[];
   currentLocationImageUri: string;
-  currentLocationLat: number;
-  currentLocationLng: number;
+  currentLocationLat?: number | null;
+  currentLocationLng?: number | null;
   routePlaces?: RouteMapPlace[];
   /** 경로보기 지도의 출발지 핀 이미지. routePlaces[0]에 사용된다. */
   routeStartPinUri?: string;
@@ -37,6 +40,8 @@ export function buildKakaoMapHtml({
   level,
   markers,
   categoryPinUri,
+  categoryPinUriSaved,
+  likedPlaceIds = [],
   currentLocationImageUri,
   currentLocationLat,
   currentLocationLng,
@@ -45,10 +50,18 @@ export function buildKakaoMapHtml({
   routeNumberPinUris = [],
   routePath = [],
 }: BuildKakaoMapHtmlParams): string {
+  const likedPlaceIdSet = new Set(likedPlaceIds);
   const markersJson = JSON.stringify(
-    markers.map((m) => ({ id: m.id, lat: m.latitude, lng: m.longitude, category: m.category }))
+    markers.map((m) => ({
+      id: m.id,
+      lat: m.latitude,
+      lng: m.longitude,
+      category: m.category,
+      liked: likedPlaceIdSet.has(m.id),
+    }))
   );
   const categoryPinJson = JSON.stringify(categoryPinUri);
+  const categoryPinSavedJson = JSON.stringify(categoryPinUriSaved);
   const routePlacesJson = JSON.stringify(routePlaces);
   const routeNumberPinUrisJson = JSON.stringify(routeNumberPinUris);
   const routePathJson = JSON.stringify(routePath);
@@ -154,13 +167,17 @@ export function buildKakaoMapHtml({
 
       var places = ${markersJson};
       var categoryPinUri = ${categoryPinJson};
+      var categoryPinUriSaved = ${categoryPinSavedJson};
 
       places.forEach(function(place) {
         var el = document.createElement('div');
         el.className = 'place-marker place-marker--' + place.category;
+        var pinUri = place.liked
+          ? categoryPinUriSaved[place.category]
+          : categoryPinUri[place.category];
         el.innerHTML =
           '<div class="pulse"></div>' +
-          '<img src="' + categoryPinUri[place.category] + '" />';
+          '<img src="' + pinUri + '" />';
         el.addEventListener('click', function() {
           sendMessage({ type: 'markerClick', id: place.id });
         });
@@ -217,10 +234,13 @@ export function buildKakaoMapHtml({
         window.kakaoMap.setBounds(bounds, 80, 80, 80, 80);
       }
 
+      ${
+        currentLocationLat != null && currentLocationLng != null
+          ? `
       var myLocationContent =
         '<div class="my-location"><div class="pulse"></div>' +
         '<img src="${currentLocationImageUri}" /></div>';
-      new kakao.maps.CustomOverlay({
+      window.myLocationOverlay = new kakao.maps.CustomOverlay({
         map: window.kakaoMap,
         position: new kakao.maps.LatLng(${currentLocationLat}, ${currentLocationLng}),
         content: myLocationContent,
@@ -228,6 +248,9 @@ export function buildKakaoMapHtml({
         yAnchor: 0.5,
         zIndex: 5,
       });
+      `
+          : ''
+      }
 
       window.addEventListener('message', function(event) {
         var data = event.data;

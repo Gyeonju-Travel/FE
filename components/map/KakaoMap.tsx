@@ -4,6 +4,7 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { MapPlace } from '@/types/map';
 import {
   categoryPinUri,
+  categoryPinUriSaved,
   currentLocationUri,
   routeStartPinUri,
   routeNumberPinUris,
@@ -19,6 +20,7 @@ export interface KakaoMapHandle {
   zoomIn: () => void;
   zoomOut: () => void;
   moveTo: (lat: number, lng: number) => void;
+  updateMyLocation: (lat: number, lng: number) => void;
 }
 
 interface Props {
@@ -26,6 +28,9 @@ interface Props {
   longitude?: number;
   level?: number;
   markers?: MapPlace[];
+  /** 저장(하트)한 장소 id 목록. 세이지 그린 핀으로 표시된다. */
+  likedPlaceIds?: string[];
+  currentLocation?: { lat: number; lng: number } | null;
   routePlaces?: RouteMapPlace[];
   routePath?: RoutePathPoint[];
   onMarkerPress?: (id: string) => void;
@@ -39,6 +44,8 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     longitude = DEFAULT_LNG,
     level = 4,
     markers = [],
+    likedPlaceIds = [],
+    currentLocation = null,
     routePlaces = [],
     routePath = [],
     onMarkerPress,
@@ -65,6 +72,29 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         `if(window.kakaoMap){window.kakaoMap.panTo(new kakao.maps.LatLng(${lat},${lng}));}true;`
       );
     },
+    updateMyLocation(lat: number, lng: number) {
+      webViewRef.current?.injectJavaScript(`
+        if (window.kakaoMap) {
+          var pos = new kakao.maps.LatLng(${lat}, ${lng});
+          if (window.myLocationOverlay) {
+            window.myLocationOverlay.setPosition(pos);
+          } else {
+            var el = document.createElement('div');
+            el.className = 'my-location';
+            el.innerHTML = '<div class="pulse"></div><img src="${currentLocationUri}" />';
+            window.myLocationOverlay = new kakao.maps.CustomOverlay({
+              map: window.kakaoMap,
+              position: pos,
+              content: el,
+              xAnchor: 0.5,
+              yAnchor: 0.5,
+              zIndex: 5,
+            });
+          }
+        }
+        true;
+      `);
+    },
   }));
 
   const centerLat = routePlaces.length > 0
@@ -81,9 +111,11 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     level,
     markers,
     categoryPinUri,
+    categoryPinUriSaved,
+    likedPlaceIds,
     currentLocationImageUri: currentLocationUri,
-    currentLocationLat: DEFAULT_LAT,
-    currentLocationLng: DEFAULT_LNG,
+    currentLocationLat: currentLocation?.lat,
+    currentLocationLng: currentLocation?.lng,
     routePlaces,
     routeStartPinUri,
     routeNumberPinUris,

@@ -2,23 +2,40 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
   Animated,
   PanResponder,
   PanResponderInstance,
   SafeAreaView,
+  ScrollView,
 } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
-import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
+import WalkingIcon from '@/assets/icons/walking.svg';
+import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
+import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
+import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE } from '@/constants/badgeConfig';
+import { haversineMeters, estimateWalkMinutes, formatDistance } from '@/utils/distance';
 
-const ROW_HEIGHT = 68;
+const DEPARTURE_HEIGHT = 68;
+const CARD_HEIGHT = 88;
+const PILL_HEIGHT = 34;
 const ROW_GAP = 12;
-const SLOT = ROW_HEIGHT + ROW_GAP;
+// 출발지 → 첫 장소 구간도 장소↔장소 구간과 동일하게 도보 배지가 껴서 모든 구간이 균일한 슬롯이다.
+const FIRST_PLACE_OFFSET = DEPARTURE_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
+const PLACE_SLOT = CARD_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
 const DEPARTURE_ID = '__departure__';
 const LONG_PRESS_MS = 250;
+
+function slotHeightAt(index: number): number {
+  return index === 0 ? DEPARTURE_HEIGHT : CARD_HEIGHT;
+}
+
+function slotY(index: number): number {
+  if (index === 0) return 0;
+  return FIRST_PLACE_OFFSET + (index - 1) * PLACE_SLOT;
+}
 
 interface RowItem {
   id: string;
@@ -27,6 +44,8 @@ interface RowItem {
 
 interface Props {
   departureLabel: string;
+  departureCoord?: { lat: number; lng: number };
+  departureImageUri?: string | null;
   places: SavedPlace[];
   isEditing?: boolean;
   onBack: () => void;
@@ -45,6 +64,8 @@ function GripDots() {
 
 export default function EditScheduleView({
   departureLabel,
+  departureCoord,
+  departureImageUri,
   places,
   isEditing,
   onBack,
@@ -69,7 +90,7 @@ export default function EditScheduleView({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getPosition = (id: string, index: number) => {
-    if (!positions[id]) positions[id] = new Animated.Value(index * SLOT);
+    if (!positions[id]) positions[id] = new Animated.Value(slotY(index));
     return positions[id];
   };
 
@@ -77,7 +98,7 @@ export default function EditScheduleView({
     order.forEach((item, index) => {
       if (item.id === draggingId) return;
       const pos = getPosition(item.id, index);
-      Animated.timing(pos, { toValue: index * SLOT, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(pos, { toValue: slotY(index), duration: 200, useNativeDriver: true }).start();
     });
   }, [order, draggingId]);
 
@@ -110,13 +131,17 @@ export default function EditScheduleView({
       onPanResponderMove: (_, gestureState) => {
         if (draggingIdRef.current !== id) return;
         const rawY =
-          dragStartIndex.current * SLOT + (gestureState.dy - activationOffset.current);
+          slotY(dragStartIndex.current) + (gestureState.dy - activationOffset.current);
         getPosition(id, dragStartIndex.current).setValue(rawY);
 
-        // index 0은 출발지 고정 자리라 장소는 그 아래로만 이동 가능
+        // index 0은 출발지 고정 자리라 장소는 그 아래로만 이동 가능. 장소 슬롯은 모두 균일한
+        // 간격(PLACE_SLOT)이라 첫 장소 기준 오프셋만 빼주면 바로 인덱스로 환산된다.
         const targetIndex = Math.max(
           1,
-          Math.min(Math.round(rawY / SLOT), orderRef.current.length - 1)
+          Math.min(
+            Math.round((rawY - FIRST_PLACE_OFFSET) / PLACE_SLOT) + 1,
+            orderRef.current.length - 1
+          )
         );
         const currentIndex = orderRef.current.findIndex((it) => it.id === id);
         if (targetIndex !== currentIndex) {
@@ -136,7 +161,7 @@ export default function EditScheduleView({
         const finalIndex = orderRef.current.findIndex((it) => it.id === id);
         if (finalIndex !== -1) {
           Animated.timing(getPosition(id, finalIndex), {
-            toValue: finalIndex * SLOT,
+            toValue: slotY(finalIndex),
             duration: 180,
             useNativeDriver: true,
           }).start();
@@ -147,6 +172,8 @@ export default function EditScheduleView({
         clearLongPressTimer();
         finishDrag();
       },
+      // 드래그 핸들이 반응자를 잡은 뒤에는 감싸고 있는 ScrollView가 세로 스크롤로 가로채지 못하게 막는다.
+      onPanResponderTerminationRequest: () => false,
     });
 
     return responders[id];
@@ -170,56 +197,121 @@ export default function EditScheduleView({
         <Text style={es.hintText}>길게 눌러 순서 변경</Text>
       </View>
 
-      <View style={[es.listArea, { height: order.length * SLOT - ROW_GAP }]}>
+      <ScrollView
+        style={es.listScroll}
+        contentContainerStyle={es.listScrollContent}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={draggingId === null}
+      >
+      <View
+        style={[
+          es.listArea,
+          { height: slotY(order.length - 1) + slotHeightAt(order.length - 1) },
+        ]}
+      >
         {order.map((item, index) => {
           const pos = getPosition(item.id, index);
           const isDragging = draggingId === item.id;
+          // 다음 항목이 있으면(=마지막이 아니면) 그 사이에 도보 배지가 낀다.
+          // 출발지(item.place 없음) → 첫 장소 구간도 departureCoord가 있으면 동일하게 계산한다.
+          const nextItem = order[index + 1];
+          const fromCoord = item.place
+            ? { lat: item.place.latitude, lng: item.place.longitude }
+            : departureCoord;
+          const walk =
+            fromCoord && nextItem?.place
+              ? haversineMeters(
+                  fromCoord.lat,
+                  fromCoord.lng,
+                  nextItem.place.latitude,
+                  nextItem.place.longitude
+                )
+              : null;
+
           return (
-            <Animated.View
-              key={item.id}
-              style={[
-                es.row,
-                isDragging && es.rowDragging,
-                {
-                  transform: [{ translateY: pos }],
-                  zIndex: isDragging ? 10 : 1,
-                  elevation: isDragging ? 6 : 1,
-                },
-              ]}
-            >
-              {item.place ? (
-                <View {...getResponder(item.id).panHandlers}>
-                  <GripDots />
+            <React.Fragment key={item.id}>
+              <Animated.View
+                style={[
+                  es.row,
+                  { height: slotHeightAt(index) },
+                  isDragging && es.rowDragging,
+                  {
+                    transform: [{ translateY: pos }],
+                    zIndex: isDragging ? 10 : 1,
+                    elevation: isDragging ? 6 : 1,
+                  },
+                ]}
+              >
+                {item.place ? (
+                  <View {...getResponder(item.id).panHandlers}>
+                    <GripDots />
+                  </View>
+                ) : (
+                  // 출발지는 순서 고정이라 드래그 핸들(수정 가능해 보이는 UI)을 아예 표시하지 않음
+                  <View style={styles.gripSpacer} />
+                )}
+
+                <PlaceThumbnail
+                  uri={item.place ? item.place.imageUri : departureImageUri ?? null}
+                  style={es.thumb}
+                />
+
+                {item.place ? (
+                  <View style={es.rowBody}>
+                    <Text style={es.rowLabel} numberOfLines={1}>
+                      {item.place.name}
+                    </Text>
+                    <View style={es.tagsRow}>
+                      {item.place.tags.map((tag) => {
+                        const cfg = PLACE_TAG_STYLE[tag] ?? DEFAULT_PLACE_TAG_STYLE;
+                        return (
+                          <Badge
+                            key={tag}
+                            label={tag}
+                            variant="outline"
+                            tone={cfg.tone}
+                            dot={cfg.dot}
+                            leading={
+                              cfg.Icon ? (
+                                <cfg.Icon width={15} height={15} color={BADGE_TONE_COLORS[cfg.tone].text} />
+                              ) : undefined
+                            }
+                          />
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={es.rowLabel} numberOfLines={1}>
+                    {departureLabel}
+                  </Text>
+                )}
+
+                {item.place && (
+                  <TouchableOpacity
+                    onPress={() => removePlace(item.id)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Text style={es.removeX}>×</Text>
+                  </TouchableOpacity>
+                )}
+              </Animated.View>
+
+              {walk != null && (
+                <View style={[es.walkPillWrap, { top: slotY(index) + slotHeightAt(index) + ROW_GAP }]}>
+                  <View style={es.walkPill}>
+                    <WalkingIcon width={13} height={13} color={Colors.textMuted} />
+                    <Text style={es.walkText}>
+                      도보 {estimateWalkMinutes(walk)}분 · {formatDistance(walk)}
+                    </Text>
+                  </View>
                 </View>
-              ) : (
-                // 출발지는 순서 고정이라 드래그 핸들(수정 가능해 보이는 UI)을 아예 표시하지 않음
-                <View style={styles.gripSpacer} />
               )}
-
-              {item.place ? (
-                <Image source={{ uri: item.place.imageUri ?? undefined }} style={es.thumb} resizeMode="cover" />
-              ) : (
-                <View style={es.departureIcon}>
-                  <ScheduleWaypointIcon width={18} height={18} color={Colors.textBody2} />
-                </View>
-              )}
-
-              <Text style={es.rowLabel} numberOfLines={1}>
-                {item.place ? item.place.name : departureLabel}
-              </Text>
-
-              {item.place && (
-                <TouchableOpacity
-                  onPress={() => removePlace(item.id)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Text style={es.removeX}>×</Text>
-                </TouchableOpacity>
-              )}
-            </Animated.View>
+            </React.Fragment>
           );
         })}
       </View>
+      </ScrollView>
 
       <View style={es.bottomBar}>
         <TouchableOpacity
@@ -275,6 +367,8 @@ const es = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   hintText: { fontSize: 13, color: Colors.textMuted },
+  listScroll: { flex: 1, minHeight: 0 },
+  listScrollContent: { paddingBottom: Spacing.xl },
   listArea: {
     marginHorizontal: Spacing.xl,
   },
@@ -282,7 +376,6 @@ const es = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.background,
@@ -301,17 +394,29 @@ const es = StyleSheet.create({
     shadowRadius: 12,
     borderColor: Colors.primaryBorder,
   },
-  departureIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.bgWarm,
+  thumb: { width: 64, height: 64, borderRadius: Radius.sm },
+  rowBody: { flex: 1, gap: 6 },
+  rowLabel: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  removeX: { fontSize: 20, color: Colors.textMuted, paddingHorizontal: 4 },
+  walkPillWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: PILL_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  thumb: { width: 48, height: 48, borderRadius: Radius.sm },
-  rowLabel: { flex: 1, fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
-  removeX: { fontSize: 20, color: Colors.textMuted, paddingHorizontal: 4 },
+  walkPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgWarm,
+  },
+  walkText: { fontSize: 12, color: Colors.textMuted },
   bottomBar: {
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,

@@ -41,7 +41,7 @@ export function personalityToApi(label: string): PetPersonality {
   return PERSONALITY_TO_API[label] ?? 'ACTIVE';
 }
 export function personalityToLabel(personality: PetPersonality): string {
-  return PERSONALITY_TO_LABEL[personality];
+  return PERSONALITY_TO_LABEL[personality] ?? '';
 }
 
 export function toDogSummary(res: PetSummaryResponse, isPrimary: boolean): DogProfile {
@@ -85,7 +85,7 @@ export function toDogDetail(res: PetDetailResponse, isPrimary: boolean): DogProf
     sizeType: sizeToLabel(res.size),
     age: res.age,
     gender: genderToLabel(res.gender),
-    personalityTags: [personalityToLabel(res.personality)],
+    personalityTags: [personalityToLabel(res.personality)].filter(Boolean),
     isPrimary,
     stampCount: 0,
     visitedPlacesCount: 0,

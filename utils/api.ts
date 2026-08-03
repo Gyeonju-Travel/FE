@@ -78,7 +78,8 @@ async function requestMultipart<T>(
   path: string,
   method: string,
   requestPart: unknown,
-  accessToken: string
+  accessToken: string,
+  imageUri?: string | null
 ): Promise<T> {
   if (!API_BASE_URL) {
     throw new ApiError('서버 주소가 설정되지 않았어요.', 'NO_API_BASE_URL');
@@ -86,6 +87,12 @@ async function requestMultipart<T>(
 
   const form = new FormData();
   form.append('request', new Blob([JSON.stringify(requestPart)], { type: 'application/json' }));
+  if (imageUri) {
+    const extension = imageUri.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+    // React Native의 FormData는 파일 파트를 {uri, name, type} 객체로 받는다.
+    form.append('image', { uri: imageUri, name: `photo.${extension}`, type: mimeType } as unknown as Blob);
+  }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -159,6 +166,36 @@ export function logout(accessToken: string) {
 
 export function withdraw(accessToken: string) {
   return request<void>('/api/auth/withdraw', { method: 'DELETE', accessToken });
+}
+
+export function sendPasswordResetVerificationCode(email: string) {
+  return request<void>('/api/auth/password-reset/verification-code', {
+    method: 'POST',
+    body: { email },
+  });
+}
+
+export interface PasswordResetVerificationResult {
+  resetToken: string;
+  expiresIn: number;
+}
+
+export function verifyPasswordResetCode(email: string, verificationCode: string) {
+  return request<PasswordResetVerificationResult>('/api/auth/password-reset/verification-code/confirm', {
+    method: 'POST',
+    body: { email, verificationCode },
+  });
+}
+
+export interface PasswordResetRequest {
+  email: string;
+  resetToken: string;
+  newPassword: string;
+  newPasswordConfirmation: string;
+}
+
+export function resetPassword(body: PasswordResetRequest) {
+  return request<void>('/api/auth/password-reset', { method: 'PATCH', body });
 }
 
 export type PlaceCategoryCode = 'RESTAURANT' | 'CAFE' | 'ATTRACTION';
@@ -288,4 +325,27 @@ export function registerPet(body: PetRegistrationRequest, accessToken: string) {
 
 export function updatePetProfile(petId: number, body: PetProfileUpdateRequest, accessToken: string) {
   return requestMultipart<PetDetailResponse>(`/api/pets/${petId}`, 'PATCH', body, accessToken);
+}
+
+export type PetTravelPreference = 'PHOTO_SPOT' | 'CAFE' | 'NATURE';
+export type PetWalkingStyle = 'SHORT_WALK' | 'LONG_WALK';
+
+export interface PetOnboardingRequest {
+  name: string;
+  size: PetSize;
+  travelPreference: PetTravelPreference;
+  walkingStyle: PetWalkingStyle;
+}
+
+export interface PetOnboardingResponse {
+  petId: number;
+  name: string;
+  profileImageUrl: string | null;
+  size: PetSize;
+  travelPreference: PetTravelPreference;
+  walkingStyle: PetWalkingStyle;
+}
+
+export function completeOnboarding(body: PetOnboardingRequest, accessToken: string, imageUri?: string | null) {
+  return requestMultipart<PetOnboardingResponse>('/api/onboarding', 'POST', body, accessToken, imageUri);
 }

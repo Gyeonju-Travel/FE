@@ -33,3 +33,11 @@ export function formatDistance(meters: number): string {
   }
   return `${Math.round(meters)}m`;
 }
+
+/** 총 도보 소요 시간(분)을 "n시간 m분" 또는 "n분" 형태로 표시. */
+export function formatWalkDuration(totalMinutes: number): string {
+  if (totalMinutes < 60) return `${totalMinutes}분`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return minutes > 0 ? `${hours}시간 ${minutes}분` : `${hours}시간`;
+}

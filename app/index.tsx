@@ -1,19 +1,54 @@
-import React, { useEffect } from 'react';
-import { View, Text, Image, StyleSheet, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Image, StyleSheet, Dimensions, Modal, Linking } from 'react-native';
 import { router } from 'expo-router';
-import { Colors } from '@/constants/theme';
+import * as Location from 'expo-location';
+import { Colors, Spacing } from '@/constants/theme';
 import SplashLandscape from '@/assets/splash/splash-landscape.svg';
+import AlertCard from '@/components/ui/AlertCard';
+import PawIcon from '@/assets/icons/paw.svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const LANDSCAPE_ASPECT = 390 / 218;
 
 export default function SplashScreen() {
+  const [showLocationModal, setShowLocationModal] = useState(false);
+
   useEffect(() => {
-    const timer = setTimeout(() => {
+    let navigated = false;
+    const goToLogin = () => {
+      if (navigated) return;
+      navigated = true;
       router.replace('/login');
-    }, 1800);
-    return () => clearTimeout(timer);
+    };
+
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          setTimeout(goToLogin, 1800);
+        } else {
+          setShowLocationModal(true);
+        }
+      } catch (e) {
+        setTimeout(goToLogin, 1800);
+      }
+    })();
+
+    return () => {
+      navigated = true;
+    };
   }, []);
+
+  const handleClose = () => {
+    setShowLocationModal(false);
+    router.replace('/login');
+  };
+
+  const handleOpenSettings = () => {
+    setShowLocationModal(false);
+    Linking.openSettings();
+    router.replace('/login');
+  };
 
   return (
     <View style={styles.container}>
@@ -27,6 +62,21 @@ export default function SplashScreen() {
         width={SCREEN_WIDTH}
         height={SCREEN_WIDTH / LANDSCAPE_ASPECT}
       />
+
+      <Modal visible={showLocationModal} transparent animationType="fade" onRequestClose={handleClose}>
+        <View style={styles.modalBackdrop}>
+          <AlertCard
+            icon={<PawIcon width={26} height={26} color={Colors.secondaryDark} />}
+            iconTone="sage"
+            title="여행 기록을 위해 위치 권한이 필요해요!"
+            subtitle={"설정 화면에서 위치 권한 '항상 허용'을\n눌러주세요"}
+            buttons={[
+              { label: '취소', onPress: handleClose, variant: 'outline' },
+              { label: '변경하기', onPress: handleOpenSettings, tone: 'sage' },
+            ]}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -60,5 +110,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     bottom: 0,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(58,51,48,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
   },
 });

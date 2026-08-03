@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -15,19 +15,23 @@ import {
   ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import Reanimated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Colors, Spacing, Radius } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
 import { Schedule } from '@/types/schedule';
-import { getBookmarks, ApiError } from '@/utils/api';
+import { MapPlace } from '@/types/map';
+import { getBookmarks, searchPlaces, ApiError } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
-import { toSavedPlace } from '@/utils/placeMappers';
+import { toSavedPlace, toMapPlace } from '@/utils/placeMappers';
 import WheelPicker, { PICKER_H } from '@/components/schedule/WheelPicker';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
 import EditScheduleView from '@/components/schedule/EditScheduleView';
+import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
-import { haversineMeters, estimateWalkMinutes, formatDistance } from '@/utils/distance';
+import { haversineMeters, estimateWalkMinutes, formatDistance, formatWalkDuration } from '@/utils/distance';
 import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
 import ScheduleTimeIcon from '@/assets/icons/schedule-time.svg';
@@ -43,13 +47,26 @@ import ScheduleEmptyIllustration from '@/assets/schedule/empty-illustration.svg'
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'];
-const DEPARTURE_OPTIONS = ['황리단길', '금리단길', '첨성대', '교촌마을'];
-const DEPARTURE_COORDS: Record<string, { lat: number; lng: number }> = {
-  황리단길: { lat: 35.8331, lng: 129.2122 },
-  금리단길: { lat: 35.8300, lng: 129.2100 },
-  첨성대: { lat: 35.8347, lng: 129.2194 },
-  교촌마을: { lat: 35.8285, lng: 129.2151 },
-};
+const DEPARTURE_OPTIONS = ['교촌마을', '황리단길', '계림', '월정교', '경주읍성', '첨성대'];
+
+/** DB에 등록된 출발지 장소들을 이름으로 찾아 위경도/사진을 가져온다. */
+async function fetchDeparturePlaces(): Promise<Record<string, MapPlace>> {
+  const token = await getAccessToken();
+  if (!token) return {};
+  const entries = await Promise.all(
+    DEPARTURE_OPTIONS.map(async (name) => {
+      try {
+        const result = await searchPlaces({ keyword: name, size: 5 }, token);
+        const match = result.places.find((p) => p.name === name) ?? result.places[0];
+        return match ? ([name, toMapPlace(match)] as const) : null;
+      } catch (e) {
+        return null;
+      }
+    })
+  );
+  return Object.fromEntries(entries.filter((e): e is readonly [string, MapPlace] => e !== null));
+}
+
 const SHEET_OFFSCREEN_Y = 500;
 const MAX_PLACES = 5;
 const YEAR_BASE = 2024;
@@ -86,7 +103,7 @@ function PlaceCard({
       <View style={[cs.checkbox, selected && cs.checkboxFilled, disabled && cs.checkboxDisabled]}>
         {selected && <Text style={cs.checkmark}>✓</Text>}
       </View>
-      <Image source={{ uri: place.imageUri ?? undefined }} style={cs.placeImg} resizeMode="cover" />
+      <PlaceThumbnail uri={place.imageUri} style={cs.placeImg} />
       <View style={cs.placeInfo}>
         <Text style={cs.placeName} numberOfLines={1}>
           {place.name}
@@ -118,6 +135,7 @@ function PlaceCard({
 // ─── ScheduleCard (캘린더 하단 일정 카드) ────────────────────────────────────────
 function ScheduleCard({
   schedule,
+  departurePlaces,
   expanded,
   onToggle,
   onEdit,
@@ -127,6 +145,7 @@ function ScheduleCard({
   onToggleSelect,
 }: {
   schedule: Schedule;
+  departurePlaces: Record<string, MapPlace>;
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
@@ -139,7 +158,21 @@ function ScheduleCard({
   const title = lastPlace
     ? `${schedule.departureLabel} → ${lastPlace.name} 코스`
     : schedule.departureLabel;
-  const durationHours = Math.max(1, schedule.places.length - 1);
+
+  // 출발지 → 각 장소를 잇는 구간의 직선거리 기반 도보 시간 합계(순수 이동 시간, 체류 시간 제외).
+  const departurePlace = departurePlaces[schedule.departureLabel];
+  const routePoints = [
+    ...(departurePlace ? [{ lat: departurePlace.latitude, lng: departurePlace.longitude }] : []),
+    ...schedule.places.map((p) => ({ lat: p.latitude, lng: p.longitude })),
+  ];
+  const totalWalkMinutes = routePoints
+    .slice(0, -1)
+    .reduce(
+      (sum, from, i) =>
+        sum + estimateWalkMinutes(haversineMeters(from.lat, from.lng, routePoints[i + 1].lat, routePoints[i + 1].lng)),
+      0
+    );
+  const durationText = formatWalkDuration(totalWalkMinutes);
 
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
   const animProgress = useRef(new Animated.Value(0)).current;
@@ -162,9 +195,10 @@ function ScheduleCard({
           </Text>
         </View>
         <View style={ss.timelineLine} />
-        <View style={ss.timelineDepartureIconBox}>
-          <ScheduleWaypointIcon width={18} height={18} color={Colors.textBody2} />
-        </View>
+        <PlaceThumbnail
+          uri={departurePlaces[schedule.departureLabel]?.imageUri ?? null}
+          style={ss.timelineThumb}
+        />
         <Text style={ss.timelineText} numberOfLines={1}>
           {schedule.departureLabel}
         </Text>
@@ -178,7 +212,7 @@ function ScheduleCard({
               <Text style={ss.timelineDotText}>{i + 1}</Text>
             </View>
             {!isLast && <View style={ss.timelineLine} />}
-            <Image source={{ uri: place.imageUri ?? undefined }} style={ss.timelineThumb} resizeMode="cover" />
+            <PlaceThumbnail uri={place.imageUri} style={ss.timelineThumb} />
             <Text style={ss.timelineText} numberOfLines={1}>
               {place.name}
             </Text>
@@ -204,11 +238,7 @@ function ScheduleCard({
             {isSelected && <Text style={ss.scheduleCheckmark}>✓</Text>}
           </View>
         )}
-        <Image
-          source={{ uri: schedule.places[0]?.imageUri ?? undefined }}
-          style={ss.scheduleCardImg}
-          resizeMode="cover"
-        />
+        <PlaceThumbnail uri={schedule.places[0]?.imageUri} style={ss.scheduleCardImg} />
         <View style={ss.scheduleCardInfo}>
           <Text style={ss.scheduleCardTitle} numberOfLines={1}>
             {title}
@@ -222,7 +252,7 @@ function ScheduleCard({
               color={Colors.textBody2}
               style={[ss.scheduleCardMetaIcon, { marginLeft: 10 }]}
             />
-            <Text style={ss.scheduleCardMetaText}>약 {durationHours}시간</Text>
+            <Text style={ss.scheduleCardMetaText}>약 {durationText}</Text>
           </View>
         </View>
         {!isEditMode && (
@@ -299,6 +329,15 @@ function CreateScheduleView({
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(true);
+  const [departurePlaces, setDeparturePlaces] = useState<Record<string, MapPlace>>({});
+  // 저장 장소가 없을 때 안내 블록을 스크롤 영역의 남은 공간 정중앙에 배치하기 위한 실측값들.
+  const [scrollAreaHeight, setScrollAreaHeight] = useState(0);
+  const [aboveEmptyHeight, setAboveEmptyHeight] = useState(0);
+  const [placeEmptyHeight, setPlaceEmptyHeight] = useState(0);
+  const placeEmptyReady = scrollAreaHeight > 0 && aboveEmptyHeight > 0 && placeEmptyHeight > 0;
+  const placeEmptySpacer = placeEmptyReady
+    ? Math.max(0, (scrollAreaHeight - aboveEmptyHeight - placeEmptyHeight) / 2)
+    : 0;
 
   useEffect(() => {
     (async () => {
@@ -317,6 +356,10 @@ function CreateScheduleView({
         setLoadingPlaces(false);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    fetchDeparturePlaces().then(setDeparturePlaces);
   }, []);
 
   // 바텀시트 애니메이션 (지도 화면의 장소 시트와 동일한 방식)
@@ -447,6 +490,15 @@ function CreateScheduleView({
     return (
       <EditScheduleView
         departureLabel={DEPARTURE_OPTIONS[departureIdx]}
+        departureCoord={
+          departurePlaces[DEPARTURE_OPTIONS[departureIdx]]
+            ? {
+                lat: departurePlaces[DEPARTURE_OPTIONS[departureIdx]].latitude,
+                lng: departurePlaces[DEPARTURE_OPTIONS[departureIdx]].longitude,
+              }
+            : undefined
+        }
+        departureImageUri={departurePlaces[DEPARTURE_OPTIONS[departureIdx]]?.imageUri ?? null}
         places={savedPlaces.filter((p) => selectedIds.has(p.id))}
         isEditing={isEditing}
         onBack={() => setShowEdit(false)}
@@ -479,42 +531,51 @@ function CreateScheduleView({
         style={cs.scroll}
         contentContainerStyle={cs.scrollContent}
         showsVerticalScrollIndicator={false}
+        onLayout={(e) => setScrollAreaHeight(e.nativeEvent.layout.height)}
       >
-        {/* 출발지 설정 */}
-        <Text style={cs.sectionLabel}>출발지 설정</Text>
-        <TouchableOpacity style={cs.selectorRow} onPress={openLocation} activeOpacity={0.8}>
-          <ScheduleDepartureIcon width={16} height={16} color={Colors.textBody2} />
-          {departureIdx !== null ? (
-            <Text style={cs.selectorText}>{DEPARTURE_OPTIONS[departureIdx]}</Text>
-          ) : (
-            <Text style={cs.selectorPlaceholder}>출발지를 선택해주세요.</Text>
-          )}
-          <Text style={cs.chevron}>›</Text>
-        </TouchableOpacity>
-
-        {/* 날짜 선택 */}
-        <Text style={[cs.sectionLabel, { marginTop: Spacing.xl }]}>날짜 선택</Text>
-        <TouchableOpacity style={cs.selectorRow} onPress={openDate} activeOpacity={0.8}>
-          <ScheduleDateIcon width={16} height={16} color={Colors.textBody2} />
-          {dateText ? (
-            <Text style={cs.selectorText}>{dateText}</Text>
-          ) : (
-            <Text style={cs.selectorPlaceholder}>날짜를 선택해주세요.</Text>
-          )}
-          <Text style={cs.chevron}>›</Text>
-        </TouchableOpacity>
-
-        {/* 저장 장소 선택 */}
-        <View style={cs.placeHeader}>
-          <Text style={cs.sectionLabel}>저장 장소 선택</Text>
-          <TouchableOpacity onPress={toggleAll}>
-            <Text style={cs.selectAll}>전체 선택</Text>
+        <View onLayout={(e) => setAboveEmptyHeight(e.nativeEvent.layout.height)}>
+          {/* 출발지 설정 */}
+          <Text style={cs.sectionLabel}>출발지 설정</Text>
+          <TouchableOpacity style={cs.selectorRow} onPress={openLocation} activeOpacity={0.8}>
+            <ScheduleDepartureIcon width={16} height={16} color={Colors.textBody2} />
+            {departureIdx !== null ? (
+              <Text style={cs.selectorText}>{DEPARTURE_OPTIONS[departureIdx]}</Text>
+            ) : (
+              <Text style={cs.selectorPlaceholder}>출발지를 선택해주세요.</Text>
+            )}
+            <Text style={cs.chevron}>›</Text>
           </TouchableOpacity>
+
+          {/* 날짜 선택 */}
+          <Text style={[cs.sectionLabel, { marginTop: Spacing.xl }]}>날짜 선택</Text>
+          <TouchableOpacity style={cs.selectorRow} onPress={openDate} activeOpacity={0.8}>
+            <ScheduleDateIcon width={16} height={16} color={Colors.textBody2} />
+            {dateText ? (
+              <Text style={cs.selectorText}>{dateText}</Text>
+            ) : (
+              <Text style={cs.selectorPlaceholder}>날짜를 선택해주세요.</Text>
+            )}
+            <Text style={cs.chevron}>›</Text>
+          </TouchableOpacity>
+
+          {/* 저장 장소 선택 */}
+          <View style={cs.placeHeader}>
+            <Text style={cs.sectionLabel}>저장 장소 선택</Text>
+            <TouchableOpacity onPress={toggleAll}>
+              <Text style={cs.selectAll}>전체 선택</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         {loadingPlaces ? (
           <Text style={cs.selectorPlaceholder}>저장한 장소를 불러오는 중...</Text>
         ) : savedPlaces.length === 0 ? (
-          <Text style={cs.selectorPlaceholder}>저장한 장소가 없어요. 지도에서 장소를 저장해보세요.</Text>
+          <View style={{ marginTop: placeEmptySpacer, opacity: placeEmptyReady ? 1 : 0 }}>
+            <View style={cs.placeEmptyWrap} onLayout={(e) => setPlaceEmptyHeight(e.nativeEvent.layout.height)}>
+              <ScheduleEmptyIllustration width={280} height={141} style={{ marginBottom: Spacing.md }} />
+              <Text style={ss.emptyTitle}>저장한 장소가 없어요</Text>
+              <Text style={ss.emptySubtitle}>지도에서 마음에 드는 장소를 저장해보세요</Text>
+            </View>
+          </View>
         ) : null}
         {savedPlaces.map((place) => {
           const selected = selectedIds.has(place.id);
@@ -603,19 +664,9 @@ function CreateScheduleView({
 
 // ─── RouteView (경로보기) ──────────────────────────────────────────────────────
 const SCREEN_H = Dimensions.get('window').height;
-// 바텀시트 snap point: 화면의 20% / 40% / 85%. 시트 컨테이너는 가장 큰 높이(85%)로 고정하고
-// translateY로 아래로 밀어내 낮은 snap point를 표현한다 (완전히 닫히는 상태는 없음).
-const RV_SNAP_RATIOS = { min: 0.2, default: 0.4, max: 0.85 };
-const RV_SHEET_MAX_H = Math.round(SCREEN_H * RV_SNAP_RATIOS.max);
-const RV_SHEET_MIN_H = Math.round(SCREEN_H * RV_SNAP_RATIOS.min);
-const RV_SHEET_DEFAULT_H = Math.round(SCREEN_H * RV_SNAP_RATIOS.default);
-const RV_SNAP_TRANSLATES = [
-  0, // 85% (최대)
-  RV_SHEET_MAX_H - RV_SHEET_DEFAULT_H, // 40% (기본)
-  RV_SHEET_MAX_H - RV_SHEET_MIN_H, // 20% (최소, 완전히 닫히지 않음)
-];
-const RV_DEFAULT_TRANSLATE = RV_SNAP_TRANSLATES[1];
-const RV_MAX_TRANSLATE = RV_SNAP_TRANSLATES[2];
+// 바텀시트 snap point: 화면의 20% / 40% / 85%.
+const RV_SNAP_POINTS = ['20%', '40%', '85%'];
+const RV_DEFAULT_SNAP_INDEX = 1;
 const RV_DEFAULT_LAT = 35.8562;
 const RV_DEFAULT_LNG = 129.2247;
 const RV_DOT_SIZE = 28;
@@ -643,6 +694,7 @@ function RouteStopBlock({
   isLast,
   walkMeters,
   walkMinutes,
+  onPress,
   children,
 }: {
   railStyle: StyleProp<ViewStyle>;
@@ -650,16 +702,17 @@ function RouteStopBlock({
   isLast: boolean;
   walkMeters?: number;
   walkMinutes?: number;
+  onPress?: () => void;
   children: React.ReactNode;
 }) {
   const [blockHeight, setBlockHeight] = useState(0);
   const lineHeight = Math.max(0, blockHeight - RV_DOT_SIZE - RV_LINE_GAP_TOP - RV_LINE_GAP_BOTTOM);
   return (
     <View style={rv.stopBlock} onLayout={(e) => setBlockHeight(e.nativeEvent.layout.height)}>
-      <View style={rv.stopRow}>
+      <TouchableOpacity style={rv.stopRow} activeOpacity={0.7} onPress={onPress} disabled={!onPress}>
         <View style={railStyle}>{dot}</View>
         {children}
-      </View>
+      </TouchableOpacity>
       {!isLast && (
         <View style={rv.dashOverlay}>
           <DashLine height={lineHeight} />
@@ -681,62 +734,33 @@ function WalkBadge({ meters, minutes }: { meters: number; minutes?: number }) {
   );
 }
 
-function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => void }) {
+function RouteView({
+  schedule,
+  departurePlaces,
+  onBack,
+}: {
+  schedule: Schedule;
+  departurePlaces: Record<string, MapPlace>;
+  onBack: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<KakaoMapHandle>(null);
-  const translateY = useRef(new Animated.Value(RV_DEFAULT_TRANSLATE)).current;
-  const dragStart = useRef(RV_DEFAULT_TRANSLATE);
-  const currentValue = useRef(RV_DEFAULT_TRANSLATE);
+  const sheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => RV_SNAP_POINTS, []);
+  // @gorhom/bottom-sheet가 시트의 현재 위치(화면 상단 기준 y좌표)를 이 shared value에 계속 반영해준다.
+  // 지도 위 확대/축소·내 위치 버튼을 시트 바로 위에 붙이기 위해 여기서 읽어 쓴다.
+  const animatedPosition = useSharedValue(SCREEN_H);
+  // 탭 네비게이터 안이라 실제 컨테이너 높이가 SCREEN_H보다 작다 (탭 바 높이만큼 차이 남).
+  // 버튼이 시트에서 너무 멀어지지 않도록 실제 레이아웃 높이를 측정해서 사용한다.
+  const containerHeight = useSharedValue(SCREEN_H);
+  const controlsAnimatedStyle = useAnimatedStyle(() => ({
+    bottom: containerHeight.value - animatedPosition.value + 16,
+  }));
 
-  useEffect(() => {
-    const id = translateY.addListener(({ value }) => {
-      currentValue.current = value;
-    });
-    return () => translateY.removeListener(id);
-  }, []);
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, { dy }) => Math.abs(dy) > 4,
-      onPanResponderGrant: () => {
-        dragStart.current = currentValue.current;
-      },
-      onPanResponderMove: (_, { dy }) => {
-        const next = Math.min(Math.max(dragStart.current + dy, 0), RV_MAX_TRANSLATE);
-        translateY.setValue(next);
-      },
-      onPanResponderRelease: (_, { dy, vy }) => {
-        const current = Math.min(Math.max(dragStart.current + dy, 0), RV_MAX_TRANSLATE);
-        // 가까운 snap point로 이동하되, 빠르게 스와이프했으면 그 방향의 다음 snap point로 보낸다
-        const FLICK_VELOCITY = 0.6;
-        let target = RV_SNAP_TRANSLATES.reduce((closest, point) =>
-          Math.abs(point - current) < Math.abs(closest - current) ? point : closest
-        );
-        if (vy > FLICK_VELOCITY) {
-          const lower = RV_SNAP_TRANSLATES.filter((p) => p > current);
-          if (lower.length) target = Math.min(...lower);
-        } else if (vy < -FLICK_VELOCITY) {
-          const higher = RV_SNAP_TRANSLATES.filter((p) => p < current);
-          if (higher.length) target = Math.max(...higher);
-        }
-        Animated.spring(translateY, {
-          toValue: target,
-          useNativeDriver: false,
-          bounciness: 4,
-        }).start();
-      },
-    })
-  ).current;
-
-  const controlsBottom = translateY.interpolate({
-    inputRange: [0, RV_MAX_TRANSLATE],
-    outputRange: [RV_SHEET_MAX_H + 16, RV_SHEET_MIN_H + 16],
-  });
-
-  const departureCoord = DEPARTURE_COORDS[schedule.departureLabel] ?? {
-    lat: schedule.places[0]?.latitude,
-    lng: schedule.places[0]?.longitude,
-  };
+  const departurePlace = departurePlaces[schedule.departureLabel];
+  const departureCoord = departurePlace
+    ? { lat: departurePlace.latitude, lng: departurePlace.longitude }
+    : { lat: schedule.places[0]?.latitude, lng: schedule.places[0]?.longitude };
   const routePlaces = [
     { id: 'departure', lat: departureCoord.lat, lng: departureCoord.lng },
     ...schedule.places.map((p) => ({ id: p.id, lat: p.latitude, lng: p.longitude })),
@@ -775,7 +799,13 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
     <View style={rv.safeArea}>
       <KakaoMap ref={mapRef} routePlaces={routePlaces} routePath={routePath} />
 
-      <View style={rv.overlaySafeArea} pointerEvents="box-none">
+      <View
+        style={rv.overlaySafeArea}
+        pointerEvents="box-none"
+        onLayout={(e) => {
+          containerHeight.value = e.nativeEvent.layout.height;
+        }}
+      >
         <TouchableOpacity
           style={[rv.backBtn, { top: insets.top + 12 }]}
           activeOpacity={0.8}
@@ -784,7 +814,7 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
           <Text style={rv.backArrow}>←</Text>
         </TouchableOpacity>
 
-        <Animated.View style={[rv.zoomContainer, { bottom: controlsBottom }]}>
+        <View style={rv.zoomContainer}>
           <TouchableOpacity style={rv.zoomBtn} activeOpacity={0.7} onPress={() => mapRef.current?.zoomIn()}>
             <Text style={rv.zoomBtnText}>+</Text>
           </TouchableOpacity>
@@ -792,9 +822,9 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
           <TouchableOpacity style={rv.zoomBtn} activeOpacity={0.7} onPress={() => mapRef.current?.zoomOut()}>
             <Text style={rv.zoomBtnText}>−</Text>
           </TouchableOpacity>
-        </Animated.View>
+        </View>
 
-        <Animated.View style={[rv.locationBtn, { bottom: controlsBottom }]}>
+        <Reanimated.View style={[rv.locationBtn, controlsAnimatedStyle]}>
           <TouchableOpacity
             style={rv.locationBtnTouchable}
             activeOpacity={0.8}
@@ -802,21 +832,27 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
           >
             <MapMyLocationIcon width={22} height={22} color="#A89E9C" />
           </TouchableOpacity>
-        </Animated.View>
+        </Reanimated.View>
       </View>
 
-      <Animated.View style={[rv.sheet, { height: RV_SHEET_MAX_H, transform: [{ translateY }] }]}>
-        <View {...panResponder.panHandlers}>
-          <View style={rv.handleArea}>
-            <View style={rv.handle} />
-          </View>
-        </View>
-        <ScrollView style={rv.sheetScroll} showsVerticalScrollIndicator={false} contentContainerStyle={rv.sheetContent}>
+      <BottomSheet
+        ref={sheetRef}
+        index={RV_DEFAULT_SNAP_INDEX}
+        snapPoints={snapPoints}
+        animatedPosition={animatedPosition}
+        enableDynamicSizing={false}
+        enableContentPanningGesture={false}
+        backgroundStyle={rv.sheetBackground}
+        handleIndicatorStyle={rv.handle}
+        handleStyle={rv.handleArea}
+      >
+        <BottomSheetScrollView showsVerticalScrollIndicator={false} contentContainerStyle={rv.sheetContent}>
           <RouteStopBlock
             railStyle={rv.departureRail}
             isLast={schedule.places.length === 0}
             walkMeters={schedule.places.length > 0 ? departureToFirstMeters : undefined}
             walkMinutes={schedule.places.length > 0 ? departureToFirstMinutes : undefined}
+            onPress={() => mapRef.current?.moveTo(departureCoord.lat, departureCoord.lng)}
             dot={
               <View style={rv.stopDepartureDot}>
                 <Text style={rv.stopDepartureDotText} numberOfLines={1}>
@@ -825,9 +861,7 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
               </View>
             }
           >
-            <View style={rv.stopDepartureIconBox}>
-              <ScheduleWaypointIcon width={18} height={18} color={Colors.textBody2} />
-            </View>
+            <PlaceThumbnail uri={departurePlace?.imageUri ?? null} style={rv.stopThumb} />
             <Text style={rv.stopName} numberOfLines={1}>
               {schedule.departureLabel}
             </Text>
@@ -849,13 +883,17 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
                 isLast={isLast}
                 walkMeters={!isLast ? meters : undefined}
                 walkMinutes={!isLast ? segment?.durationMinutes : undefined}
+                onPress={() => {
+                  mapRef.current?.moveTo(place.latitude, place.longitude);
+                  sheetRef.current?.collapse();
+                }}
                 dot={
                   <View style={rv.stopDot}>
                     <Text style={rv.stopDotText}>{i + 1}</Text>
                   </View>
                 }
               >
-                <Image source={{ uri: place.imageUri ?? undefined }} style={rv.stopThumb} resizeMode="cover" />
+                <PlaceThumbnail uri={place.imageUri} style={rv.stopThumb} />
                 <View style={rv.stopInfo}>
                   <View style={rv.stopNameRow}>
                     <Text style={rv.stopName} numberOfLines={1}>
@@ -884,8 +922,8 @@ function RouteView({ schedule, onBack }: { schedule: Schedule; onBack: () => voi
               </RouteStopBlock>
             );
           })}
-        </ScrollView>
-      </Animated.View>
+        </BottomSheetScrollView>
+      </BottomSheet>
     </View>
   );
 }
@@ -915,6 +953,11 @@ export default function ScheduleScreen() {
   const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<string>>(new Set());
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [viewingRouteSchedule, setViewingRouteSchedule] = useState<Schedule | null>(null);
+  const [departurePlaces, setDeparturePlaces] = useState<Record<string, MapPlace>>({});
+
+  useEffect(() => {
+    fetchDeparturePlaces().then(setDeparturePlaces);
+  }, []);
 
   const exitScheduleEditMode = () => {
     setIsEditMode(false);
@@ -932,7 +975,11 @@ export default function ScheduleScreen() {
 
   if (viewingRouteSchedule) {
     return (
-      <RouteView schedule={viewingRouteSchedule} onBack={() => setViewingRouteSchedule(null)} />
+      <RouteView
+        schedule={viewingRouteSchedule}
+        departurePlaces={departurePlaces}
+        onBack={() => setViewingRouteSchedule(null)}
+      />
     );
   }
 
@@ -1084,6 +1131,7 @@ export default function ScheduleScreen() {
               <ScheduleCard
                 key={schedule.id}
                 schedule={schedule}
+                departurePlaces={departurePlaces}
                 expanded={expandedId === schedule.id}
                 onToggle={() => setExpandedId((id) => (id === schedule.id ? null : schedule.id))}
                 onEdit={() => setEditingSchedule(schedule)}
@@ -1140,7 +1188,8 @@ const cs = StyleSheet.create({
   backArrow: { fontSize: 22, color: Colors.textBody1, lineHeight: 28 },
   headerTitle: { fontSize: 20, fontWeight: '700', color: Colors.textBody1 },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: 120 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: Spacing.xl, paddingBottom: 120 },
+  placeEmptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   sectionLabel: { fontSize: 14, fontWeight: '600', color: Colors.textBody1, marginBottom: 8 },
   selectorRow: {
     flexDirection: 'row',
@@ -1420,15 +1469,6 @@ const ss = StyleSheet.create({
     justifyContent: 'center',
   },
   timelineDepartureDotText: { fontSize: 11, fontWeight: '700', color: Colors.white },
-  timelineDepartureIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.bgWarm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timelineDepartureIcon: { width: 18, height: 18 },
   // 원 아래에서 다음 원 위까지 이어지도록 절대 위치로 배치 (thumb 48 - dot 28 만큼 위아래 여백 + 행 간격 20)
   timelineLine: {
     position: 'absolute',
@@ -1528,6 +1568,7 @@ const rv = StyleSheet.create({
   zoomContainer: {
     position: 'absolute',
     left: Spacing.xl,
+    bottom: 24,
     width: 46,
     borderRadius: 14,
     backgroundColor: 'rgba(255, 251, 246, 0.92)',
@@ -1557,24 +1598,18 @@ const rv = StyleSheet.create({
     elevation: 4,
   },
   locationBtnTouchable: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+  sheetBackground: {
     backgroundColor: Colors.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    overflow: 'hidden',
     shadowColor: '#3A3330',
     shadowOpacity: 0.12,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: -2 },
     elevation: 10,
   },
-  handleArea: { alignItems: 'center', paddingTop: 16, paddingBottom: 16 },
+  handleArea: { paddingTop: 16, paddingBottom: 16 },
   handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#D9D4CF' },
-  sheetScroll: { flex: 1 },
   sheetContent: { paddingHorizontal: Spacing.xl, paddingBottom: 24 },
   stopBlock: { position: 'relative' },
   dashOverlay: { position: 'absolute', top: RV_DOT_SIZE + RV_LINE_GAP_TOP, left: 13 },
@@ -1600,15 +1635,6 @@ const rv = StyleSheet.create({
     justifyContent: 'center',
   },
   stopDepartureDotText: { fontSize: 11, fontWeight: '700', color: Colors.white },
-  stopDepartureIconBox: {
-    width: 56,
-    height: 56,
-    marginBottom: Spacing.lg,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.bgWarm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   dashLineContainer: {
     width: 2,
     overflow: 'hidden',
@@ -1632,10 +1658,8 @@ const rv = StyleSheet.create({
     marginTop: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.background,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.bgWarm,
   },
   walkIcon: { width: 13, height: 13, alignSelf: 'center' },
   walkText: { fontSize: 12, lineHeight: 16, color: Colors.textMuted, textAlignVertical: 'center' },

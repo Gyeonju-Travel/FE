@@ -13,9 +13,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
+import * as Location from 'expo-location';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { MapPlace } from '@/types/map';
-import { searchPlaces, getPlaceDetail, saveBookmark, deleteBookmarks, PlaceCategoryCode, ApiError } from '@/utils/api';
+import { searchPlaces, getPlaceDetail, getBookmarks, saveBookmark, deleteBookmarks, PlaceCategoryCode, ApiError } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { toMapPlace, toMapPlaceDetail } from '@/utils/placeMappers';
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
@@ -25,30 +26,29 @@ import FilterAllIcon from '@/assets/icons/filter-all.svg';
 import FilterTourIcon from '@/assets/icons/filter-tour.svg';
 import FilterCafeIcon from '@/assets/icons/filter-cafe.svg';
 import FilterFoodIcon from '@/assets/icons/filter-food.svg';
+import FilterSavedIcon from '@/assets/icons/tab-save-active.svg';
 import MapMyLocationIcon from '@/assets/icons/map-mylocation.svg';
 
 const LOCATION_BTN_BOTTOM = 24;
 const SHEET_GAP = 12;
 const LOCATION_BTN_RAISE = SHEET_HEIGHT + SHEET_GAP - LOCATION_BTN_BOTTOM;
 
-type Category = '전체' | '관광지' | '카페' | '식당';
+const SAVED_FILTER = '내 저장' as const;
+type Category = '전체' | '관광지' | '카페' | '식당' | typeof SAVED_FILTER;
 
 const CATEGORIES: { label: Category; Icon: React.FC<{ width?: number; height?: number; color?: string }> }[] = [
   { label: '전체', Icon: FilterAllIcon },
   { label: '관광지', Icon: FilterTourIcon },
   { label: '카페', Icon: FilterCafeIcon },
   { label: '식당', Icon: FilterFoodIcon },
+  { label: SAVED_FILTER, Icon: FilterSavedIcon },
 ];
 
-const CATEGORY_CODE: Record<Exclude<Category, '전체'>, PlaceCategoryCode> = {
+const CATEGORY_CODE: Record<Exclude<Category, '전체' | typeof SAVED_FILTER>, PlaceCategoryCode> = {
   관광지: 'ATTRACTION',
   카페: 'CAFE',
   식당: 'RESTAURANT',
 };
-
-// 경주 중심 좌표
-const GYEONGJU_LAT = 35.8562;
-const GYEONGJU_LNG = 129.2247;
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
@@ -60,8 +60,38 @@ export default function MapScreen() {
   const [keyword, setKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<MapPlace[]>([]);
   const [searching, setSearching] = useState(false);
+  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [likedPlaceIds, setLikedPlaceIds] = useState<string[]>([]);
   const locationBtnY = useRef(new Animated.Value(0)).current;
+
+  const fetchMyLocation = async () => {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      setToastMsg('위치 접근 권한이 필요해요.');
+      return null;
+    }
+    try {
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      setMyLocation(loc);
+      return loc;
+    } catch (e) {
+      setToastMsg('현재 위치를 가져오지 못했어요.');
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    fetchMyLocation();
+  }, []);
+
+  const handleLocationPress = async () => {
+    const loc = await fetchMyLocation();
+    if (!loc) return;
+    mapRef.current?.moveTo(loc.lat, loc.lng);
+    mapRef.current?.updateMyLocation(loc.lat, loc.lng);
+  };
 
   const fetchPlaces = async (category: Category) => {
     const token = await getAccessToken();
@@ -69,7 +99,7 @@ export default function MapScreen() {
     try {
       const result = await searchPlaces(
         {
-          categories: category === '전체' ? undefined : [CATEGORY_CODE[category]],
+          categories: category === '전체' || category === SAVED_FILTER ? undefined : [CATEGORY_CODE[category]],
           size: 200,
         },
         token
@@ -84,6 +114,21 @@ export default function MapScreen() {
   useEffect(() => {
     fetchPlaces(selectedCategory);
   }, [selectedCategory]);
+
+  const fetchLikedPlaceIds = async () => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const bookmarks = await getBookmarks(undefined, token);
+      setLikedPlaceIds(bookmarks.map((b) => String(b.id)));
+    } catch (e) {
+      // 저장 목록을 못 불러와도 지도 자체는 그대로 보여준다.
+    }
+  };
+
+  useEffect(() => {
+    fetchLikedPlaceIds();
+  }, []);
 
   const openPlaceDetail = async (place: MapPlace) => {
     setSelectedPlace(place);
@@ -175,9 +220,11 @@ export default function MapScreen() {
     try {
       if (liked) {
         await saveBookmark(Number(place.id), token);
+        setLikedPlaceIds((prev) => (prev.includes(place.id) ? prev : [...prev, place.id]));
         setToastMsg('저장 목록에 추가했어요.');
       } else {
         await deleteBookmarks([Number(place.id)], token);
+        setLikedPlaceIds((prev) => prev.filter((id) => id !== place.id));
         setToastMsg('저장을 취소했어요.');
       }
     } catch (e) {
@@ -202,12 +249,19 @@ export default function MapScreen() {
     }).start();
   }, [selectedPlace]);
 
+  const visiblePlaces =
+    selectedCategory === SAVED_FILTER
+      ? places.filter((p) => likedPlaceIds.includes(p.id))
+      : places;
+
   return (
     <View style={styles.container}>
       {/* 카카오맵 */}
       <KakaoMap
         ref={mapRef}
-        markers={places}
+        markers={visiblePlaces}
+        likedPlaceIds={likedPlaceIds}
+        currentLocation={myLocation}
         onMarkerPress={handleMarkerPress}
         onMapPress={handleMapPress}
       />
@@ -287,7 +341,12 @@ export default function MapScreen() {
       </View>
 
       {/* 바텀시트 */}
-      <MapPlaceSheet place={selectedPlace} onClose={handleMapPress} onToggleLike={handleToggleLike} />
+      <MapPlaceSheet
+        place={selectedPlace}
+        liked={selectedPlace ? likedPlaceIds.includes(selectedPlace.id) : false}
+        onClose={handleMapPress}
+        onToggleLike={handleToggleLike}
+      />
 
       <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={20} />
 
@@ -323,7 +382,7 @@ export default function MapScreen() {
         <TouchableOpacity
           style={styles.locationBtnTouchable}
           activeOpacity={0.8}
-          onPress={() => mapRef.current?.moveTo(GYEONGJU_LAT, GYEONGJU_LNG)}
+          onPress={handleLocationPress}
         >
           <MapMyLocationIcon width={22} height={22} color="#A89E9C" />
         </TouchableOpacity>
@@ -353,10 +412,10 @@ const styles = StyleSheet.create({
     height: 46,
     gap: 8,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 5,
   },
   searchIcon: {
     width: 18,
@@ -421,10 +480,10 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     gap: 5,
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   chipActive: {
     backgroundColor: Colors.coral,

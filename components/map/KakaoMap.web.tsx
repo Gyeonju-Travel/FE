@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { MapPlace } from '@/types/map';
 import {
   categoryPinUri,
+  categoryPinUriSaved,
   currentLocationUri,
   routeStartPinUri,
   routeNumberPinUris,
@@ -18,6 +19,7 @@ export interface KakaoMapHandle {
   zoomIn: () => void;
   zoomOut: () => void;
   moveTo: (lat: number, lng: number) => void;
+  updateMyLocation: (lat: number, lng: number) => void;
 }
 
 interface Props {
@@ -25,6 +27,9 @@ interface Props {
   longitude?: number;
   level?: number;
   markers?: MapPlace[];
+  /** 저장(하트)한 장소 id 목록. 세이지 그린 핀으로 표시된다. */
+  likedPlaceIds?: string[];
+  currentLocation?: { lat: number; lng: number } | null;
   routePlaces?: RouteMapPlace[];
   routePath?: RoutePathPoint[];
   onMarkerPress?: (id: string) => void;
@@ -38,6 +43,8 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     longitude = DEFAULT_LNG,
     level = 4,
     markers = [],
+    likedPlaceIds = [],
+    currentLocation = null,
     routePlaces = [],
     routePath = [],
     onMarkerPress,
@@ -62,6 +69,9 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     moveTo(lat: number, lng: number) {
       postToIframe({ type: 'moveTo', lat, lng });
     },
+    updateMyLocation(lat: number, lng: number) {
+      postToIframe({ type: 'updateMyLocation', lat, lng });
+    },
   }));
 
   const centerLat = routePlaces.length > 0
@@ -71,8 +81,15 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     ? routePlaces[0].lng
     : markers.length > 0 ? markers[0].longitude : longitude;
 
+  const likedPlaceIdSet = new Set(likedPlaceIds);
   const markersJson = JSON.stringify(
-    markers.map((m) => ({ id: m.id, lat: m.latitude, lng: m.longitude, category: m.category }))
+    markers.map((m) => ({
+      id: m.id,
+      lat: m.latitude,
+      lng: m.longitude,
+      category: m.category,
+      liked: likedPlaceIdSet.has(m.id),
+    }))
   );
   const routePlacesJson = JSON.stringify(routePlaces);
   const routePathJson = JSON.stringify(routePath);
@@ -88,9 +105,13 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       pinCafe: categoryPinUri['카페'],
       pinRestaurant: categoryPinUri['식당'],
       pinTour: categoryPinUri['관광지'],
+      pinCafeSaved: categoryPinUriSaved['카페'],
+      pinRestaurantSaved: categoryPinUriSaved['식당'],
+      pinTourSaved: categoryPinUriSaved['관광지'],
       myLoc: currentLocationUri,
-      myLocLat: String(DEFAULT_LAT),
-      myLocLng: String(DEFAULT_LNG),
+      ...(currentLocation
+        ? { myLocLat: String(currentLocation.lat), myLocLng: String(currentLocation.lng) }
+        : {}),
       routePlaces: routePlacesJson,
       routeStartPin: routeStartPinUri,
       routeNumberPins: JSON.stringify(routeNumberPinUris),

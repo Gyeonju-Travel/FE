@@ -122,6 +122,8 @@ export default function SignupScreen() {
   const [phone, setPhone] = useState('');
   const [gender, setGender] = useState<Gender | null>(null);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [emailApiError, setEmailApiError] = useState<string | null>(null);
 
   const [birthYearIdx, setBirthYearIdx] = useState(DEFAULT_YEAR_IDX);
   const [birthMonthIdx, setBirthMonthIdx] = useState(0);
@@ -133,28 +135,45 @@ export default function SignupScreen() {
     ? `${BIRTH_YEAR_BASE + birthYearIdx}년 ${birthMonthIdx + 1}월 ${birthDayIdx + 1}일`
     : null;
 
-  const emailError = email.length > 0 && !EMAIL_REGEX.test(email) ? '올바른 이메일 형식이 아니에요' : null;
-  const passwordError = password.length > 0 && password.length < 8 ? '비밀번호는 8자 이상 입력해주세요' : null;
-  const passwordConfirmError =
-    passwordConfirm.length > 0 && passwordConfirm !== password ? '비밀번호가 일치하지 않아요' : null;
-  const phoneError =
-    phone.length > 0 && !PHONE_REGEX.test(phone) ? '올바른 전화번호 형식이 아니에요 (예: 010-1234-5678)' : null;
+  const emailError = email.length > 0 && !EMAIL_REGEX.test(email)
+    ? '올바른 이메일 형식이 아니에요'
+    : submitted && !email
+    ? '이메일을 입력해 주세요.'
+    : emailApiError;
+  const passwordError = password.length > 0 && password.length < 8
+    ? '비밀번호는 8자 이상 입력해주세요'
+    : submitted && !password
+    ? '비밀번호를 입력해 주세요.'
+    : null;
+  const passwordConfirmError = passwordConfirm.length > 0 && passwordConfirm !== password
+    ? '비밀번호가 일치하지 않습니다.'
+    : submitted && !passwordConfirm
+    ? '비밀번호 재확인을 입력해 주세요.'
+    : null;
+  const phoneError = phone.length > 0 && !PHONE_REGEX.test(phone)
+    ? '올바른 전화번호 형식이 아니에요 (예: 010-1234-5678)'
+    : submitted && !phone
+    ? '전화번호를 입력해 주세요.'
+    : null;
+  const nameError = submitted && !name ? '이름을 입력해 주세요.' : null;
+  const birthDateError = submitted && !birthDateConfirmed ? '생년월일을 입력해 주세요.' : null;
+  const genderError = submitted && !gender ? '성별을 선택해주세요.' : null;
 
   const handleSignUp = async () => {
-    if (!email || !password || !name || !phone) {
-      showAlert('회원가입', '이메일, 비밀번호, 이름, 전화번호를 입력해주세요.');
-      return;
-    }
-    if (!birthDateConfirmed || !gender) {
-      showAlert('회원가입', '생년월일과 성별을 선택해주세요.');
-      return;
-    }
-    if (emailError || passwordError || passwordConfirmError || phoneError) {
-      showAlert('회원가입', '입력 정보를 다시 확인해주세요.');
-      return;
-    }
-    if (password !== passwordConfirm) {
-      showAlert('회원가입', '비밀번호가 일치하지 않아요.');
+    setSubmitted(true);
+    if (
+      !email ||
+      !password ||
+      !passwordConfirm ||
+      !name ||
+      !phone ||
+      !birthDateConfirmed ||
+      !gender ||
+      emailError ||
+      passwordError ||
+      passwordConfirmError ||
+      phoneError
+    ) {
       return;
     }
     setLoading(true);
@@ -174,8 +193,11 @@ export default function SignupScreen() {
       await saveTokens(result.accessToken);
       router.replace('/signup-complete');
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : '회원가입에 실패했어요. 잠시 후 다시 시도해주세요.';
-      showAlert('회원가입 실패', message);
+      if (e instanceof ApiError) {
+        setEmailApiError(e.message);
+      } else {
+        showAlert('회원가입 실패', '회원가입에 실패했어요. 잠시 후 다시 시도해주세요.');
+      }
     } finally {
       setLoading(false);
     }
@@ -196,7 +218,10 @@ export default function SignupScreen() {
           Icon={EmailIcon}
           placeholder="이메일"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(t) => {
+            setEmail(t);
+            setEmailApiError(null);
+          }}
           autoCapitalize="none"
           keyboardType="email-address"
           error={emailError}
@@ -226,7 +251,14 @@ export default function SignupScreen() {
           }
           error={passwordConfirmError}
         />
-        <FormField label="이름" Icon={NameIcon} placeholder="이름" value={name} onChangeText={setName} />
+        <FormField
+          label="이름"
+          Icon={NameIcon}
+          placeholder="이름"
+          value={name}
+          onChangeText={setName}
+          error={nameError}
+        />
 
         <Text style={styles.label}>생년월일</Text>
         <View style={styles.dateRow}>
@@ -246,6 +278,7 @@ export default function SignupScreen() {
             onPress={() => setDatePickerVisible(true)}
           />
         </View>
+        {birthDateError && <Text style={styles.inlineErrorText}>{birthDateError}</Text>}
 
         <Text style={styles.label}>성별</Text>
         <View style={styles.genderRow}>
@@ -265,6 +298,7 @@ export default function SignupScreen() {
             );
           })}
         </View>
+        {genderError && <Text style={styles.inlineErrorText}>{genderError}</Text>}
 
         <FormField
           label="전화번호"
@@ -317,6 +351,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '700', color: Colors.textBody1 },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textBody1, marginBottom: 8 },
+  inlineErrorText: { fontSize: 12, color: '#D14343', marginTop: -8, marginBottom: Spacing.sm },
   dateRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
   dateSelect: {
     flex: 1,

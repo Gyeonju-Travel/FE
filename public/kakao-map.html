@@ -88,9 +88,14 @@
       '식당': params.get('pinRestaurant') || '',
       '관광지': params.get('pinTour') || '',
     };
+    var categoryPinUriSaved = {
+      '카페': params.get('pinCafeSaved') || '',
+      '식당': params.get('pinRestaurantSaved') || '',
+      '관광지': params.get('pinTourSaved') || '',
+    };
     var myLocationImageSrc = params.get('myLoc') || '';
-    var myLocationLat = parseFloat(params.get('myLocLat')) || centerLat;
-    var myLocationLng = parseFloat(params.get('myLocLng')) || centerLng;
+    var myLocationLat = params.get('myLocLat') ? parseFloat(params.get('myLocLat')) : null;
+    var myLocationLng = params.get('myLocLng') ? parseFloat(params.get('myLocLng')) : null;
     var routePlaces = [];
     try {
       routePlaces = JSON.parse(params.get('routePlaces') || '[]');
@@ -124,9 +129,12 @@
         markers.forEach(function (place) {
           var el = document.createElement('div');
           el.className = 'place-marker place-marker--' + place.category;
+          var pinUri = place.liked
+            ? categoryPinUriSaved[place.category]
+            : categoryPinUri[place.category];
           el.innerHTML =
             '<div class="pulse"></div>' +
-            '<img src="' + categoryPinUri[place.category] + '" />';
+            '<img src="' + pinUri + '" />';
           el.addEventListener('click', function () {
             sendMessage({ type: 'markerClick', id: place.id });
           });
@@ -179,11 +187,11 @@
           window.kakaoMap.setBounds(bounds, 80, 80, 80, 80);
         }
 
-        if (myLocationImageSrc) {
+        if (myLocationImageSrc && myLocationLat != null && myLocationLng != null) {
           var myLocationContent =
             '<div class="my-location"><div class="pulse"></div>' +
             '<img src="' + myLocationImageSrc + '" /></div>';
-          new kakao.maps.CustomOverlay({
+          window.myLocationOverlay = new kakao.maps.CustomOverlay({
             map: window.kakaoMap,
             position: new kakao.maps.LatLng(myLocationLat, myLocationLng),
             content: myLocationContent,
@@ -219,6 +227,23 @@
         window.kakaoMap.setLevel(window.kakaoMap.getLevel() + 1, { animate: true });
       } else if (data.type === 'moveTo') {
         window.kakaoMap.panTo(new kakao.maps.LatLng(data.lat, data.lng));
+      } else if (data.type === 'updateMyLocation') {
+        var pos = new kakao.maps.LatLng(data.lat, data.lng);
+        if (window.myLocationOverlay) {
+          window.myLocationOverlay.setPosition(pos);
+        } else {
+          var el = document.createElement('div');
+          el.className = 'my-location';
+          el.innerHTML = '<div class="pulse"></div><img src="' + myLocationImageSrc + '" />';
+          window.myLocationOverlay = new kakao.maps.CustomOverlay({
+            map: window.kakaoMap,
+            position: pos,
+            content: el,
+            xAnchor: 0.5,
+            yAnchor: 0.5,
+            zIndex: 5,
+          });
+        }
       }
     });
   </script>

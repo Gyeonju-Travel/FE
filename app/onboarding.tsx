@@ -8,7 +8,7 @@ import SizeLargeIcon from '@/assets/icons/size-large.svg';
 import OnboardingCameraIcon from '@/assets/login/onboarding-camera.svg';
 import OnboardingCafeIcon from '@/assets/login/onboarding-cafe.svg';
 import OnboardingNatureIcon from '@/assets/login/onboarding-nature.svg';
-import { registerPet, ApiError } from '@/utils/api';
+import { completeOnboarding, ApiError, PetTravelPreference } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { sizeToApi } from '@/utils/petMappers';
 import { showAlert } from '@/components/ui/AppAlert';
@@ -20,13 +20,13 @@ type Step = 1 | 2 | 3;
 const STEP_TITLES: [string, string][] = [
   ['어떤 여행을', '선호 하시나요?'],
   ['강아지 크기를', '알려주세요!'],
-  ['평소 산책 스타일은', '어떤가요?'],
+  ['강아지의 성향은', '어떤가요?'],
 ];
 
-const TRAVEL_PREF_OPTIONS = [
-  { id: 'photo-spot', label: '사진 찍기 좋은 관광지', Icon: OnboardingCameraIcon },
-  { id: 'cafe', label: '분위기 좋은 카페', Icon: OnboardingCafeIcon },
-  { id: 'nature-walk', label: '산책하기 좋은 자연 경관', Icon: OnboardingNatureIcon },
+const TRAVEL_PREF_OPTIONS: { id: string; label: string; Icon: IconComponent; travelPreference: PetTravelPreference }[] = [
+  { id: 'photo-spot', label: '사진 찍기 좋은 관광지', Icon: OnboardingCameraIcon, travelPreference: 'PHOTO_SPOT' },
+  { id: 'cafe', label: '분위기 좋은 카페', Icon: OnboardingCafeIcon, travelPreference: 'CAFE' },
+  { id: 'nature-walk', label: '산책하기 좋은 자연 경관', Icon: OnboardingNatureIcon, travelPreference: 'NATURE' },
 ];
 
 const DOG_SIZE_OPTIONS = [
@@ -35,9 +35,11 @@ const DOG_SIZE_OPTIONS = [
   { value: '대형견', iconSize: 80, Icon: SizeLargeIcon },
 ];
 
-const WALK_STYLE_OPTIONS: { id: string; label: string; personality: 'RELAXED' | 'ACTIVE' }[] = [
-  { id: 'short', label: '짧은 산책을 선호해요', personality: 'RELAXED' },
-  { id: 'long', label: '긴 산책도 거뜬해요', personality: 'ACTIVE' },
+const MAX_PERSONALITY_SELECT = 2;
+const PERSONALITY_OPTIONS = [
+  { id: 'shy', label: '#낯가림' },
+  { id: 'relaxed', label: '#느긋함' },
+  { id: 'social', label: '#사교적' },
 ];
 
 function StepIndicator({ currentStep, onStepPress }: { currentStep: Step; onStepPress: (step: Step) => void }) {
@@ -185,12 +187,20 @@ function CenteredStage({
 }
 
 export default function OnboardingScreen() {
-  const { dogName } = useLocalSearchParams<{ dogName?: string }>();
+  const { dogName, photoUri } = useLocalSearchParams<{ dogName?: string; photoUri?: string }>();
   const [step, setStep] = useState<Step>(1);
   const [travelPref, setTravelPref] = useState(TRAVEL_PREF_OPTIONS[0].id);
   const [dogSize, setDogSize] = useState(DOG_SIZE_OPTIONS[0].value);
-  const [walkStyle, setWalkStyle] = useState(WALK_STYLE_OPTIONS[0].id);
+  const [personalities, setPersonalities] = useState<string[]>([]);
   const [registering, setRegistering] = useState(false);
+
+  const togglePersonality = (id: string) => {
+    setPersonalities((prev) => {
+      if (prev.includes(id)) return prev.filter((p) => p !== id);
+      if (prev.length >= MAX_PERSONALITY_SELECT) return prev;
+      return [...prev, id];
+    });
+  };
 
   const handleNext = async () => {
     if (step < 3) {
@@ -204,17 +214,17 @@ export default function OnboardingScreen() {
     }
     setRegistering(true);
     try {
-      const personality = WALK_STYLE_OPTIONS.find((o) => o.id === walkStyle)?.personality ?? 'RELAXED';
-      await registerPet(
+      const travelPreference = TRAVEL_PREF_OPTIONS.find((o) => o.id === travelPref)?.travelPreference ?? 'NATURE';
+      // TODO: 성향(personalities) 값을 받을 백엔드 필드가 아직 없어서 전송하지 못하고 있음.
+      await completeOnboarding(
         {
           name: dogName ?? '',
-          breed: '믹스',
           size: sizeToApi(dogSize),
-          age: 1,
-          gender: 'MALE',
-          personality,
+          travelPreference,
+          walkingStyle: 'SHORT_WALK',
         },
-        token
+        token,
+        photoUri || null
       );
       router.replace('/(tabs)');
     } catch (e) {
@@ -287,15 +297,22 @@ export default function OnboardingScreen() {
               )}
 
               {step === 3 && (
-                <View>
-                  {WALK_STYLE_OPTIONS.map((opt) => (
-                    <OptionListItem
-                      key={opt.id}
-                      label={opt.label}
-                      selected={walkStyle === opt.id}
-                      onPress={() => setWalkStyle(opt.id)}
-                    />
-                  ))}
+                <View style={ob.personalityGrid}>
+                  {PERSONALITY_OPTIONS.map((opt) => {
+                    const selected = personalities.includes(opt.id);
+                    return (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[ob.personalityChip, selected && ob.personalityChipSelected]}
+                        activeOpacity={0.8}
+                        onPress={() => togglePersonality(opt.id)}
+                      >
+                        <Text style={[ob.personalityChipText, selected && ob.personalityChipTextSelected]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               )}
             </>
@@ -304,6 +321,7 @@ export default function OnboardingScreen() {
       </View>
 
       <View style={ob.bottomBar}>
+        {step === 3 && <Text style={ob.personalityHint}>최대 {MAX_PERSONALITY_SELECT}개까지 선택할 수 있어요</Text>}
         <PrimaryButton
           label={step < 3 ? '다음' : '견주 여행 즐기러 가기'}
           onPress={handleNext}
@@ -405,6 +423,29 @@ const ob = StyleSheet.create({
   },
   sizeBoxSelected: { borderColor: Colors.coral, borderWidth: 1.5 },
   sizeLabel: { fontSize: 14, color: Colors.textBody1 },
+  personalityGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+  },
+  personalityChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.background,
+  },
+  personalityChipSelected: { borderColor: Colors.coral, backgroundColor: Colors.primaryTint },
+  personalityChipText: { fontSize: 14, fontWeight: '500', color: Colors.textBody2 },
+  personalityChipTextSelected: { color: Colors.coralDark, fontWeight: '700' },
+  personalityHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginBottom: Spacing.sm,
+  },
   bottomBar: {
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,

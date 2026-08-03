@@ -37,6 +37,7 @@ import EditCameraIcon from '@/assets/icons/edit-camera.svg';
 import EditSizeIcon from '@/assets/icons/edit-size.svg';
 import StampProgressIllustration from '@/assets/mypage/stamp-progress.svg';
 import ProfileBottomLandscape from '@/assets/mypage/profile-bottom-landscape.svg';
+import ReportHeroLandscape from '@/assets/mypage/report-hero-landscape.svg';
 import { MOCK_TRAVEL_HISTORY } from '@/mock/travelHistory';
 import { MOCK_SCRAP_DATA } from '@/mock/stampAlbum';
 import { DogProfile } from '@/types/mypage';
@@ -66,13 +67,17 @@ import { useScrapCapture } from '@/hooks/useScrapCapture';
 import KakaoMap from '@/components/map/KakaoMap';
 import Badge from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
+import AlertCard from '@/components/ui/AlertCard';
 import { showAlert } from '@/components/ui/AppAlert';
+import PawIcon from '@/assets/icons/paw.svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const PROFILE_TOP_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 350) / 390;
 // 이미지 상단 여백을 당겨서 첨성대 탑 전체(꼭대기~받침대)가 카드에 가리지 않고 보이게 한다.
 const PROFILE_TOP_LANDSCAPE_OFFSET = -PROFILE_TOP_LANDSCAPE_HEIGHT * 0.32;
 const PROFILE_BOTTOM_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 90) / 390;
+const REPORT_HERO_WIDTH = SCREEN_WIDTH - Spacing.xl * 2;
+const REPORT_HERO_LANDSCAPE_HEIGHT = (REPORT_HERO_WIDTH * 71) / 365;
 
 const STAMP_SLOTS = 5;
 const REPORT_CONDITIONS = ['전 구역', '야외만', '이동장 필수', '목줄 필수'];
@@ -152,35 +157,22 @@ function WithdrawConfirmModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={wd.backdrop}>
-        <View style={wd.card}>
-          <View style={wd.iconCircleWarn}>
+        <AlertCard
+          icon={
             <Image
               source={require('@/assets/icons/pets.png')}
-              style={[wd.icon, { tintColor: Colors.coral }]}
+              style={{ width: 28, height: 28, tintColor: Colors.coral }}
               resizeMode="contain"
             />
-          </View>
-          <Text style={wd.title}>정말 탈퇴하시겠어요?</Text>
-          <Text style={wd.subtitle}>탈퇴 버튼 선택 시 계정이 삭제되며{'\n'}복구되지 않습니다.</Text>
-          <View style={wd.btnRow}>
-            <TouchableOpacity
-              style={[wd.btn, wd.btnOutline]}
-              activeOpacity={0.85}
-              onPress={onCancel}
-              disabled={loading}
-            >
-              <Text style={wd.btnOutlineText}>계속 이용하기</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[wd.btn, wd.btnWarn]}
-              activeOpacity={0.85}
-              onPress={onConfirm}
-              disabled={loading}
-            >
-              {loading ? <ActivityIndicator color={Colors.white} /> : <Text style={wd.btnFilledText}>탈퇴하기</Text>}
-            </TouchableOpacity>
-          </View>
-        </View>
+          }
+          iconTone="coral"
+          title="정말 탈퇴하시겠어요?"
+          subtitle={'탈퇴 버튼 선택 시 계정이 삭제되며\n복구되지 않습니다.'}
+          buttons={[
+            { label: '계속 이용하기', onPress: onCancel, variant: 'outline' },
+            { label: '탈퇴하기', onPress: onConfirm, tone: 'coral', loading },
+          ]}
+        />
       </View>
     </Modal>
   );
@@ -190,20 +182,13 @@ function WithdrawSuccessModal({ visible, onConfirm }: { visible: boolean; onConf
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onConfirm}>
       <View style={wd.backdrop}>
-        <View style={wd.card}>
-          <View style={wd.iconCircleSuccess}>
-            <Text style={wd.checkMark}>✓</Text>
-          </View>
-          <Text style={wd.title}>정상적으로 탈퇴되었습니다.</Text>
-          <Text style={wd.subtitle}>그동안 견주여행을{'\n'}이용해주셔서 감사했어요 🐾</Text>
-          <TouchableOpacity
-            style={[wd.btn, wd.btnSuccess, wd.btnFullWidth]}
-            activeOpacity={0.85}
-            onPress={onConfirm}
-          >
-            <Text style={wd.btnFilledText}>확인</Text>
-          </TouchableOpacity>
-        </View>
+        <AlertCard
+          icon={<Text style={{ fontSize: 28, fontWeight: '700', color: Colors.secondaryDark }}>✓</Text>}
+          iconTone="sage"
+          title="정상적으로 탈퇴되었습니다."
+          subtitle={'그동안 견주여행을\n이용해주셔서 감사했어요 🐾'}
+          buttons={[{ label: '확인', onPress: onConfirm, tone: 'sage' }]}
+        />
       </View>
     </Modal>
   );
@@ -276,6 +261,7 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
   const [withdrawStep, setWithdrawStep] = useState<'confirm' | 'success' | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
   const [showInquiry, setShowInquiry] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const handleLogout = async () => {
     const token = await getAccessToken();
@@ -378,7 +364,7 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
           icon={<SettingLogoutIcon width={20} height={20} color={Colors.coral} />}
           title="로그아웃"
           subtitle=""
-          onPress={handleLogout}
+          onPress={() => setShowLogoutConfirm(true)}
         />
         <SettingsRow
           icon={<WithdrawIcon width={20} height={20} color={DANGER_COLOR} />}
@@ -404,6 +390,25 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
           router.replace('/login');
         }}
       />
+
+      <Modal visible={showLogoutConfirm} transparent animationType="fade" onRequestClose={() => setShowLogoutConfirm(false)}>
+        <View style={wd.backdrop}>
+          <AlertCard
+            title="로그아웃 하시겠어요?"
+            buttons={[
+              { label: '아니요', onPress: () => setShowLogoutConfirm(false), variant: 'outline' },
+              {
+                label: '네',
+                onPress: () => {
+                  setShowLogoutConfirm(false);
+                  handleLogout();
+                },
+                tone: 'sage',
+              },
+            ]}
+          />
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -412,7 +417,7 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
 function ReportPlaceView({ onBack }: { onBack: () => void }) {
   const [placeName, setPlaceName] = useState('');
   const [address, setAddress] = useState('');
-  const [conditionIdx, setConditionIdx] = useState(0);
+  const [conditionIndices, setConditionIndices] = useState<number[]>([]);
   const [reason, setReason] = useState('');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -440,14 +445,12 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
 
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={rp.scrollContent}>
         <View style={rp.heroBanner}>
-          <Image
-            source={{ uri: 'https://picsum.photos/seed/gyeongju-report/600/300' }}
-            style={rp.heroImage}
-            resizeMode="cover"
+          <ReportHeroLandscape
+            width={REPORT_HERO_WIDTH}
+            height={REPORT_HERO_LANDSCAPE_HEIGHT}
+            style={rp.heroLandscape}
           />
-          <View style={rp.heroOverlay}>
-            <Text style={rp.heroText}>반려견 동반이{'\n'}가능한 장소를 공유해주세요!</Text>
-          </View>
+          <Text style={rp.heroText}>반려견 동반이{'\n'}가능한 장소를 공유해주세요!</Text>
         </View>
 
         <Text style={rp.label}>장소명</Text>
@@ -474,13 +477,17 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
         <Text style={rp.label}>반려동물 입장 조건</Text>
         <View style={rp.conditionRow}>
           {REPORT_CONDITIONS.map((cond, i) => {
-            const selected = i === conditionIdx;
+            const selected = conditionIndices.includes(i);
             return (
               <TouchableOpacity
                 key={cond}
                 style={[rp.conditionChip, selected && rp.conditionChipSelected]}
                 activeOpacity={0.8}
-                onPress={() => setConditionIdx(i)}
+                onPress={() =>
+                  setConditionIndices((prev) =>
+                    prev.includes(i) ? prev.filter((idx) => idx !== i) : [...prev, i]
+                  )
+                }
               >
                 {selected && <Text style={rp.conditionCheck}>✓</Text>}
                 <Text style={[rp.conditionText, selected && rp.conditionTextSelected]}>{cond}</Text>
@@ -1146,7 +1153,18 @@ export default function MyPageScreen() {
   const [showTravelHistory, setShowTravelHistory] = useState(false);
   const [showStampGallery, setShowStampGallery] = useState(false);
   const [profileEditorMode, setProfileEditorMode] = useState<'edit' | 'add' | null>(null);
+  const [pendingPrimaryDog, setPendingPrimaryDog] = useState<DogProfile | null>(null);
+  const [primarySwitchSuccess, setPrimarySwitchSuccess] = useState(false);
   const dog = dogProfiles.find((d) => d.id === selectedDogId) ?? dogProfiles[0];
+
+  const handleConfirmPrimarySwitch = () => {
+    if (!pendingPrimaryDog) return;
+    const newPrimaryId = pendingPrimaryDog.id;
+    setDogProfiles((prev) => prev.map((d) => ({ ...d, isPrimary: d.id === newPrimaryId })));
+    setSelectedDogId(newPrimaryId);
+    setPendingPrimaryDog(null);
+    setPrimarySwitchSuccess(true);
+  };
 
   const loadPets = useCallback(async () => {
     const token = await getAccessToken();
@@ -1334,7 +1352,7 @@ export default function MyPageScreen() {
                     key={d.id}
                     style={styles.dogItem}
                     activeOpacity={0.8}
-                    onPress={() => setSelectedDogId(d.id)}
+                    onPress={() => (d.isPrimary ? setSelectedDogId(d.id) : setPendingPrimaryDog(d))}
                   >
                     <Image
                       source={{ uri: d.photoUri }}
@@ -1405,6 +1423,50 @@ export default function MyPageScreen() {
       </ScrollView>
 
       <Toast message={petsError} onHide={() => setPetsError(null)} />
+
+      <Modal
+        visible={!!pendingPrimaryDog}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPendingPrimaryDog(null)}
+      >
+        <View style={wd.backdrop}>
+          <AlertCard
+            icon={<PawIcon width={26} height={26} color={Colors.secondaryDark} />}
+            iconTone="sage"
+            title="대표 강아지를 변경할까요?"
+            subtitle="선택한 강아지가 메인 프로필에 표시 됩니다."
+            buttons={[
+              { label: '취소', onPress: () => setPendingPrimaryDog(null), variant: 'outline' },
+              { label: '변경하기', onPress: handleConfirmPrimarySwitch, tone: 'sage' },
+            ]}
+          />
+        </View>
+      </Modal>
+
+      <Modal
+        visible={primarySwitchSuccess}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPrimarySwitchSuccess(false)}
+      >
+        <View style={wd.backdrop}>
+          <AlertCard
+            icon={
+              <View>
+                <PawIcon width={26} height={26} color={Colors.secondaryDark} />
+                <View style={mp.pawCheckBadge}>
+                  <Text style={mp.pawCheckMark}>✓</Text>
+                </View>
+              </View>
+            }
+            iconTone="sage"
+            title="대표 강아지를 변경했어요!"
+            subtitle="선택한 강아지가 메인 프로필에 표시 됩니다."
+            buttons={[{ label: '확인', onPress: () => setPrimarySwitchSuccess(false), tone: 'sage' }]}
+          />
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1623,64 +1685,23 @@ const wd = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: Spacing.xl,
   },
-  card: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: Colors.background,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    borderColor: Colors.primaryBorder,
-    paddingVertical: Spacing.xxl,
-    paddingHorizontal: Spacing.xl,
-    alignItems: 'center',
-    shadowColor: '#3A3330',
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
-  },
-  iconCircleWarn: {
-    width: 64,
-    height: 64,
+});
+
+const mp = StyleSheet.create({
+  pawCheckBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    width: 16,
+    height: 16,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.lg,
-  },
-  iconCircleSuccess: {
-    width: 64,
-    height: 64,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.secondaryTint,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.lg,
-  },
-  icon: { width: 28, height: 28 },
-  checkMark: { fontSize: 28, fontWeight: '700', color: Colors.secondaryDark },
-  title: { fontSize: 18, fontWeight: '700', color: Colors.textBody1, textAlign: 'center', marginBottom: 8 },
-  subtitle: {
-    fontSize: 13,
-    color: Colors.textBody2,
-    textAlign: 'center',
-    lineHeight: 19,
-    marginBottom: Spacing.xl,
-  },
-  btnRow: { flexDirection: 'row', gap: Spacing.md, width: '100%' },
-  btn: {
-    flex: 1,
-    height: 52,
-    borderRadius: Radius.lg,
+    backgroundColor: Colors.secondary,
+    borderWidth: 2,
+    borderColor: Colors.secondaryTint,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  btnFullWidth: { flex: 0, width: '100%' },
-  btnOutline: { backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border },
-  btnOutlineText: { color: Colors.textBody1, fontSize: 15, fontWeight: '600' },
-  btnWarn: { backgroundColor: Colors.coral },
-  btnSuccess: { backgroundColor: Colors.secondary },
-  btnFilledText: { color: Colors.white, fontSize: 15, fontWeight: '600' },
+  pawCheckMark: { fontSize: 9, fontWeight: '700', color: Colors.white, lineHeight: 11 },
 });
 
 // ─── 문의하기 화면 스타일 (iq) ─────────────────────────────────────────────────
@@ -1747,23 +1768,24 @@ const rp = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: '700', color: Colors.textBody1 },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: 24 },
   heroBanner: {
-    height: 130,
+    height: 120,
     borderRadius: Radius.lg,
     overflow: 'hidden',
+    backgroundColor: Colors.bgWarm,
     marginBottom: Spacing.xl,
-  },
-  heroImage: { width: '100%', height: '100%' },
-  heroOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(30,26,22,0.28)',
-    justifyContent: 'center',
     paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
   },
-  heroText: { color: Colors.white, fontSize: 16, fontWeight: '700', lineHeight: 22 },
+  heroLandscape: { position: 'absolute', left: 0, bottom: 0, zIndex: 0 },
+  heroText: {
+    color: '#3A3330',
+    fontSize: 16,
+    fontWeight: '400',
+    lineHeight: 22,
+    marginTop: Spacing.md,
+    marginLeft: Spacing.md,
+    zIndex: 1,
+  },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textBody1, marginBottom: 8, marginTop: Spacing.lg },
   optionalText: { fontSize: 12, fontWeight: '400', color: Colors.textMuted },
   input: {

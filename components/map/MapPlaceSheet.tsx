@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   StyleSheet,
   Animated,
@@ -16,6 +15,7 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import MapPlaceIcon from '@/assets/icons/map-place.svg';
 import TelephoneIcon from '@/assets/icons/telephone.svg';
 import MapHoursIcon from '@/assets/icons/map-hours.svg';
+import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 
 export const SHEET_HEIGHT = 295;
 const DISMISS_THRESHOLD = 80;
@@ -23,11 +23,12 @@ const DISMISS_VELOCITY = 0.5;
 
 interface Props {
   place: MapPlace | null;
+  liked?: boolean;
   onClose: () => void;
   onToggleLike?: (place: MapPlace, liked: boolean) => void;
 }
 
-export default function MapPlaceSheet({ place, onClose, onToggleLike }: Props) {
+export default function MapPlaceSheet({ place, liked: likedProp = false, onClose, onToggleLike }: Props) {
   const animY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const [visible, setVisible] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -37,7 +38,7 @@ export default function MapPlaceSheet({ place, onClose, onToggleLike }: Props) {
   useEffect(() => {
     if (place) {
       swipeClosing.current = false;
-      setLiked(false);
+      setLiked(likedProp);
       setVisible(true);
       animY.setValue(SHEET_HEIGHT);
       Animated.timing(animY, {
@@ -106,17 +107,7 @@ export default function MapPlaceSheet({ place, onClose, onToggleLike }: Props) {
           <>
             {/* 장소 카드 */}
             <View style={styles.cardRow}>
-              {place.imageUri ? (
-                <Image
-                  source={{ uri: place.imageUri }}
-                  style={styles.image}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={[styles.image, styles.imageFallback]}>
-                  <MapPlaceIcon width={24} height={24} color={Colors.textMuted} />
-                </View>
-              )}
+              <PlaceThumbnail uri={place.imageUri} style={styles.image} />
 
               <View style={styles.info}>
                 <View style={styles.nameRow}>
@@ -238,11 +229,6 @@ const styles = StyleSheet.create({
     height: 72,
     borderRadius: Radius.sm,
     flexShrink: 0,
-  },
-  imageFallback: {
-    backgroundColor: '#F4F0E8',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   info: {
     flex: 1,

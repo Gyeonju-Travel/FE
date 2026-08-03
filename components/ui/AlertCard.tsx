@@ -11,7 +11,7 @@ export interface AlertCardButton {
 }
 
 interface AlertCardProps {
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   iconTone?: 'coral' | 'sage';
   title: string;
   subtitle?: string;
@@ -22,9 +22,11 @@ export default function AlertCard({ icon, iconTone = 'coral', title, subtitle, b
   const isRow = buttons.length > 1;
   return (
     <View style={s.card}>
-      <View style={[s.iconCircle, iconTone === 'sage' ? s.iconCircleSage : s.iconCircleCoral]}>
-        {icon}
-      </View>
+      {icon && (
+        <View style={[s.iconCircle, iconTone === 'sage' ? s.iconCircleSage : s.iconCircleCoral]}>
+          {icon}
+        </View>
+      )}
       <Text style={s.title}>{title}</Text>
       {subtitle ? <Text style={s.subtitle}>{subtitle}</Text> : null}
       <View style={isRow ? s.btnRow : s.btnColumn}>
@@ -83,7 +85,7 @@ const s = StyleSheet.create({
   },
   iconCircleCoral: { backgroundColor: Colors.primaryTint },
   iconCircleSage: { backgroundColor: Colors.secondaryTint },
-  title: { fontSize: 18, fontWeight: '700', color: Colors.textBody1, textAlign: 'center', marginBottom: 8 },
+  title: { fontSize: 18, fontWeight: '600', color: Colors.textBody1, textAlign: 'center', marginBottom: 8 },
   subtitle: {
     fontSize: 13,
     color: Colors.textBody2,

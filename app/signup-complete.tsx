@@ -1,15 +1,36 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, LayoutChangeEvent } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, SafeAreaView, LayoutChangeEvent } from 'react-native';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import SignupCameraIcon from '@/assets/login/signup-camera.svg';
 import { showAlert } from '@/components/ui/AppAlert';
+import Toast from '@/components/ui/Toast';
 
 const AVATAR_SIZE = 170;
 const AVATAR_MARGIN_BOTTOM = Spacing.xxl * 1.5;
 
 export default function SignupCompleteScreen() {
   const [dogName, setDogName] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const handlePickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      showAlert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    setPhotoUri(result.assets[0].uri);
+  };
 
   const [stageHeight, setStageHeight] = useState(0);
   const [avatarHeight, setAvatarHeight] = useState(0);
@@ -36,8 +57,12 @@ export default function SignupCompleteScreen() {
             style={[styles.avatarWrap, { marginTop: avatarTopSpacer, opacity: ready ? 1 : 0 }]}
             onLayout={onAvatarLayout}
           >
-            <View style={styles.avatar} />
-            <TouchableOpacity style={styles.cameraBtn} activeOpacity={0.8}>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatar} />
+            )}
+            <TouchableOpacity style={styles.cameraBtn} activeOpacity={0.8} onPress={handlePickPhoto}>
               <SignupCameraIcon width={20} height={18} color={Colors.textBody2} />
             </TouchableOpacity>
           </View>
@@ -45,12 +70,16 @@ export default function SignupCompleteScreen() {
           <View style={[styles.nameGroup, { opacity: ready ? 1 : 0 }]} onLayout={onNameGroupLayout}>
             <Text style={styles.label}>강아지 이름</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, nameError && styles.inputError]}
               placeholder="이름을 입력해 주세요"
               placeholderTextColor={Colors.textMuted}
               value={dogName}
-              onChangeText={setDogName}
+              onChangeText={(t) => {
+                setDogName(t);
+                setNameError(null);
+              }}
             />
+            {nameError && <Text style={styles.errorText}>{nameError}</Text>}
           </View>
         </View>
       </View>
@@ -61,15 +90,23 @@ export default function SignupCompleteScreen() {
           activeOpacity={0.85}
           onPress={() => {
             if (!dogName.trim()) {
-              showAlert('강아지 이름', '강아지 이름을 입력해주세요.');
+              setNameError('이름은 필수 입력 항목이에요.');
               return;
             }
-            router.replace({ pathname: '/onboarding', params: { dogName: dogName.trim() } });
+            setToastMsg('프로필 정보가 저장됐어요.');
+            setTimeout(() => {
+              router.replace({
+                pathname: '/onboarding',
+                params: { dogName: dogName.trim(), photoUri: photoUri ?? '' },
+              });
+            }, 600);
           }}
         >
           <Text style={styles.primaryBtnText}>다음</Text>
         </TouchableOpacity>
       </View>
+
+      <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={120} />
     </SafeAreaView>
   );
 }
@@ -120,6 +157,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textBody1,
   },
+  inputError: { borderColor: '#D14343' },
+  errorText: { fontSize: 12, color: '#D14343', marginTop: 6, alignSelf: 'flex-start' },
   bottomBar: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md },
   primaryBtn: {
     backgroundColor: Colors.coral,
