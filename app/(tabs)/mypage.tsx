@@ -60,6 +60,8 @@ import {
   ApiError,
 } from '@/utils/api';
 import { getAccessToken, clearTokens } from '@/utils/authStorage';
+import { getPetPersonalityCombo } from '@/utils/petPersonalityCombo';
+import { getPersonalityComboLabel } from '@/constants/personalityCombo';
 import { onTabReset } from '@/utils/tabReset';
 import {
   toDogSummary,
@@ -71,7 +73,6 @@ import {
 } from '@/utils/petMappers';
 import { useScrapCapture } from '@/hooks/useScrapCapture';
 import KakaoMap from '@/components/map/KakaoMap';
-import Badge from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
 import AlertCard from '@/components/ui/AlertCard';
 import { showAlert } from '@/components/ui/AppAlert';
@@ -1338,6 +1339,7 @@ export default function MyPageScreen() {
   const [pendingPrimaryDog, setPendingPrimaryDog] = useState<DogProfile | null>(null);
   const [primarySwitchSuccess, setPrimarySwitchSuccess] = useState(false);
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
+  const [personalityComboLabel, setPersonalityComboLabel] = useState<string | null>(null);
   const dog = dogProfiles.find((d) => d.id === selectedDogId) ?? dogProfiles[0];
 
   // 다른 탭에 있는 동안 관광지 도착(지오펜싱)으로 스탬프가 늘었을 수 있어, 마이 탭에 올 때마다 다시 읽는다.
@@ -1428,6 +1430,17 @@ export default function MyPageScreen() {
         // 상세 조회 실패는 조용히 무시 — 목록의 기본 정보는 이미 표시돼 있음
       }
     })();
+  }, [selectedDogId]);
+
+  // 온보딩 때 로컬에 저장해둔 성향 2개 조합이 있으면 그걸로 조합 뱃지를 보여준다.
+  useEffect(() => {
+    if (!selectedDogId) {
+      setPersonalityComboLabel(null);
+      return;
+    }
+    getPetPersonalityCombo(selectedDogId).then((combo) => {
+      setPersonalityComboLabel(getPersonalityComboLabel(combo));
+    });
   }, [selectedDogId]);
 
   if (loadingPets && dogProfiles.length === 0) {
@@ -1556,11 +1569,18 @@ export default function MyPageScreen() {
                   <PencilIcon width={14} height={14} color={Colors.textMuted} />
                 </TouchableOpacity>
               </View>
-              <View style={styles.tagsRow}>
-                {dog.personalityTags.map((tag) => (
-                  <Badge key={tag} label={tag} variant="filled" tone="neutral" style={styles.profileTagBadge} />
-                ))}
-              </View>
+              {(personalityComboLabel ?? dog.personalityTags[0]) && (
+                <View style={styles.personalityChip}>
+                  <Image
+                    source={require('@/assets/mypage/personality-tag-icon.png')}
+                    style={styles.personalityChipIcon}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.personalityChipText}>
+                    {personalityComboLabel ?? dog.personalityTags[0]}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
 
@@ -1773,8 +1793,19 @@ const styles = StyleSheet.create({
   pawIcon: { width: 16, height: 16 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dogMeta: { fontSize: 13, color: Colors.textBody2 },
-  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
-  profileTagBadge: { height: 20 },
+  personalityChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    backgroundColor: Colors.secondaryTint,
+    borderRadius: Radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  personalityChipIcon: { width: 10, height: 14 },
+  personalityChipText: { fontSize: 12, fontWeight: '600', color: Colors.secondaryDark },
   section: {
     marginTop: Spacing.xl,
     marginHorizontal: Spacing.xl,

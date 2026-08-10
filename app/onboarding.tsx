@@ -11,6 +11,7 @@ import OnboardingNatureIcon from '@/assets/login/onboarding-nature.svg';
 import OnboardingPersonalityIllustration from '@/assets/login/onboarding-personality.svg';
 import InfoIcon from '@/assets/icons/info.svg';
 import { completeOnboarding, ApiError, PetTravelPreference, PetPersonality } from '@/utils/api';
+import { savePetPersonalityCombo } from '@/utils/petPersonalityCombo';
 import { getAccessToken } from '@/utils/authStorage';
 import { sizeToApi } from '@/utils/petMappers';
 import { showAlert } from '@/components/ui/AppAlert';
@@ -247,7 +248,7 @@ export default function OnboardingScreen() {
       const personality = personalities
         .map((id) => PERSONALITY_OPTIONS.find((o) => o.id === id)?.personality)
         .filter((p): p is PetPersonality => !!p);
-      await completeOnboarding(
+      const result = await completeOnboarding(
         {
           name: dogName ?? '',
           size: sizeToApi(dogSize),
@@ -257,6 +258,9 @@ export default function OnboardingScreen() {
         token,
         photoUri || null
       );
+      // 서버 조회 API는 성향을 1개만 내려주기 때문에, 온보딩 때 고른 2개 조합을 로컬에 남겨서
+      // 홈/마이페이지의 성향 조합 뱃지에 계속 쓴다.
+      await savePetPersonalityCombo(result.petId, personality);
       router.replace({ pathname: '/(tabs)', params: { justOnboarded: '1' } });
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '반려견 등록에 실패했어요. 잠시 후 다시 시도해주세요.';

@@ -23,8 +23,10 @@ import WalkingDogIcon from '@/assets/home/walking-dog.svg';
 import BellIcon from '@/assets/home/bell.svg';
 import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
 import { STAMP_ICONS, STAMP_LOCKED_ICON, GEOFENCE_ATTRACTIONS, getEarnedStampIndices } from '@/constants/stamps';
+import { getPersonalityComboLabel } from '@/constants/personalityCombo';
 import { getMyPets, getPetDetail, getPlaceDetail, ApiError } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
+import { getPetPersonalityCombo } from '@/utils/petPersonalityCombo';
 import { onTabReset } from '@/utils/tabReset';
 import { toDogFromRepresentative, personalityToLabel } from '@/utils/petMappers';
 import { toMapPlace } from '@/utils/placeMappers';
@@ -46,17 +48,11 @@ const HERO_HEIGHT = Dimensions.get('window').height * 0.42;
 const CARD_OVERLAP = 76;
 const HOME_STAMP_PREVIEW_SLOTS = 3;
 
-const PERSONALITY_TAGLINE: Record<string, string> = {
-  활동적: '활발한 탐험가',
-  느긋함: '여유로운 산책가',
-  '친화력 좋음': '사교적인 친구',
-};
-
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { justOnboarded } = useLocalSearchParams<{ justOnboarded?: string }>();
   const [dog, setDog] = useState<DogProfile | null>(null);
-  const [personalityTag, setPersonalityTag] = useState<string | null>(null);
+  const [personalityLabel, setPersonalityLabel] = useState<string | null>(null);
   const [places, setPlaces] = useState<MapPlace[]>([]);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [showStampCelebration, setShowStampCelebration] = useState(false);
@@ -96,8 +92,12 @@ export default function HomeScreen() {
         const list = await getMyPets(token);
         if (list.representativePet) {
           setDog(toDogFromRepresentative(list.representativePet));
-          const detail = await getPetDetail(list.representativePet.petId, token);
-          setPersonalityTag(personalityToLabel(detail.personality));
+          const petId = list.representativePet.petId;
+          const [detail, combo] = await Promise.all([
+            getPetDetail(petId, token),
+            getPetPersonalityCombo(petId),
+          ]);
+          setPersonalityLabel(getPersonalityComboLabel(combo) ?? personalityToLabel(detail.personality));
         }
       } catch (e) {
         // 인사말/카드는 기본값으로도 자연스럽게 보이므로 조용히 무시
@@ -190,9 +190,14 @@ export default function HomeScreen() {
                   <Text style={styles.dogName}>{dogName}</Text>
                   <Text style={styles.chevron}>›</Text>
                 </View>
-                {personalityTag && (
+                {personalityLabel && (
                   <View style={styles.tagChip}>
-                    <Text style={styles.tagText}>🌱 {PERSONALITY_TAGLINE[personalityTag] ?? personalityTag}</Text>
+                    <Image
+                      source={require('@/assets/mypage/personality-tag-icon.png')}
+                      style={styles.tagIcon}
+                      resizeMode="contain"
+                    />
+                    <Text style={styles.tagText}>{personalityLabel}</Text>
                   </View>
                 )}
               </View>
@@ -390,12 +395,16 @@ const styles = StyleSheet.create({
   dogName: { fontSize: 17, fontWeight: '700', color: Colors.textBody1 },
   chevron: { fontSize: 18, color: Colors.textMuted },
   tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     alignSelf: 'flex-start',
     backgroundColor: Colors.secondaryTint,
     borderRadius: Radius.full,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
+  tagIcon: { width: 10, height: 14 },
   tagText: { fontSize: 12, fontWeight: '600', color: Colors.secondaryDark },
   trophyBadge: {
     width: 40,
