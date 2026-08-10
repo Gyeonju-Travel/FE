@@ -9,6 +9,7 @@ import {
   PanResponderInstance,
   SafeAreaView,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
@@ -18,7 +19,7 @@ import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE } from '@/constants/badgeConfig';
 import { haversineMeters, estimateWalkMinutes, formatDistance } from '@/utils/distance';
 
-const DEPARTURE_HEIGHT = 68;
+const DEPARTURE_HEIGHT = 88;
 const CARD_HEIGHT = 88;
 const PILL_HEIGHT = 34;
 const ROW_GAP = 12;
@@ -27,31 +28,6 @@ const FIRST_PLACE_OFFSET = DEPARTURE_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
 const PLACE_SLOT = CARD_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
 const DEPARTURE_ID = '__departure__';
 const LONG_PRESS_MS = 250;
-
-/** 출발지에서 시작해 매번 가장 가까운 다음 장소를 이어붙이는 최근접 이웃 방식으로 정렬한다 (경로가 꼬이지 않도록). */
-function sortByNearestNeighbor(places: SavedPlace[], start?: { lat: number; lng: number }): SavedPlace[] {
-  if (!start || places.length <= 1) return places;
-  const remaining = [...places];
-  const sorted: SavedPlace[] = [];
-  let currentLat = start.lat;
-  let currentLng = start.lng;
-  while (remaining.length > 0) {
-    let nearestIdx = 0;
-    let nearestDist = Infinity;
-    for (let i = 0; i < remaining.length; i++) {
-      const dist = haversineMeters(currentLat, currentLng, remaining[i].latitude, remaining[i].longitude);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestIdx = i;
-      }
-    }
-    const [next] = remaining.splice(nearestIdx, 1);
-    sorted.push(next);
-    currentLat = next.latitude;
-    currentLng = next.longitude;
-  }
-  return sorted;
-}
 
 function slotHeightAt(index: number): number {
   return index === 0 ? DEPARTURE_HEIGHT : CARD_HEIGHT;
@@ -71,8 +47,10 @@ interface Props {
   departureLabel: string;
   departureCoord?: { lat: number; lng: number };
   departureImageUri?: string | null;
+  /** 이미 서버가 추천한(또는 이전 저장된) 순서대로 정렬되어 들어온다. */
   places: SavedPlace[];
   isEditing?: boolean;
+  submitting?: boolean;
   onBack: () => void;
   onSaved: (places: SavedPlace[]) => void;
 }
@@ -93,12 +71,13 @@ export default function EditScheduleView({
   departureImageUri,
   places,
   isEditing,
+  submitting,
   onBack,
   onSaved,
 }: Props) {
   const [order, setOrder] = useState<RowItem[]>(() => [
     { id: DEPARTURE_ID },
-    ...sortByNearestNeighbor(places, departureCoord).map((p) => ({ id: p.id, place: p })),
+    ...places.map((p) => ({ id: p.id, place: p })),
   ]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
@@ -340,13 +319,18 @@ export default function EditScheduleView({
 
       <View style={es.bottomBar}>
         <TouchableOpacity
-          style={es.saveBtn}
+          style={[es.saveBtn, submitting && es.saveBtnDisabled]}
           activeOpacity={0.85}
+          disabled={submitting}
           onPress={() =>
             onSaved(order.filter((it): it is Required<RowItem> => !!it.place).map((it) => it.place))
           }
         >
-          <Text style={es.saveBtnText}>{isEditing ? '일정 수정하기' : '일정 저장하기'}</Text>
+          {submitting ? (
+            <ActivityIndicator color={Colors.white} />
+          ) : (
+            <Text style={es.saveBtnText}>{isEditing ? '일정 수정하기' : '일정 저장하기'}</Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -363,6 +347,7 @@ const styles = StyleSheet.create({
     height: 16,
     flexDirection: 'row',
     flexWrap: 'wrap',
+    alignContent: 'center',
     gap: 2,
     marginRight: 12,
   },
@@ -459,5 +444,6 @@ const es = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
+  saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: Colors.white, fontSize: 16, fontWeight: '600' },
 });

@@ -55,8 +55,10 @@ export async function fetchGyeongjuWeather(): Promise<GyeongjuWeather | null> {
 
   try {
     const { baseDate, baseTime } = getBaseDateTime(new Date());
+    // 발급받은 키는 공공데이터포털이 아니라 기상청 API허브(apihub.kma.go.kr) 키라서
+    // 그쪽 엔드포인트와 authKey 파라미터를 써야 한다. 응답 스키마는 동일하다.
     const params = new URLSearchParams({
-      serviceKey: KMA_API_KEY,
+      authKey: KMA_API_KEY,
       pageNo: '1',
       numOfRows: '100',
       dataType: 'JSON',
@@ -66,7 +68,7 @@ export async function fetchGyeongjuWeather(): Promise<GyeongjuWeather | null> {
       ny: String(GYEONGJU_NY),
     });
     const response = await fetch(
-      `https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst?${params.toString()}`
+      `https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstInfoService_2.0/getUltraSrtFcst?${params.toString()}`
     );
     if (!response.ok) return null;
     const data = await response.json();

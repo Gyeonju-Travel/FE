@@ -12,9 +12,11 @@ interface Props {
   onSelect: (idx: number) => void;
   /** Only needed when placed inside a row of pickers that should share width equally. */
   flex?: number;
+  /** 이 인덱스 미만 항목은 흐리게 표시되고 선택할 수 없다 (예: 오늘 이전 날짜 비활성화). */
+  minIndex?: number;
 }
 
-export default function WheelPicker({ data, selectedIdx, onSelect, flex }: Props) {
+export default function WheelPicker({ data, selectedIdx, onSelect, flex, minIndex = 0 }: Props) {
   const ref = useRef<ScrollView>(null);
   const [current, setCurrent] = useState(selectedIdx);
 
@@ -26,10 +28,11 @@ export default function WheelPicker({ data, selectedIdx, onSelect, flex }: Props
   }, []);
 
   const handleEnd = (e: any) => {
-    const idx = Math.max(
-      0,
-      Math.min(Math.round(e.nativeEvent.contentOffset.y / ITEM_H), data.length - 1)
-    );
+    const raw = Math.max(0, Math.min(Math.round(e.nativeEvent.contentOffset.y / ITEM_H), data.length - 1));
+    const idx = Math.max(raw, minIndex);
+    if (idx !== raw) {
+      ref.current?.scrollTo({ y: idx * ITEM_H, animated: true });
+    }
     setCurrent(idx);
     onSelect(idx);
   };
@@ -48,7 +51,15 @@ export default function WheelPicker({ data, selectedIdx, onSelect, flex }: Props
       >
         {data.map((item, i) => (
           <View key={i} style={styles.item}>
-            <Text style={[styles.text, i === current && styles.selected]}>{item}</Text>
+            <Text
+              style={[
+                styles.text,
+                i === current && styles.selected,
+                i < minIndex && styles.disabled,
+              ]}
+            >
+              {item}
+            </Text>
           </View>
         ))}
       </ScrollView>
@@ -84,5 +95,8 @@ const styles = StyleSheet.create({
   selected: {
     color: Colors.textBody1,
     fontWeight: '600',
+  },
+  disabled: {
+    color: Colors.border,
   },
 });

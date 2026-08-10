@@ -204,10 +204,10 @@ export function buildKakaoMapHtml({
         new kakao.maps.Polyline({
           map: window.kakaoMap,
           path: linePath,
-          strokeWeight: 3,
+          strokeWeight: 2,
           strokeColor: '#E8906A',
           strokeOpacity: 0.9,
-          strokeStyle: 'dash',
+          strokeStyle: 'shortdot',
         });
 
         routePlaces.forEach(function(place, idx) {

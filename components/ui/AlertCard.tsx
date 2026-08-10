@@ -13,16 +13,26 @@ export interface AlertCardButton {
 interface AlertCardProps {
   icon?: React.ReactNode;
   iconTone?: 'coral' | 'sage';
+  /** 아이콘 자체에 원형 배경이 포함되어 있어 카드의 기본 원형 배경을 씌우지 않아야 할 때 */
+  iconStandalone?: boolean;
   title: string;
   subtitle?: string;
   buttons: AlertCardButton[];
 }
 
-export default function AlertCard({ icon, iconTone = 'coral', title, subtitle, buttons }: AlertCardProps) {
+export default function AlertCard({
+  icon,
+  iconTone = 'coral',
+  iconStandalone = false,
+  title,
+  subtitle,
+  buttons,
+}: AlertCardProps) {
   const isRow = buttons.length > 1;
   return (
     <View style={s.card}>
-      {icon && (
+      {icon && iconStandalone && <View style={s.iconStandalone}>{icon}</View>}
+      {icon && !iconStandalone && (
         <View style={[s.iconCircle, iconTone === 'sage' ? s.iconCircleSage : s.iconCircleCoral]}>
           {icon}
         </View>
@@ -85,6 +95,13 @@ const s = StyleSheet.create({
   },
   iconCircleCoral: { backgroundColor: Colors.primaryTint },
   iconCircleSage: { backgroundColor: Colors.secondaryTint },
+  iconStandalone: {
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
   title: { fontSize: 18, fontWeight: '600', color: Colors.textBody1, textAlign: 'center', marginBottom: 8 },
   subtitle: {
     fontSize: 13,

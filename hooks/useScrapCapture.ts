@@ -12,7 +12,10 @@ interface UseScrapCaptureResult {
 }
 
 /** 지정된 View를 PNG로 캡처해서 갤러리 저장 / OS 공유 시트로 내보내는 훅. */
-export function useScrapCapture(targetRef: React.RefObject<View | null>): UseScrapCaptureResult {
+export function useScrapCapture(
+  targetRef: React.RefObject<View | null>,
+  onSaved?: () => void
+): UseScrapCaptureResult {
   const [isSaving, setIsSaving] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const isMountedRef = useRef(true);
@@ -42,13 +45,13 @@ export function useScrapCapture(targetRef: React.RefObject<View | null>): UseScr
       }
       const uri = await capture();
       await MediaLibrary.saveToLibraryAsync(uri);
-      Alert.alert('저장 완료', '스탬프 앨범이 사진 보관함에 저장됐어요.');
+      onSaved?.();
     } catch {
       Alert.alert('저장 실패', '이미지를 저장하지 못했어요. 잠시 후 다시 시도해주세요.');
     } finally {
       if (isMountedRef.current) setIsSaving(false);
     }
-  }, [capture, isSaving]);
+  }, [capture, isSaving, onSaved]);
 
   const shareImage = useCallback(async () => {
     if (isSharing) return;

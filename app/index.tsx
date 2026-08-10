@@ -5,7 +5,7 @@ import * as Location from 'expo-location';
 import { Colors, Spacing } from '@/constants/theme';
 import SplashLandscape from '@/assets/splash/splash-landscape.svg';
 import AlertCard from '@/components/ui/AlertCard';
-import PawIcon from '@/assets/icons/paw.svg';
+import ModalPawIcon from '@/assets/icons/modal-paw.svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const LANDSCAPE_ASPECT = 390 / 218;
@@ -66,7 +66,7 @@ export default function SplashScreen() {
       <Modal visible={showLocationModal} transparent animationType="fade" onRequestClose={handleClose}>
         <View style={styles.modalBackdrop}>
           <AlertCard
-            icon={<PawIcon width={26} height={26} color={Colors.secondaryDark} />}
+            icon={<ModalPawIcon width={26} height={24} />}
             iconTone="sage"
             title="여행 기록을 위해 위치 권한이 필요해요!"
             subtitle={"설정 화면에서 위치 권한 '항상 허용'을\n눌러주세요"}

@@ -103,6 +103,20 @@ async function request<T>(
   return json.result;
 }
 
+// 로컬 file:// uri를 Blob으로 읽어온다. 새 expo/fetch는 표준 Fetch 스펙을 따라서
+// http(s)/data 스킴만 지원하고 file://는 거부하므로, RN이 네이티브로 처리해주는
+// XMLHttpRequest를 그대로 사용한다 (RN 공식 문서가 권장하는 로컬 파일 업로드 방식).
+function readLocalFileAsBlob(uri: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = () => resolve(xhr.response);
+    xhr.onerror = () => reject(new Error(`로컬 파일을 읽지 못했어요: ${uri}`));
+    xhr.responseType = 'blob';
+    xhr.open('GET', uri, true);
+    xhr.send(null);
+  });
+}
+
 // multipart/form-data 전용 요청. "request" 파트는 서버가 application/json Content-Type을
 // 요구해서(없으면 415) Blob으로 명시적인 type을 지정해 붙여준다.
 // (Expo의 FormData 패치가 .entries()를 추가하면서 문자열/Blob이 아닌 커스텀 객체 파트는
@@ -126,8 +140,11 @@ async function requestMultipart<T>(
   if (imageUri) {
     const extension = imageUri.split('.').pop()?.toLowerCase() ?? 'jpg';
     const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-    // React Native의 FormData는 파일 파트를 {uri, name, type} 객체로 받는다.
-    form.append('image', { uri: imageUri, name: `photo.${extension}`, type: mimeType } as unknown as Blob);
+    // 위 "request" 파트와 마찬가지로 실제 Blob이어야 한다. 로컬 파일 uri를 읽어
+    // Blob으로 변환한 뒤 붙인다 ({uri, name, type} 객체 트릭은 더 이상 통하지 않는다).
+    const rawBlob = await readLocalFileAsBlob(imageUri);
+    const imageBlob = new Blob([rawBlob], { type: mimeType });
+    form.append('image', imageBlob, `photo.${extension}`);
   }
 
   let response: Response;
@@ -316,7 +333,7 @@ export function deleteBookmarks(placeIds: number[], accessToken: string) {
 
 export type PetSize = 'SMALL' | 'MEDIUM' | 'LARGE';
 export type PetGender = 'MALE' | 'FEMALE';
-export type PetPersonality = 'ACTIVE' | 'RELAXED' | 'FRIENDLY';
+export type PetPersonality = 'ACTIVE' | 'RELAXED' | 'FRIENDLY' | 'SHYNESS' | 'SENSITIVITY' | 'CURIOSITY';
 
 export interface PetSummaryResponse {
   petId: number;
@@ -368,22 +385,26 @@ export function getPetDetail(petId: number, accessToken: string) {
   return request<PetDetailResponse>(`/api/pets/${petId}`, { accessToken });
 }
 
-export function registerPet(body: PetRegistrationRequest, accessToken: string) {
-  return requestMultipart<PetDetailResponse>('/api/pets', 'POST', body, accessToken);
+export function registerPet(body: PetRegistrationRequest, accessToken: string, imageUri?: string | null) {
+  return requestMultipart<PetDetailResponse>('/api/pets', 'POST', body, accessToken, imageUri);
 }
 
-export function updatePetProfile(petId: number, body: PetProfileUpdateRequest, accessToken: string) {
-  return requestMultipart<PetDetailResponse>(`/api/pets/${petId}`, 'PATCH', body, accessToken);
+export function updatePetProfile(
+  petId: number,
+  body: PetProfileUpdateRequest,
+  accessToken: string,
+  imageUri?: string | null
+) {
+  return requestMultipart<PetDetailResponse>(`/api/pets/${petId}`, 'PATCH', body, accessToken, imageUri);
 }
 
 export type PetTravelPreference = 'PHOTO_SPOT' | 'CAFE' | 'NATURE';
-export type PetWalkingStyle = 'SHORT_WALK' | 'LONG_WALK';
 
 export interface PetOnboardingRequest {
   name: string;
   size: PetSize;
   travelPreference: PetTravelPreference;
-  walkingStyle: PetWalkingStyle;
+  personality: PetPersonality[];
 }
 
 export interface PetOnboardingResponse {
@@ -392,9 +413,170 @@ export interface PetOnboardingResponse {
   profileImageUrl: string | null;
   size: PetSize;
   travelPreference: PetTravelPreference;
-  walkingStyle: PetWalkingStyle;
+  personality: PetPersonality[];
 }
 
 export function completeOnboarding(body: PetOnboardingRequest, accessToken: string, imageUri?: string | null) {
   return requestMultipart<PetOnboardingResponse>('/api/onboarding', 'POST', body, accessToken, imageUri);
+}
+
+// ─── 일정 (Schedule) ──────────────────────────────────────────────────────────
+export type DepartureArea = 'HWANGRIDAN_GIL' | 'GEUMRIDAN_GIL' | 'CHEOMSEONGDAE' | 'GYOCHON_VILLAGE';
+
+export interface DepartureResponse {
+  code: string;
+  name: string;
+  longitude: number;
+  latitude: number;
+}
+
+export interface SchedulePlaceResponse {
+  visitOrder: number;
+  placeId: number;
+  name: string;
+  imageUrl: string | null;
+  petAccessType: string;
+  petRequirements: string;
+  walkingDurationSeconds: number;
+  walkingDistanceMeters: number;
+}
+
+export interface SchedulePlaceDetailResponse extends SchedulePlaceResponse {
+  longitude: number;
+  latitude: number;
+}
+
+export interface WalkingRouteResponse {
+  fromNodeKey: string;
+  toNodeKey: string;
+  durationSeconds: number;
+  distanceMeters: number;
+}
+
+export interface SchedulePreviewRequest {
+  departureArea: DepartureArea;
+  date: string; // YYYY-MM-DD
+  placeIds: number[];
+}
+
+export interface SchedulePreviewResponse {
+  matrixToken: string;
+  expiresAt: string;
+  date: string;
+  departure: DepartureResponse;
+  recommendedPlaces: SchedulePlaceResponse[];
+  walkingTimeMatrix: WalkingRouteResponse[];
+}
+
+export interface ScheduleCreateRequest {
+  matrixToken: string;
+  orderedPlaceIds: number[];
+}
+
+export interface ScheduleResponse {
+  scheduleId: number;
+  date: string;
+  departure: DepartureResponse;
+  places: SchedulePlaceResponse[];
+}
+
+export interface ScheduleDetailResponse {
+  scheduleId: number;
+  date: string;
+  departure: DepartureResponse;
+  lastPlaceName: string;
+  totalPlaceCount: number;
+  totalWalkingDurationSeconds: number;
+  places: SchedulePlaceDetailResponse[];
+}
+
+export interface ScheduleDateResponse {
+  date: string;
+  totalScheduleCount: number;
+  schedules: ScheduleDetailResponse[];
+}
+
+export interface ScheduleDeleteRequest {
+  scheduleIds: number[];
+}
+
+/** 도보시간 매트릭스를 계산하고 최근접 이웃 알고리즘으로 장소를 자동 정렬한 미리보기를 받는다. */
+export function previewSchedule(body: SchedulePreviewRequest, accessToken: string) {
+  return request<SchedulePreviewResponse>('/api/schedules/preview', { method: 'POST', body, accessToken });
+}
+
+/** 기존 일정 수정용 미리보기 — 새 matrixToken을 발급받는다. */
+export function previewScheduleUpdate(scheduleId: number, body: SchedulePreviewRequest, accessToken: string) {
+  return request<SchedulePreviewResponse>(`/api/schedules/${scheduleId}/preview`, {
+    method: 'POST',
+    body,
+    accessToken,
+  });
+}
+
+/** 미리보기의 matrixToken과 사용자가 확정한 순서로 일정을 저장한다. */
+export function createSchedule(body: ScheduleCreateRequest, accessToken: string) {
+  return request<ScheduleResponse>('/api/schedules', { method: 'POST', body, accessToken });
+}
+
+/** 미리보기에서 확정한 출발지/날짜/장소·순서로 기존 일정을 수정한다. */
+export function updateSchedule(scheduleId: number, body: ScheduleCreateRequest, accessToken: string) {
+  return request<ScheduleResponse>(`/api/schedules/${scheduleId}`, { method: 'PUT', body, accessToken });
+}
+
+/** 선택한 날짜의 일정과 장소별 도보 이동 정보를 조회한다. */
+export function getSchedulesByDate(date: string, accessToken: string) {
+  return request<ScheduleDateResponse>('/api/schedules', { accessToken, params: { date } });
+}
+
+/** 선택한 일정을 모두 삭제한다. */
+export function deleteSchedules(scheduleIds: number[], accessToken: string) {
+  return request<void>('/api/schedules', { method: 'DELETE', body: { scheduleIds }, accessToken });
+}
+
+// ─── 장소 제보 (Place Report) ──────────────────────────────────────────────────
+export type PetPolicy = 'PET_FRIENDLY' | 'OUTDOOR_ONLY' | 'CARRIER_REQUIRED' | 'LEASH_REQUIRED';
+
+export interface PlaceReportCreateRequest {
+  placeName: string;
+  address: string;
+  petPolicies: PetPolicy[];
+  recommendationReason?: string;
+}
+
+export type PlaceReportStatus = 'SUBMITTED' | 'IN_REVIEW' | 'COMPLETED';
+
+export interface PlaceReportCreateResponse {
+  placeReportId: number;
+  status: PlaceReportStatus;
+  imageUrl: string | null;
+  submittedAt: string;
+}
+
+/** 장소 정보와 선택 사진을 첨부하여 새로운 장소를 제보한다. */
+export function createPlaceReport(
+  body: PlaceReportCreateRequest,
+  accessToken: string,
+  imageUri?: string | null
+) {
+  return requestMultipart<PlaceReportCreateResponse>('/api/place-reports', 'POST', body, accessToken, imageUri);
+}
+
+// ─── 문의 (Inquiry) ────────────────────────────────────────────────────────────
+export interface InquiryCreateRequest {
+  title: string;
+  content: string;
+}
+
+export type InquiryStatus = 'SUBMITTED' | 'IN_REVIEW' | 'COMPLETED';
+
+export interface InquiryCreateResponse {
+  inquiryId: number;
+  status: InquiryStatus;
+  submittedAt: string;
+}
+
+/** 제목과 문의 내용을 입력하여 문의를 접수한다. */
+export function createInquiry(body: InquiryCreateRequest, accessToken: string) {
+  return request<InquiryCreateResponse>('/api/inquiries', { method: 'POST', body, accessToken });
 }

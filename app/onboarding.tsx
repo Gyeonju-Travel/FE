@@ -8,7 +8,9 @@ import SizeLargeIcon from '@/assets/icons/size-large.svg';
 import OnboardingCameraIcon from '@/assets/login/onboarding-camera.svg';
 import OnboardingCafeIcon from '@/assets/login/onboarding-cafe.svg';
 import OnboardingNatureIcon from '@/assets/login/onboarding-nature.svg';
-import { completeOnboarding, ApiError, PetTravelPreference } from '@/utils/api';
+import OnboardingPersonalityIllustration from '@/assets/login/onboarding-personality.svg';
+import InfoIcon from '@/assets/icons/info.svg';
+import { completeOnboarding, ApiError, PetTravelPreference, PetPersonality } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { sizeToApi } from '@/utils/petMappers';
 import { showAlert } from '@/components/ui/AppAlert';
@@ -36,10 +38,13 @@ const DOG_SIZE_OPTIONS = [
 ];
 
 const MAX_PERSONALITY_SELECT = 2;
-const PERSONALITY_OPTIONS = [
-  { id: 'shy', label: '#낯가림' },
-  { id: 'relaxed', label: '#느긋함' },
-  { id: 'social', label: '#사교적' },
+const PERSONALITY_OPTIONS: { id: string; label: string; personality: PetPersonality }[] = [
+  { id: 'shy', label: '#낯가림', personality: 'SHYNESS' },
+  { id: 'relaxed', label: '#느긋함', personality: 'RELAXED' },
+  { id: 'social', label: '#사교적', personality: 'FRIENDLY' },
+  { id: 'sensitive', label: '#예민함', personality: 'SENSITIVITY' },
+  { id: 'curious', label: '#호기심', personality: 'CURIOSITY' },
+  { id: 'active', label: '#활동적', personality: 'ACTIVE' },
 ];
 
 function StepIndicator({ currentStep, onStepPress }: { currentStep: Step; onStepPress: (step: Step) => void }) {
@@ -90,7 +95,7 @@ function OptionListItem({
       <View style={ob.optionAvatar}>
         {Icon && <Icon width={18} height={16} color={Colors.white} />}
       </View>
-      <Text style={ob.optionLabel} numberOfLines={1} ellipsizeMode="tail">
+      <Text style={[ob.optionLabel, selected && ob.optionLabelSelected]} numberOfLines={1} ellipsizeMode="tail">
         {label}
       </Text>
       <View style={[ob.optionCheckbox, selected && ob.optionCheckboxSelected]}>
@@ -120,7 +125,7 @@ function SizeOption({
       onPress={onPress}
     >
       <Icon width={iconSize} height={iconSize} />
-      <Text style={ob.sizeLabel}>{label}</Text>
+      <Text style={[ob.sizeLabel, selected && ob.sizeLabelSelected]}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -150,32 +155,52 @@ function PrimaryButton({
  */
 function CenteredStage({
   stepIndicator,
+  illustration,
   question,
   options,
 }: {
   stepIndicator: React.ReactNode;
+  illustration?: React.ReactNode;
   question: React.ReactNode;
   options: React.ReactNode;
 }) {
   const [areaHeight, setAreaHeight] = useState(0);
   const [stepHeight, setStepHeight] = useState(0);
+  const [illustrationHeight, setIllustrationHeight] = useState(0);
   const [questionHeight, setQuestionHeight] = useState(0);
   const [optionsHeight, setOptionsHeight] = useState(0);
 
   const onAreaLayout = (e: LayoutChangeEvent) => setAreaHeight(e.nativeEvent.layout.height);
   const onStepLayout = (e: LayoutChangeEvent) => setStepHeight(e.nativeEvent.layout.height);
+  const onIllustrationLayout = (e: LayoutChangeEvent) => setIllustrationHeight(e.nativeEvent.layout.height);
   const onQuestionLayout = (e: LayoutChangeEvent) => setQuestionHeight(e.nativeEvent.layout.height);
   const onOptionsLayout = (e: LayoutChangeEvent) => setOptionsHeight(e.nativeEvent.layout.height);
 
-  const ready = areaHeight > 0 && stepHeight > 0 && questionHeight > 0 && optionsHeight > 0;
+  const ready =
+    areaHeight > 0 &&
+    stepHeight > 0 &&
+    questionHeight > 0 &&
+    optionsHeight > 0 &&
+    (!illustration || illustrationHeight > 0);
   // 선택 박스 중심이 areaHeight/2에 오도록, 질문 텍스트 위/아래 간격을 동일하게(gap) 계산.
   const gap = ready
-    ? Math.max(0, (areaHeight - optionsHeight - 2 * stepHeight - 2 * questionHeight) / 4)
+    ? Math.max(
+        0,
+        (areaHeight - optionsHeight - illustrationHeight - 2 * stepHeight - 2 * questionHeight) / 4
+      )
     : 0;
 
   return (
     <View style={ob.stage} onLayout={onAreaLayout}>
       <View onLayout={onStepLayout}>{stepIndicator}</View>
+      {illustration && (
+        <View
+          onLayout={onIllustrationLayout}
+          style={{ marginTop: gap, opacity: ready ? 1 : 0, alignItems: 'center' }}
+        >
+          {illustration}
+        </View>
+      )}
       <View onLayout={onQuestionLayout} style={{ marginTop: gap, opacity: ready ? 1 : 0 }}>
         {question}
       </View>
@@ -207,6 +232,10 @@ export default function OnboardingScreen() {
       setStep((s) => (s + 1) as Step);
       return;
     }
+    if (personalities.length !== MAX_PERSONALITY_SELECT) {
+      showAlert('반려견 등록', '강아지의 성향은 필수로 두 가지를 선택해주세요.');
+      return;
+    }
     const token = await getAccessToken();
     if (!token) {
       router.replace('/(tabs)');
@@ -215,18 +244,20 @@ export default function OnboardingScreen() {
     setRegistering(true);
     try {
       const travelPreference = TRAVEL_PREF_OPTIONS.find((o) => o.id === travelPref)?.travelPreference ?? 'NATURE';
-      // TODO: 성향(personalities) 값을 받을 백엔드 필드가 아직 없어서 전송하지 못하고 있음.
+      const personality = personalities
+        .map((id) => PERSONALITY_OPTIONS.find((o) => o.id === id)?.personality)
+        .filter((p): p is PetPersonality => !!p);
       await completeOnboarding(
         {
           name: dogName ?? '',
           size: sizeToApi(dogSize),
           travelPreference,
-          walkingStyle: 'SHORT_WALK',
+          personality,
         },
         token,
         photoUri || null
       );
-      router.replace('/(tabs)');
+      router.replace({ pathname: '/(tabs)', params: { justOnboarded: '1' } });
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '반려견 등록에 실패했어요. 잠시 후 다시 시도해주세요.';
       showAlert('반려견 등록', message);
@@ -258,6 +289,9 @@ export default function OnboardingScreen() {
 
         <CenteredStage
           stepIndicator={<StepIndicator currentStep={step} onStepPress={setStep} />}
+          illustration={
+            step === 3 ? <OnboardingPersonalityIllustration width={200} height={141} /> : undefined
+          }
           question={
             <Text style={ob.title}>
               {titleLine1}
@@ -308,7 +342,8 @@ export default function OnboardingScreen() {
                         onPress={() => togglePersonality(opt.id)}
                       >
                         <Text style={[ob.personalityChipText, selected && ob.personalityChipTextSelected]}>
-                          {opt.label}
+                          <Text style={ob.personalityChipHash}>#</Text>
+                          {opt.label.slice(1)}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -321,7 +356,12 @@ export default function OnboardingScreen() {
       </View>
 
       <View style={ob.bottomBar}>
-        {step === 3 && <Text style={ob.personalityHint}>최대 {MAX_PERSONALITY_SELECT}개까지 선택할 수 있어요</Text>}
+        {step === 3 && (
+          <View style={ob.personalityHintRow}>
+            <InfoIcon width={14} height={14} />
+            <Text style={ob.personalityHint}>강아지의 성향은 필수로 두 가지를 선택해주세요</Text>
+          </View>
+        )}
         <PrimaryButton
           label={step < 3 ? '다음' : '견주 여행 즐기러 가기'}
           onPress={handleNext}
@@ -381,6 +421,7 @@ const ob = StyleSheet.create({
   optionRowSelected: {
     borderColor: Colors.coral,
     borderWidth: 1.5,
+    backgroundColor: '#F8F5F0',
     shadowColor: '#8A8580',
     shadowOpacity: 0.35,
     shadowRadius: 10,
@@ -396,6 +437,7 @@ const ob = StyleSheet.create({
     justifyContent: 'center',
   },
   optionLabel: { flex: 1, fontSize: 15, color: Colors.textBody1, textAlign: 'center' },
+  optionLabelSelected: { fontWeight: '700' },
   optionCheckbox: {
     width: 24,
     height: 24,
@@ -421,8 +463,9 @@ const ob = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.sm,
   },
-  sizeBoxSelected: { borderColor: Colors.coral, borderWidth: 1.5 },
+  sizeBoxSelected: { borderColor: Colors.coral, borderWidth: 1.5, backgroundColor: '#F8F5F0' },
   sizeLabel: { fontSize: 14, color: Colors.textBody1 },
+  sizeLabelSelected: { fontWeight: '700' },
   personalityGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -430,21 +473,29 @@ const ob = StyleSheet.create({
     gap: Spacing.sm,
   },
   personalityChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: Radius.full,
+    width: 100,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.border,
     backgroundColor: Colors.background,
   },
-  personalityChipSelected: { borderColor: Colors.coral, backgroundColor: Colors.primaryTint },
-  personalityChipText: { fontSize: 14, fontWeight: '500', color: Colors.textBody2 },
-  personalityChipTextSelected: { color: Colors.coralDark, fontWeight: '700' },
+  personalityChipSelected: { borderColor: Colors.coral, borderWidth: 1.5, backgroundColor: '#F8F5F0' },
+  personalityChipText: { fontSize: 14, fontWeight: '500', color: Colors.textBody1 },
+  personalityChipTextSelected: { fontWeight: '700' },
+  personalityChipHash: { color: Colors.coral },
+  personalityHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: Spacing.lg,
+  },
   personalityHint: {
-    textAlign: 'center',
     fontSize: 12,
     color: Colors.textMuted,
-    marginBottom: Spacing.sm,
   },
   bottomBar: {
     paddingHorizontal: Spacing.xl,

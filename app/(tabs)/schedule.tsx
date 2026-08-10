@@ -13,6 +13,7 @@ import {
   Dimensions,
   StyleProp,
   ViewStyle,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -21,9 +22,27 @@ import { Colors, Spacing, Radius } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
 import { Schedule } from '@/types/schedule';
 import { MapPlace } from '@/types/map';
-import { getBookmarks, searchPlaces, ApiError } from '@/utils/api';
+import {
+  getBookmarks,
+  searchPlaces,
+  ApiError,
+  previewSchedule,
+  previewScheduleUpdate,
+  createSchedule,
+  updateSchedule,
+  getSchedulesByDate,
+  deleteSchedules,
+  SchedulePreviewResponse,
+} from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
+import { onTabReset } from '@/utils/tabReset';
 import { toSavedPlace, toMapPlace } from '@/utils/placeMappers';
+import {
+  DEPARTURE_OPTIONS,
+  labelToDepartureArea,
+  toIsoDate,
+  toSchedule,
+} from '@/utils/scheduleMappers';
 import WheelPicker, { PICKER_H } from '@/components/schedule/WheelPicker';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
@@ -33,6 +52,7 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
 import { haversineMeters, estimateWalkMinutes, formatDistance, formatWalkDuration } from '@/utils/distance';
 import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
+import { getArrivedPlaceIds } from '@/utils/geofencing';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
 import ScheduleTimeIcon from '@/assets/icons/schedule-time.svg';
 import ScheduleEditIcon from '@/assets/icons/schedule-edit.svg';
@@ -43,11 +63,15 @@ import MapMyLocationIcon from '@/assets/icons/map-mylocation.svg';
 import TabScheduleIcon from '@/assets/icons/tab-schedule.svg';
 import BinIcon from '@/assets/icons/bin.svg';
 import ScheduleEmptyIllustration from '@/assets/schedule/empty-illustration.svg';
+import ToastDepartureIcon from '@/assets/icons/toast/departure.svg';
+import ToastPlaceLimitIcon from '@/assets/icons/toast/place-limit.svg';
+import ToastScheduleSavedIcon from '@/assets/icons/toast/schedule-saved.svg';
+import ToastScheduleAddedIcon from '@/assets/icons/toast/schedule-added.svg';
+import ToastScheduleEndedIcon from '@/assets/icons/toast/schedule-ended.svg';
 
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'];
-const DEPARTURE_OPTIONS = ['황리단길', '금리단길', '첨성대', '교촌마을'];
 
 /** DB에 등록된 출발지 장소들을 이름으로 찾아 위경도/사진을 가져온다. */
 async function fetchDeparturePlaces(): Promise<Record<string, MapPlace>> {
@@ -56,8 +80,11 @@ async function fetchDeparturePlaces(): Promise<Record<string, MapPlace>> {
   const entries = await Promise.all(
     DEPARTURE_OPTIONS.map(async (name) => {
       try {
-        const result = await searchPlaces({ keyword: name, size: 5 }, token);
-        const match = result.places.find((p) => p.name === name) ?? result.places[0];
+        // 카테고리를 관광지로 한정하지 않으면 "OO황리단길점" 같은 인근 식당/카페가 먼저 잡혀서
+        // 엉뚱한 사진이 붙는다. DB에 등록된 이름은 보통 "경주 " 접두사가 붙어있어 정확히
+        // 일치하진 않으므로, 이름에 검색어가 포함된 것을 우선으로 찾는다.
+        const result = await searchPlaces({ keyword: name, categories: ['ATTRACTION'], size: 10 }, token);
+        const match = result.places.find((p) => p.name.includes(name)) ?? result.places[0];
         return match ? ([name, toMapPlace(match)] as const) : null;
       } catch (e) {
         return null;
@@ -302,10 +329,13 @@ function CreateScheduleView({
   onBack,
   onSave,
   initialSchedule,
+  initialDate,
 }: {
   onBack: () => void;
-  onSave: (schedule: Schedule) => void;
+  onSave: (dateStr: string) => void;
   initialSchedule?: Schedule;
+  /** 달력에서 미리 선택해둔 날짜 — 새 일정 만들기 시작 시 기본값으로 쓴다 (수정 시엔 무시). */
+  initialDate?: { year: number; month: number; day: number };
 }) {
   const now = new Date();
   const isEditing = !!initialSchedule;
@@ -317,16 +347,25 @@ function CreateScheduleView({
     initialDepartureIdx >= 0 ? initialDepartureIdx : null
   );
   const [yearIdx, setYearIdx] = useState(
-    initialSchedule ? initialSchedule.year - YEAR_BASE : currentYearIdx
+    initialSchedule
+      ? initialSchedule.year - YEAR_BASE
+      : initialDate
+      ? initialDate.year - YEAR_BASE
+      : currentYearIdx
   );
-  const [monthIdx, setMonthIdx] = useState(initialSchedule ? initialSchedule.month : now.getMonth());
-  const [dayIdx, setDayIdx] = useState(initialSchedule ? initialSchedule.day - 1 : now.getDate() - 1);
-  const [dateConfirmed, setDateConfirmed] = useState(!!initialSchedule);
+  const [monthIdx, setMonthIdx] = useState(
+    initialSchedule ? initialSchedule.month : initialDate ? initialDate.month : now.getMonth()
+  );
+  const [dayIdx, setDayIdx] = useState(
+    initialSchedule ? initialSchedule.day - 1 : initialDate ? initialDate.day - 1 : now.getDate() - 1
+  );
+  const [dateConfirmed, setDateConfirmed] = useState(!!initialSchedule || !!initialDate);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(
     new Set(initialSchedule?.places.map((p) => p.id))
   );
   const [pickerType, setPickerType] = useState<'location' | 'date' | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastSubtitle, setToastSubtitle] = useState<string | undefined>(undefined);
   const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
   const [loadingPlaces, setLoadingPlaces] = useState(true);
   const [departurePlaces, setDeparturePlaces] = useState<Record<string, MapPlace>>({});
@@ -449,7 +488,8 @@ function CreateScheduleView({
         return next;
       }
       if (prev.size >= MAX_PLACES) {
-        setToastMsg(`장소는 최대 ${MAX_PLACES}개까지만 선택할 수 있어요.`);
+        setToastMsg('장소가 너무 많아요!');
+        setToastSubtitle(`장소는 최대 ${MAX_PLACES}개까지만 선택할 수 있어요.`);
         return prev;
       }
       return new Set(prev).add(id);
@@ -461,57 +501,115 @@ function CreateScheduleView({
       return;
     }
     if (savedPlaces.length > MAX_PLACES) {
-      setToastMsg(`장소는 최대 ${MAX_PLACES}개까지만 선택할 수 있어요.`);
+      setToastMsg('장소가 너무 많아요!');
+      setToastSubtitle(`장소는 최대 ${MAX_PLACES}개까지만 선택할 수 있어요.`);
     }
     setSelectedIds(new Set(savedPlaces.slice(0, maxSelectable).map((p) => p.id)));
   };
 
   const [showEdit, setShowEdit] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [preview, setPreview] = useState<SchedulePreviewResponse | null>(null);
 
-  const handleCreateSchedule = () => {
+  const handleCreateSchedule = async () => {
     if (departureIdx === null) {
-      setToastMsg('출발지를 선택해주세요.');
+      setToastMsg('출발지를 입력해 주세요!');
+      setToastSubtitle(undefined);
       return;
     }
     if (!dateConfirmed) {
       setToastMsg('날짜를 선택해주세요.');
+      setToastSubtitle(undefined);
       return;
     }
     if (selectedIds.size === 0) {
       setToastMsg('장소를 선택해주세요.');
+      setToastSubtitle(undefined);
       return;
     }
-    setShowEdit(true);
+
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+      setToastSubtitle(undefined);
+      return;
+    }
+
+    setPreviewing(true);
+    try {
+      const body = {
+        departureArea: labelToDepartureArea(DEPARTURE_OPTIONS[departureIdx]),
+        date: toIsoDate(yearIdx + YEAR_BASE, monthIdx, dayIdx + 1),
+        placeIds: Array.from(selectedIds).map(Number),
+      };
+      const result =
+        isEditing && initialSchedule
+          ? await previewScheduleUpdate(Number(initialSchedule.id), body, token)
+          : await previewSchedule(body, token);
+      setPreview(result);
+      setShowEdit(true);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '일정을 만들지 못했어요. 잠시 후 다시 시도해주세요.';
+      setToastMsg(message);
+      setToastSubtitle(undefined);
+    } finally {
+      setPreviewing(false);
+    }
   };
 
   const dateText = dateConfirmed ? formatPreview(yearIdx, monthIdx, dayIdx) : null;
 
-  if (showEdit && departureIdx !== null) {
+  if (showEdit && departureIdx !== null && preview) {
+    const selectedPlaces = savedPlaces.filter((p) => selectedIds.has(p.id));
+    const orderedPlaces = preview.recommendedPlaces
+      .slice()
+      .sort((a, b) => a.visitOrder - b.visitOrder)
+      .map((rp) => selectedPlaces.find((p) => p.id === String(rp.placeId)))
+      .filter((p): p is SavedPlace => !!p);
+
     return (
       <EditScheduleView
         departureLabel={DEPARTURE_OPTIONS[departureIdx]}
-        departureCoord={
-          departurePlaces[DEPARTURE_OPTIONS[departureIdx]]
-            ? {
-                lat: departurePlaces[DEPARTURE_OPTIONS[departureIdx]].latitude,
-                lng: departurePlaces[DEPARTURE_OPTIONS[departureIdx]].longitude,
-              }
-            : undefined
-        }
+        departureCoord={{ lat: preview.departure.latitude, lng: preview.departure.longitude }}
         departureImageUri={departurePlaces[DEPARTURE_OPTIONS[departureIdx]]?.imageUri ?? null}
-        places={savedPlaces.filter((p) => selectedIds.has(p.id))}
+        places={orderedPlaces}
         isEditing={isEditing}
-        onBack={() => setShowEdit(false)}
-        onSaved={(finalPlaces) => {
-          onSave({
-            id: initialSchedule?.id ?? `${Date.now()}`,
-            year: yearIdx + YEAR_BASE,
-            month: monthIdx,
-            day: dayIdx + 1,
-            departureLabel: DEPARTURE_OPTIONS[departureIdx],
-            places: finalPlaces,
-          });
-          onBack();
+        submitting={submitting}
+        onBack={() => {
+          setShowEdit(false);
+          setPreview(null);
+        }}
+        onSaved={async (finalPlaces) => {
+          const token = await getAccessToken();
+          if (!token) {
+            setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+            setToastSubtitle(undefined);
+            return;
+          }
+          setSubmitting(true);
+          try {
+            const createBody = {
+              matrixToken: preview.matrixToken,
+              orderedPlaceIds: finalPlaces.map((p) => Number(p.id)),
+            };
+            const newDateStr = toIsoDate(yearIdx + YEAR_BASE, monthIdx, dayIdx + 1);
+            if (isEditing && initialSchedule) {
+              await updateSchedule(Number(initialSchedule.id), createBody, token);
+              const oldDateStr = toIsoDate(initialSchedule.year, initialSchedule.month, initialSchedule.day);
+              if (oldDateStr !== newDateStr) onSave(oldDateStr);
+            } else {
+              await createSchedule(createBody, token);
+            }
+            onSave(newDateStr);
+            onBack();
+          } catch (e) {
+            const message = e instanceof ApiError ? e.message : '일정 저장에 실패했어요. 잠시 후 다시 시도해주세요.';
+            setToastMsg(message);
+            setToastSubtitle(undefined);
+          } finally {
+            setSubmitting(false);
+          }
         }}
       />
     );
@@ -593,12 +691,35 @@ function CreateScheduleView({
 
       {/* 일정 만들기 버튼 */}
       <View style={cs.bottomBar}>
-        <TouchableOpacity style={cs.createBtn} activeOpacity={0.85} onPress={handleCreateSchedule}>
-          <Text style={cs.createBtnText}>{isEditing ? '일정 수정하기 →' : '일정 만들기 →'}</Text>
+        <TouchableOpacity
+          style={[cs.createBtn, previewing && cs.createBtnDisabled]}
+          activeOpacity={0.85}
+          disabled={previewing}
+          onPress={handleCreateSchedule}
+        >
+          {previewing ? (
+            <ActivityIndicator color={Colors.white} />
+          ) : (
+            <Text style={cs.createBtnText}>{isEditing ? '일정 수정하기 →' : '일정 만들기 →'}</Text>
+          )}
         </TouchableOpacity>
       </View>
 
-      <Toast message={toastMsg} onHide={() => setToastMsg(null)} />
+      <Toast
+        message={toastMsg}
+        subtitle={toastSubtitle}
+        onHide={() => {
+          setToastMsg(null);
+          setToastSubtitle(undefined);
+        }}
+        icon={
+          toastMsg === '출발지를 입력해 주세요!' ? (
+            <ToastDepartureIcon width={18} height={22} />
+          ) : toastMsg === '장소가 너무 많아요!' ? (
+            <ToastPlaceLimitIcon width={21} height={23} />
+          ) : undefined
+        }
+      />
 
       {/* 출발지/날짜 Picker 바텀시트 */}
       {sheetVisible && (
@@ -757,6 +878,14 @@ function RouteView({
     bottom: containerHeight.value - animatedPosition.value + 16,
   }));
 
+  // 목적지 도착 감지(지오펜싱) 상태 — 감지 시작 트리거는 별도로 붙일 예정이라
+  // 여기서는 이미 도착한 장소 표시(체크마크)만 반영한다.
+  const [arrivedPlaceIds, setArrivedPlaceIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    getArrivedPlaceIds(schedule.id).then(setArrivedPlaceIds);
+  }, [schedule.id]);
+
   const departurePlace = departurePlaces[schedule.departureLabel];
   const departureCoord = departurePlace
     ? { lat: departurePlace.latitude, lng: departurePlace.longitude }
@@ -888,8 +1017,8 @@ function RouteView({
                   sheetRef.current?.collapse();
                 }}
                 dot={
-                  <View style={rv.stopDot}>
-                    <Text style={rv.stopDotText}>{i + 1}</Text>
+                  <View style={[rv.stopDot, arrivedPlaceIds.includes(place.id) && rv.stopDotArrived]}>
+                    <Text style={rv.stopDotText}>{arrivedPlaceIds.includes(place.id) ? '✓' : i + 1}</Text>
                   </View>
                 }
               >
@@ -946,23 +1075,77 @@ export default function ScheduleScreen() {
     day: today.getDate(),
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  // 날짜(YYYY-MM-DD)별로 캐싱한다 — 서버가 날짜 단위 조회만 지원해서, 달력에 표시할
+  // 월 전체를 하루씩 병렬로 조회해 채운다.
+  const [scheduleCache, setScheduleCache] = useState<Record<string, Schedule[]>>({});
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedScheduleIds, setSelectedScheduleIds] = useState<Set<string>>(new Set());
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastSubtitle, setToastSubtitle] = useState<string | undefined>(undefined);
   const [viewingRouteSchedule, setViewingRouteSchedule] = useState<Schedule | null>(null);
   const [departurePlaces, setDeparturePlaces] = useState<Record<string, MapPlace>>({});
+  const endedPromptShownRef = useRef(false);
+  const schedules = useMemo(() => Object.values(scheduleCache).flat(), [scheduleCache]);
+
+  const fetchDateSchedules = async (dateStr: string) => {
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const result = await getSchedulesByDate(dateStr, token);
+      setScheduleCache((prev) => ({ ...prev, [dateStr]: result.schedules.map(toSchedule) }));
+    } catch (e) {
+      // 하루 조회 실패는 조용히 무시 — 달력의 다른 날짜에는 영향 없음
+    }
+  };
+
+  const fetchMonthSchedules = async (y: number, m: number) => {
+    const days = getDaysInMonth(y, m);
+    await Promise.all(
+      Array.from({ length: days }, (_, i) => i + 1).map((day) => fetchDateSchedules(toIsoDate(y, m, day)))
+    );
+  };
 
   useEffect(() => {
     fetchDeparturePlaces().then(setDeparturePlaces);
   }, []);
 
+  useEffect(() => {
+    fetchMonthSchedules(year, month);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month]);
+
+  // 지난 일정인데 아직 하루 기록(스크랩)을 남기지 않았다면 한 번 알려준다.
+  useEffect(() => {
+    if (endedPromptShownRef.current || schedules.length === 0) return;
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const hasEndedSchedule = schedules.some(
+      (s) => new Date(s.year, s.month, s.day) < todayStart
+    );
+    if (hasEndedSchedule) {
+      endedPromptShownRef.current = true;
+      setToastMsg('일정이 종료 됐나요?');
+      setToastSubtitle('스크랩으로 오늘 하루를 기록해보세요');
+    }
+  }, [schedules]);
+
   const exitScheduleEditMode = () => {
     setIsEditMode(false);
     setSelectedScheduleIds(new Set());
   };
+
+  // 일정 탭 아이콘을 다시 누르면 일정 만들기/편집/경로보기 화면을 닫고 첫 화면(달력)으로 되돌아간다.
+  useEffect(
+    () =>
+      onTabReset('schedule', () => {
+        setShowCreate(false);
+        setEditingSchedule(null);
+        setViewingRouteSchedule(null);
+        exitScheduleEditMode();
+      }),
+    []
+  );
 
   const toggleScheduleSelect = (id: string) => {
     setSelectedScheduleIds((prev) => {
@@ -987,17 +1170,16 @@ export default function ScheduleScreen() {
     return (
       <CreateScheduleView
         initialSchedule={editingSchedule ?? undefined}
+        initialDate={editingSchedule ? undefined : selectedDate}
         onBack={() => {
           setShowCreate(false);
           setEditingSchedule(null);
         }}
-        onSave={(schedule) =>
-          setSchedules((prev) =>
-            prev.some((s) => s.id === schedule.id)
-              ? prev.map((s) => (s.id === schedule.id ? schedule : s))
-              : [...prev, schedule]
-          )
-        }
+        onSave={(dateStr) => {
+          fetchDateSchedules(dateStr);
+          setToastMsg(editingSchedule ? '일정이 저장됐어요!' : '일정이 추가됐어요!');
+          setToastSubtitle(undefined);
+        }}
       />
     );
   }
@@ -1032,9 +1214,25 @@ export default function ScheduleScreen() {
     }
   };
 
-  const handleDeleteSchedules = () => {
-    setSchedules((prev) => prev.filter((s) => !selectedScheduleIds.has(s.id)));
+  const handleDeleteSchedules = async () => {
+    const idsToDelete = new Set(selectedScheduleIds);
+    const token = await getAccessToken();
     exitScheduleEditMode();
+    if (!token) return;
+    try {
+      await deleteSchedules(Array.from(idsToDelete).map(Number), token);
+      setScheduleCache((prev) => {
+        const next: Record<string, Schedule[]> = {};
+        for (const [dateStr, list] of Object.entries(prev)) {
+          next[dateStr] = list.filter((s) => !idsToDelete.has(s.id));
+        }
+        return next;
+      });
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '일정 삭제에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setToastMsg(message);
+      setToastSubtitle(undefined);
+    }
   };
 
   const cells: (number | null)[] = [
@@ -1170,7 +1368,24 @@ export default function ScheduleScreen() {
         </TouchableOpacity>
       )}
 
-      <Toast message={toastMsg} onHide={() => setToastMsg(null)} />
+      <Toast
+        message={toastMsg}
+        subtitle={toastSubtitle}
+        onHide={() => {
+          setToastMsg(null);
+          setToastSubtitle(undefined);
+        }}
+        bottom={20}
+        icon={
+          toastMsg === '일정이 저장됐어요!' ? (
+            <ToastScheduleSavedIcon width={21} height={22} />
+          ) : toastMsg === '일정이 추가됐어요!' ? (
+            <ToastScheduleAddedIcon width={21} height={22} />
+          ) : toastMsg === '일정이 종료 됐나요?' ? (
+            <ToastScheduleEndedIcon width={21} height={21} />
+          ) : undefined
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -1268,6 +1483,7 @@ const cs = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 4,
   },
+  createBtnDisabled: { opacity: 0.6 },
   createBtnText: { color: Colors.white, fontSize: 16, fontWeight: '600' },
   // 바텀시트
   backdrop: {
@@ -1625,6 +1841,7 @@ const rv = StyleSheet.create({
     justifyContent: 'center',
   },
   stopDotText: { fontSize: 12, fontWeight: '700', color: Colors.white },
+  stopDotArrived: { backgroundColor: Colors.secondary },
   stopDepartureDot: {
     minWidth: 28,
     height: 28,

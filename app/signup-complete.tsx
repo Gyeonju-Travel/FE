@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, SafeAreaView, LayoutChangeEvent } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, SafeAreaView, LayoutChangeEvent, Linking } from 'react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import SignupCameraIcon from '@/assets/login/signup-camera.svg';
-import { showAlert } from '@/components/ui/AppAlert';
+import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
 import Toast from '@/components/ui/Toast';
+import PhotoPermissionModal from '@/components/ui/PhotoPermissionModal';
+import CelebrationToast from '@/components/ui/CelebrationToast';
 
 const AVATAR_SIZE = 170;
 const AVATAR_MARGIN_BOTTOM = Spacing.xxl * 1.5;
@@ -15,11 +17,13 @@ export default function SignupCompleteScreen() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [showPhotoPermissionModal, setShowPhotoPermissionModal] = useState(false);
+  const [showWelcomeCelebration, setShowWelcomeCelebration] = useState(true);
 
   const handlePickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      showAlert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
+      setShowPhotoPermissionModal(true);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -60,7 +64,7 @@ export default function SignupCompleteScreen() {
             {photoUri ? (
               <Image source={{ uri: photoUri }} style={styles.avatar} />
             ) : (
-              <View style={styles.avatar} />
+              <DogPhotoBlank width={AVATAR_SIZE} height={AVATAR_SIZE} />
             )}
             <TouchableOpacity style={styles.cameraBtn} activeOpacity={0.8} onPress={handlePickPhoto}>
               <SignupCameraIcon width={20} height={18} color={Colors.textBody2} />
@@ -95,7 +99,9 @@ export default function SignupCompleteScreen() {
             }
             setToastMsg('프로필 정보가 저장됐어요.');
             setTimeout(() => {
-              router.replace({
+              // 온보딩 1번(성향 선택)에서 뒤로가기로 이 화면(이름/이미지 등록)에
+              // 돌아올 수 있어야 하므로 replace 대신 push로 이동한다.
+              router.push({
                 pathname: '/onboarding',
                 params: { dogName: dogName.trim(), photoUri: photoUri ?? '' },
               });
@@ -107,6 +113,30 @@ export default function SignupCompleteScreen() {
       </View>
 
       <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={120} />
+
+      <CelebrationToast
+        visible={showWelcomeCelebration}
+        icon={
+          <Image
+            source={require('@/assets/toast/welcome-thumbsup.png')}
+            style={{ width: 26, height: 26 }}
+            resizeMode="contain"
+          />
+        }
+        title="환영해요!"
+        subtitle="가입해 주셔서 감사합니다."
+        top={80}
+        onHide={() => setShowWelcomeCelebration(false)}
+      />
+
+      <PhotoPermissionModal
+        visible={showPhotoPermissionModal}
+        onCancel={() => setShowPhotoPermissionModal(false)}
+        onOpenSettings={() => {
+          setShowPhotoPermissionModal(false);
+          Linking.openSettings();
+        }}
+      />
     </SafeAreaView>
   );
 }

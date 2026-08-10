@@ -99,7 +99,7 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <View style={styles.linkRow}>
-            <TouchableOpacity onPress={() => router.push('/signup')}>
+            <TouchableOpacity onPress={() => router.push('/signup-terms')}>
               <Text style={styles.linkText}>회원가입</Text>
             </TouchableOpacity>
             <Text style={styles.linkDivider}>|</Text>

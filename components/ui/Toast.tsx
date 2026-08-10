@@ -8,9 +8,19 @@ interface Props {
   onHide: () => void;
   duration?: number;
   bottom?: number;
+  icon?: React.ReactNode;
+  iconTone?: 'coral' | 'sage';
 }
 
-export default function Toast({ message, subtitle, onHide, duration = 2000, bottom }: Props) {
+export default function Toast({
+  message,
+  subtitle,
+  onHide,
+  duration = 2000,
+  bottom,
+  icon,
+  iconTone = 'coral',
+}: Props) {
   const opacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -30,8 +40,8 @@ export default function Toast({ message, subtitle, onHide, duration = 2000, bott
       style={[styles.container, bottom !== undefined && { bottom }, { opacity }]}
       pointerEvents="box-none"
     >
-      <View style={styles.iconCircle}>
-        <Image source={require('@/assets/icons/pets.png')} style={styles.icon} resizeMode="contain" />
+      <View style={[styles.iconCircle, iconTone === 'sage' ? styles.iconCircleSage : styles.iconCircleCoral]}>
+        {icon ?? <Image source={require('@/assets/icons/pets.png')} style={styles.icon} resizeMode="contain" />}
       </View>
       <View style={styles.textCol}>
         <Text style={styles.title} numberOfLines={1}>
@@ -65,7 +75,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.primaryBorder,
-    paddingVertical: 8,
+    paddingVertical: 14,
     paddingHorizontal: 12,
     shadowColor: '#3A3330',
     shadowOpacity: 0.12,
@@ -76,14 +86,15 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: Radius.full,
-    backgroundColor: Colors.primaryTint,
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
+  iconCircleCoral: { backgroundColor: Colors.primaryTint },
+  iconCircleSage: { backgroundColor: Colors.secondaryTint },
   icon: { width: 18, height: 18, tintColor: Colors.coral },
   textCol: { flex: 1, gap: 2 },
-  title: { fontSize: 15, fontWeight: '400', color: Colors.textBody1 },
+  title: { fontSize: 15, fontWeight: '500', color: Colors.textBody1 },
   subtitle: { fontSize: 12, color: Colors.textBody2 },
   close: { fontSize: 18, color: Colors.textMuted, paddingHorizontal: 4 },
 });

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   View,
   FlatList,
@@ -14,6 +14,7 @@ import { PlaceCategory, SavedPlace } from '@/types/save';
 import { getBookmarks, deleteBookmarks, ApiError } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { toSavedPlace } from '@/utils/placeMappers';
+import { onTabReset } from '@/utils/tabReset';
 
 import SaveHeader from '@/components/save/SaveHeader';
 import SaveSummaryCard from '@/components/save/SaveSummaryCard';
@@ -43,6 +44,16 @@ export default function SaveScreen() {
       setToastMsg(message);
     }
   }, []);
+
+  // 저장 탭 아이콘을 다시 누르면 편집 모드를 빠져나와 첫 화면으로 되돌아간다.
+  useEffect(
+    () =>
+      onTabReset('save', () => {
+        setIsEditMode(false);
+        setSelectedIds(new Set());
+      }),
+    []
+  );
 
   useFocusEffect(
     useCallback(() => {

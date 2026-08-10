@@ -14,9 +14,10 @@ import {
   ViewStyle,
   Modal,
   Dimensions,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import EditProfileIcon from '@/assets/icons/edit-profile.svg';
@@ -38,6 +39,7 @@ import EditSizeIcon from '@/assets/icons/edit-size.svg';
 import StampProgressIllustration from '@/assets/mypage/stamp-progress.svg';
 import ProfileBottomLandscape from '@/assets/mypage/profile-bottom-landscape.svg';
 import ReportHeroLandscape from '@/assets/mypage/report-hero-landscape.svg';
+import { STAMP_ICONS, STAMP_LOCKED_ICON, TOTAL_STAMP_COUNT, getEarnedStampIndices } from '@/constants/stamps';
 import { MOCK_TRAVEL_HISTORY } from '@/mock/travelHistory';
 import { MOCK_SCRAP_DATA } from '@/mock/stampAlbum';
 import { DogProfile } from '@/types/mypage';
@@ -52,9 +54,13 @@ import {
   getPetDetail,
   registerPet,
   updatePetProfile,
+  createPlaceReport,
+  PetPolicy,
+  createInquiry,
   ApiError,
 } from '@/utils/api';
 import { getAccessToken, clearTokens } from '@/utils/authStorage';
+import { onTabReset } from '@/utils/tabReset';
 import {
   toDogSummary,
   toDogFromRepresentative,
@@ -69,7 +75,15 @@ import Badge from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
 import AlertCard from '@/components/ui/AlertCard';
 import { showAlert } from '@/components/ui/AppAlert';
-import PawIcon from '@/assets/icons/paw.svg';
+import ModalWarningIcon from '@/assets/icons/modal-warning.svg';
+import ModalCheckIcon from '@/assets/icons/modal-check.svg';
+import ModalPawIcon from '@/assets/icons/modal-paw.svg';
+import ToastInquiryIcon from '@/assets/icons/toast/inquiry-received.svg';
+import ToastPlaceReportIcon from '@/assets/icons/toast/place-report.svg';
+import ToastDailyRecordIcon from '@/assets/icons/toast/daily-record.svg';
+import PhotoPermissionModal from '@/components/ui/PhotoPermissionModal';
+import AddressSearchModal from '@/components/ui/AddressSearchModal';
+import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const PROFILE_TOP_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 350) / 390;
@@ -81,6 +95,12 @@ const REPORT_HERO_LANDSCAPE_HEIGHT = (REPORT_HERO_WIDTH * 71) / 365;
 
 const STAMP_SLOTS = 5;
 const REPORT_CONDITIONS = ['전 구역', '야외만', '이동장 필수', '목줄 필수'];
+const REPORT_CONDITION_POLICIES: PetPolicy[] = [
+  'PET_FRIENDLY',
+  'OUTDOOR_ONLY',
+  'CARRIER_REQUIRED',
+  'LEASH_REQUIRED',
+];
 const DANGER_COLOR = '#C9564D';
 const DANGER_BG = '#FBEAE9';
 
@@ -158,14 +178,8 @@ function WithdrawConfirmModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={wd.backdrop}>
         <AlertCard
-          icon={
-            <Image
-              source={require('@/assets/icons/pets.png')}
-              style={{ width: 28, height: 28, tintColor: Colors.coral }}
-              resizeMode="contain"
-            />
-          }
-          iconTone="coral"
+          icon={<ModalWarningIcon width={64} height={64} />}
+          iconStandalone
           title="정말 탈퇴하시겠어요?"
           subtitle={'탈퇴 버튼 선택 시 계정이 삭제되며\n복구되지 않습니다.'}
           buttons={[
@@ -183,8 +197,8 @@ function WithdrawSuccessModal({ visible, onConfirm }: { visible: boolean; onConf
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onConfirm}>
       <View style={wd.backdrop}>
         <AlertCard
-          icon={<Text style={{ fontSize: 28, fontWeight: '700', color: Colors.secondaryDark }}>✓</Text>}
-          iconTone="sage"
+          icon={<ModalCheckIcon width={64} height={64} />}
+          iconStandalone
           title="정상적으로 탈퇴되었습니다."
           subtitle={'그동안 견주여행을\n이용해주셔서 감사했어요 🐾'}
           buttons={[{ label: '확인', onPress: onConfirm, tone: 'sage' }]}
@@ -199,18 +213,39 @@ function InquiryView({ onBack }: { onBack: () => void }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastSubtitle, setToastSubtitle] = useState<string | undefined>(undefined);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!title.trim()) {
       setToastMsg('제목을 입력해주세요.');
+      setToastSubtitle(undefined);
       return;
     }
     if (!content.trim()) {
       setToastMsg('문의 내용을 입력해주세요.');
+      setToastSubtitle(undefined);
       return;
     }
-    setToastMsg('문의가 접수됐어요. 감사합니다!');
-    setTimeout(onBack, 900);
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+      setToastSubtitle(undefined);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createInquiry({ title: title.trim(), content: content.trim() }, token);
+      setToastMsg('접수되었습니다!');
+      setToastSubtitle('문의 검토 후 빠른 시일 내로 연락 드릴게요.');
+      setTimeout(onBack, 900);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '문의 접수에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setToastMsg(message);
+      setToastSubtitle(undefined);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -245,12 +280,20 @@ function InquiryView({ onBack }: { onBack: () => void }) {
       </ScrollView>
 
       <View style={iq.bottomBar}>
-        <TouchableOpacity style={iq.submitBtn} activeOpacity={0.85} onPress={handleSubmit}>
-          <Text style={iq.submitBtnText}>제출하기</Text>
+        <TouchableOpacity style={iq.submitBtn} activeOpacity={0.85} onPress={handleSubmit} disabled={submitting}>
+          {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={iq.submitBtnText}>제출하기</Text>}
         </TouchableOpacity>
       </View>
 
-      <Toast message={toastMsg} onHide={() => setToastMsg(null)} />
+      <Toast
+        message={toastMsg}
+        subtitle={toastSubtitle}
+        onHide={() => {
+          setToastMsg(null);
+          setToastSubtitle(undefined);
+        }}
+        icon={toastMsg === '접수되었습니다!' ? <ToastInquiryIcon width={20} height={22} /> : undefined}
+      />
     </SafeAreaView>
   );
 }
@@ -419,19 +462,71 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
   const [address, setAddress] = useState('');
   const [conditionIndices, setConditionIndices] = useState<number[]>([]);
   const [reason, setReason] = useState('');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [showPhotoPermissionModal, setShowPhotoPermissionModal] = useState(false);
+  const [showAddressSearch, setShowAddressSearch] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastSubtitle, setToastSubtitle] = useState<string | undefined>(undefined);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = () => {
+  const pickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      setShowPhotoPermissionModal(true);
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    setPhotoUri(result.assets[0].uri);
+  };
+
+  const handleSubmit = async () => {
     if (!placeName.trim()) {
       setToastMsg('장소 이름을 입력해주세요.');
+      setToastSubtitle(undefined);
       return;
     }
     if (!address.trim()) {
       setToastMsg('주소를 입력해주세요.');
+      setToastSubtitle(undefined);
       return;
     }
-    setToastMsg('제보가 접수됐어요. 감사합니다!');
-    setTimeout(onBack, 900);
+    if (conditionIndices.length === 0) {
+      setToastMsg('반려동물 입장 조건을 선택해주세요.');
+      setToastSubtitle(undefined);
+      return;
+    }
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+      setToastSubtitle(undefined);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createPlaceReport(
+        {
+          placeName: placeName.trim(),
+          address: address.trim(),
+          petPolicies: conditionIndices.map((i) => REPORT_CONDITION_POLICIES[i]),
+          recommendationReason: reason.trim() || undefined,
+        },
+        token,
+        photoUri
+      );
+      setToastMsg('접수되었습니다!');
+      setToastSubtitle('검토 후 반영할게요.');
+      setTimeout(onBack, 900);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '제보 접수에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setToastMsg(message);
+      setToastSubtitle(undefined);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -463,16 +558,12 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
         />
 
         <Text style={rp.label}>주소</Text>
-        <View style={rp.searchInputRow}>
+        <TouchableOpacity style={rp.searchInputRow} activeOpacity={0.8} onPress={() => setShowAddressSearch(true)}>
           <ReportSearchIcon width={16} height={16} color={Colors.textMuted} />
-          <TextInput
-            style={rp.searchInputText}
-            placeholder="주소 검색"
-            placeholderTextColor={Colors.textMuted}
-            value={address}
-            onChangeText={setAddress}
-          />
-        </View>
+          <Text style={[rp.searchInputText, !address && rp.searchInputPlaceholder]} numberOfLines={1}>
+            {address || '주소 검색'}
+          </Text>
+        </TouchableOpacity>
 
         <Text style={rp.label}>반려동물 입장 조건</Text>
         <View style={rp.conditionRow}>
@@ -499,8 +590,12 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
         <Text style={rp.label}>
           사진 첨부 <Text style={rp.optionalText}>(선택)</Text>
         </Text>
-        <TouchableOpacity style={rp.photoAddBox} activeOpacity={0.8}>
-          <Text style={rp.photoAddPlus}>+</Text>
+        <TouchableOpacity style={rp.photoAddBox} activeOpacity={0.8} onPress={pickPhoto}>
+          {photoUri ? (
+            <Image source={{ uri: photoUri }} style={rp.photoPreview} resizeMode="cover" />
+          ) : (
+            <Text style={rp.photoAddPlus}>+</Text>
+          )}
         </TouchableOpacity>
 
         <Text style={rp.label}>
@@ -517,12 +612,47 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
       </ScrollView>
 
       <View style={rp.bottomBar}>
-        <TouchableOpacity style={rp.submitBtn} activeOpacity={0.85} onPress={handleSubmit}>
-          <Text style={rp.submitBtnText}>제보 제출하기</Text>
+        <TouchableOpacity
+          style={rp.submitBtn}
+          activeOpacity={0.85}
+          onPress={handleSubmit}
+          disabled={submitting}
+        >
+          {submitting ? (
+            <ActivityIndicator color={Colors.white} />
+          ) : (
+            <Text style={rp.submitBtnText}>제보 제출하기</Text>
+          )}
         </TouchableOpacity>
       </View>
 
-      <Toast message={toastMsg} onHide={() => setToastMsg(null)} />
+      <Toast
+        message={toastMsg}
+        subtitle={toastSubtitle}
+        onHide={() => {
+          setToastMsg(null);
+          setToastSubtitle(undefined);
+        }}
+        icon={toastMsg === '접수되었습니다!' ? <ToastPlaceReportIcon width={22} height={22} /> : undefined}
+      />
+
+      <PhotoPermissionModal
+        visible={showPhotoPermissionModal}
+        onCancel={() => setShowPhotoPermissionModal(false)}
+        onOpenSettings={() => {
+          setShowPhotoPermissionModal(false);
+          Linking.openSettings();
+        }}
+      />
+
+      <AddressSearchModal
+        visible={showAddressSearch}
+        onClose={() => setShowAddressSearch(false)}
+        onSelect={(selected) => {
+          setAddress(selected);
+          setShowAddressSearch(false);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -704,13 +834,7 @@ function DogProfileImage({ uri }: { uri?: string }) {
       {uri ? (
         <Image source={{ uri }} style={sa.dogProfileImage} resizeMode="cover" />
       ) : (
-        <View style={[sa.dogProfileImage, sa.dogProfilePlaceholder]}>
-          <Image
-            source={require('@/assets/icons/pets.png')}
-            style={{ width: 22, height: 22, tintColor: Colors.textMuted }}
-            resizeMode="contain"
-          />
-        </View>
+        <DogPhotoBlank width={64} height={64} />
       )}
     </View>
   );
@@ -795,7 +919,11 @@ function StampAlbumScreen({ scrap, onBack }: { scrap: ScrapData; onBack: () => v
   ]);
   // 저장된 경로가 없으면 기다릴 지도가 없으니 바로 준비된 것으로 본다.
   const [isMapReady, setIsMapReady] = useState(scrap.stops.length === 0);
-  const { isSaving, isSharing, saveToGallery, shareImage } = useScrapCapture(scrapAreaRef);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [showPhotoPermissionModal, setShowPhotoPermissionModal] = useState(false);
+  const { isSaving, isSharing, saveToGallery, shareImage } = useScrapCapture(scrapAreaRef, () => {
+    setToastMsg('하루 기록이 저장됐어요!');
+  });
 
   const { routePath, distanceMeters } = useScrapRoute(scrap.stops);
   const totalDistanceInMeters = scrap.totalDistanceInMeters ?? distanceMeters;
@@ -807,7 +935,7 @@ function StampAlbumScreen({ scrap, onBack }: { scrap: ScrapData; onBack: () => v
   const pickPhoto = async (index: number) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      showAlert('권한 필요', '사진 보관함 접근 권한을 허용해주세요.');
+      setShowPhotoPermissionModal(true);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -903,6 +1031,22 @@ function StampAlbumScreen({ scrap, onBack }: { scrap: ScrapData; onBack: () => v
           )}
         </TouchableOpacity>
       </View>
+
+      <Toast
+        message={toastMsg}
+        subtitle={toastMsg ? '마이페이지 > 방문한 장소 배너 클릭 후 확인' : undefined}
+        onHide={() => setToastMsg(null)}
+        icon={<ToastDailyRecordIcon width={18} height={20} />}
+      />
+
+      <PhotoPermissionModal
+        visible={showPhotoPermissionModal}
+        onCancel={() => setShowPhotoPermissionModal(false)}
+        onOpenSettings={() => {
+          setShowPhotoPermissionModal(false);
+          Linking.openSettings();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -913,7 +1057,7 @@ const DOG_SIZE_OPTIONS: { value: string; label: string; iconSize: number }[] = [
   { value: '중형견', label: '중형', iconSize: 38 },
   { value: '대형견', label: '대형', iconSize: 50 },
 ];
-const PERSONALITY_OPTIONS = ['활동적', '느긋함', '친화력 좋음'];
+const PERSONALITY_OPTIONS = ['낯가림', '느긋함', '친화력 좋음', '예민함', '호기심', '활동적'];
 
 function EditProfileView({
   dog,
@@ -934,6 +1078,23 @@ function EditProfileView({
     dog?.personalityTags.find((tag) => PERSONALITY_OPTIONS.includes(tag)) ?? PERSONALITY_OPTIONS[0]
   );
   const [saving, setSaving] = useState(false);
+  const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
+  const [showPhotoPermissionModal, setShowPhotoPermissionModal] = useState(false);
+  const displayPhotoUri = localPhotoUri ?? dog?.photoUri;
+
+  const pickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      setShowPhotoPermissionModal(true);
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.[0]) return;
+    setLocalPhotoUri(result.assets[0].uri);
+  };
 
   const handleSave = async () => {
     if (!name.trim() || !breed.trim() || !age) {
@@ -953,8 +1114,8 @@ function EditProfileView({
         personality: personalityToApi(personality),
       };
       const result = isNew
-        ? await registerPet(body, token)
-        : await updatePetProfile(Number(dog!.id), body, token);
+        ? await registerPet(body, token, localPhotoUri)
+        : await updatePetProfile(Number(dog!.id), body, token, localPhotoUri);
       onSave(toDogDetail(result, dog?.isPrimary ?? false));
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '저장에 실패했어요. 잠시 후 다시 시도해주세요.';
@@ -976,12 +1137,12 @@ function EditProfileView({
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={ep.scrollContent}>
         <View style={ep.avatarRow}>
           <View style={ep.avatarWrap}>
-            {dog?.photoUri ? (
-              <Image source={{ uri: dog.photoUri }} style={ep.avatar} resizeMode="cover" />
+            {displayPhotoUri ? (
+              <Image source={{ uri: displayPhotoUri }} style={ep.avatar} resizeMode="cover" />
             ) : (
-              <View style={ep.avatar} />
+              <DogPhotoBlank width={116} height={116} />
             )}
-            <TouchableOpacity style={ep.cameraBtn} activeOpacity={0.8}>
+            <TouchableOpacity style={ep.cameraBtn} activeOpacity={0.8} onPress={pickPhoto}>
               <EditCameraIcon width={16} height={14} color={Colors.textBody2} />
             </TouchableOpacity>
           </View>
@@ -1078,17 +1239,28 @@ function EditProfileView({
           {saving ? <ActivityIndicator color={Colors.white} /> : <Text style={ep.saveBtnText}>저장하기</Text>}
         </TouchableOpacity>
       </View>
+
+      <PhotoPermissionModal
+        visible={showPhotoPermissionModal}
+        onCancel={() => setShowPhotoPermissionModal(false)}
+        onOpenSettings={() => {
+          setShowPhotoPermissionModal(false);
+          Linking.openSettings();
+        }}
+      />
     </SafeAreaView>
   );
 }
 
 // ─── StampGalleryScreen (스탬프 앨범) ──────────────────────────────────────────
-// TODO: 스탬프별 아이콘/명칭 에셋이 나오면 stampCircle을 실제 뱃지 이미지로 교체.
-const TOTAL_STAMP_COUNT = 16;
-const EARNED_STAMP_COUNT = 12;
-
 function StampGalleryScreen({ onBack }: { onBack: () => void }) {
-  const progressRatio = EARNED_STAMP_COUNT / TOTAL_STAMP_COUNT;
+  const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
+
+  useEffect(() => {
+    getEarnedStampIndices().then(setEarnedStampIndices);
+  }, []);
+
+  const progressRatio = earnedStampIndices.size / TOTAL_STAMP_COUNT;
 
   return (
     <SafeAreaView style={sg.safeArea}>
@@ -1105,7 +1277,7 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
             <View style={sg.progressCardText}>
               <Text style={sg.progressLabel}>진행률</Text>
               <View style={sg.progressValueRow}>
-                <Text style={sg.progressEarned}>{EARNED_STAMP_COUNT}</Text>
+                <Text style={sg.progressEarned}>{earnedStampIndices.size}</Text>
                 <Text style={sg.progressTotal}>/ {TOTAL_STAMP_COUNT}</Text>
                 <Text style={sg.progressUnit}>개</Text>
               </View>
@@ -1118,13 +1290,19 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
         </View>
 
         <View style={sg.sectionHeaderRow}>
-          <Text style={sg.sectionTitle}>획득한 스탬프</Text>
+          <Text style={sg.sectionTitle}>스탬프 현황</Text>
         </View>
 
         <View style={sg.stampGrid}>
-          {Array.from({ length: EARNED_STAMP_COUNT }).map((_, i) => (
-            <View key={i} style={sg.stampCircle} />
-          ))}
+          {STAMP_ICONS.map((Icon, i) => {
+            const earned = earnedStampIndices.has(i);
+            const StampIcon = earned ? Icon : STAMP_LOCKED_ICON;
+            return (
+              <View key={i} style={sg.stampCircle}>
+                <StampIcon width="100%" height="100%" />
+              </View>
+            );
+          })}
         </View>
       </ScrollView>
 
@@ -1144,6 +1322,10 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
 
 export default function MyPageScreen() {
   const insets = useSafeAreaInsets();
+  const { openStampGallery, openReportPlace } = useLocalSearchParams<{
+    openStampGallery?: string;
+    openReportPlace?: string;
+  }>();
   const [dogProfiles, setDogProfiles] = useState<DogProfile[]>([]);
   const [selectedDogId, setSelectedDogId] = useState<string | null>(null);
   const [loadingPets, setLoadingPets] = useState(true);
@@ -1155,7 +1337,42 @@ export default function MyPageScreen() {
   const [profileEditorMode, setProfileEditorMode] = useState<'edit' | 'add' | null>(null);
   const [pendingPrimaryDog, setPendingPrimaryDog] = useState<DogProfile | null>(null);
   const [primarySwitchSuccess, setPrimarySwitchSuccess] = useState(false);
+  const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
   const dog = dogProfiles.find((d) => d.id === selectedDogId) ?? dogProfiles[0];
+
+  // 다른 탭에 있는 동안 관광지 도착(지오펜싱)으로 스탬프가 늘었을 수 있어, 마이 탭에 올 때마다 다시 읽는다.
+  useFocusEffect(
+    useCallback(() => {
+      getEarnedStampIndices().then(setEarnedStampIndices);
+    }, [])
+  );
+
+  // 마이 탭 아이콘을 다시 누르면 설정/문의/기록 등 하위 화면을 닫고 첫 화면으로 되돌아간다.
+  useEffect(
+    () =>
+      onTabReset('mypage', () => {
+        setShowSettings(false);
+        setShowReportPlace(false);
+        setShowTravelHistory(false);
+        setShowStampGallery(false);
+        setProfileEditorMode(null);
+      }),
+    []
+  );
+
+  // 홈 화면의 스탬프 미리보기를 눌러 들어온 경우, 스탬프 앨범을 바로 연다.
+  useEffect(() => {
+    if (openStampGallery !== '1') return;
+    setShowStampGallery(true);
+    router.setParams({ openStampGallery: undefined });
+  }, [openStampGallery]);
+
+  // 지도 검색 결과가 없을 때 "장소 제보하러 가기"를 눌러 들어온 경우, 장소 제보를 바로 연다.
+  useEffect(() => {
+    if (openReportPlace !== '1') return;
+    setShowReportPlace(true);
+    router.setParams({ openReportPlace: undefined });
+  }, [openReportPlace]);
 
   const handleConfirmPrimarySwitch = () => {
     if (!pendingPrimaryDog) return;
@@ -1308,7 +1525,13 @@ export default function MyPageScreen() {
           {/* 프로필 카드 */}
           <View style={styles.profileCard}>
             <View style={styles.avatarWrap}>
-              <Image source={{ uri: dog.photoUri }} style={styles.avatar} resizeMode="cover" />
+              {dog.photoUri ? (
+                <Image source={{ uri: dog.photoUri }} style={styles.avatar} resizeMode="cover" />
+              ) : (
+                <View style={styles.avatarPlaceholderRing}>
+                  <DogPhotoBlank width={88} height={88} />
+                </View>
+              )}
               {dog.isPrimary && (
                 <View style={styles.primaryBadge}>
                   <Text style={styles.primaryBadgeText}>대표</Text>
@@ -1354,11 +1577,23 @@ export default function MyPageScreen() {
                     activeOpacity={0.8}
                     onPress={() => (d.isPrimary ? setSelectedDogId(d.id) : setPendingPrimaryDog(d))}
                   >
-                    <Image
-                      source={{ uri: d.photoUri }}
-                      style={[styles.dogItemAvatar, selected && styles.dogItemAvatarSelected]}
-                      resizeMode="cover"
-                    />
+                    {d.photoUri ? (
+                      <Image
+                        source={{ uri: d.photoUri }}
+                        style={[styles.dogItemAvatar, selected && styles.dogItemAvatarSelected]}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View
+                        style={[
+                          styles.dogItemAvatar,
+                          styles.dogItemAvatarPlaceholder,
+                          selected && styles.dogItemAvatarSelected,
+                        ]}
+                      >
+                        <DogPhotoBlank width={60} height={60} />
+                      </View>
+                    )}
                     <Text style={[styles.dogItemName, selected && styles.dogItemNameSelected]}>{d.name}</Text>
                   </TouchableOpacity>
                 );
@@ -1386,9 +1621,15 @@ export default function MyPageScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.stampRow}>
-            {Array.from({ length: STAMP_SLOTS }).map((_, i) => (
-              <View key={i} style={styles.stampCircle} />
-            ))}
+            {Array.from({ length: STAMP_SLOTS }).map((_, i) => {
+              const earned = earnedStampIndices.has(i);
+              const StampIcon = earned ? STAMP_ICONS[i] : STAMP_LOCKED_ICON;
+              return (
+                <View key={i} style={styles.stampCircle}>
+                  <StampIcon width="100%" height="100%" />
+                </View>
+              );
+            })}
           </View>
         </View>
 
@@ -1432,7 +1673,7 @@ export default function MyPageScreen() {
       >
         <View style={wd.backdrop}>
           <AlertCard
-            icon={<PawIcon width={26} height={26} color={Colors.secondaryDark} />}
+            icon={<ModalPawIcon width={26} height={24} />}
             iconTone="sage"
             title="대표 강아지를 변경할까요?"
             subtitle="선택한 강아지가 메인 프로필에 표시 됩니다."
@@ -1454,7 +1695,7 @@ export default function MyPageScreen() {
           <AlertCard
             icon={
               <View>
-                <PawIcon width={26} height={26} color={Colors.secondaryDark} />
+                <ModalPawIcon width={26} height={24} />
                 <View style={mp.pawCheckBadge}>
                   <Text style={mp.pawCheckMark}>✓</Text>
                 </View>
@@ -1506,6 +1747,14 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: Colors.background,
     backgroundColor: Colors.bgWarm,
+  },
+  avatarPlaceholderRing: {
+    width: 88,
+    height: 88,
+    borderRadius: Radius.full,
+    borderWidth: 3,
+    borderColor: Colors.background,
+    overflow: 'hidden',
   },
   primaryBadge: {
     position: 'absolute',
@@ -1562,6 +1811,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.coral,
   },
+  dogItemAvatarPlaceholder: { overflow: 'hidden' },
   dogItemName: { fontSize: 12, color: Colors.textBody2 },
   dogItemNameSelected: { color: Colors.coral, fontWeight: '600' },
   addDogCircle: {
@@ -1581,6 +1831,8 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: Radius.full,
     backgroundColor: Colors.bgWarm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   menuList: {
     marginTop: Spacing.xl,
@@ -1806,6 +2058,7 @@ const rp = StyleSheet.create({
     height: 50,
   },
   searchInputText: { flex: 1, fontSize: 14, color: Colors.textBody1, padding: 0 },
+  searchInputPlaceholder: { color: Colors.textMuted },
   conditionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   conditionChip: {
     flexDirection: 'row',
@@ -1834,6 +2087,7 @@ const rp = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   photoAddPlus: { fontSize: 24, color: Colors.textMuted, fontWeight: '300' },
+  photoPreview: { width: '100%', height: '100%', borderRadius: Radius.md },
   reasonInput: { height: 90, paddingTop: Spacing.md, textAlignVertical: 'top' },
   bottomBar: {
     paddingHorizontal: Spacing.xl,
@@ -2022,9 +2276,9 @@ const ep = StyleSheet.create({
   genderBtnText: { fontSize: 15, color: Colors.textBody2 },
   genderBtnTextSelectedMale: { color: Colors.secondaryDark, fontWeight: '600' },
   genderBtnTextSelectedFemale: { color: Colors.primaryDark, fontWeight: '600' },
-  tagRow: { flexDirection: 'row', gap: Spacing.sm },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   tagChip: {
-    flex: 1,
+    width: '31%',
     height: 48,
     borderRadius: Radius.md,
     borderWidth: 1,
@@ -2120,6 +2374,8 @@ const sg = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: Radius.full,
     backgroundColor: Colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#3A3330',
     shadowOpacity: 0.15,
     shadowRadius: 6,
@@ -2245,7 +2501,6 @@ const sa = StyleSheet.create({
     elevation: 5,
   },
   dogProfileImage: { width: '100%', height: '100%' },
-  dogProfilePlaceholder: { alignItems: 'center', justifyContent: 'center' },
   footprintCard: {
     flexDirection: 'row',
     alignItems: 'center',

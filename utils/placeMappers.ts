@@ -2,7 +2,7 @@ import { MapPlace } from '@/types/map';
 import { SavedPlace } from '@/types/save';
 import { MapPlaceResponse, PlaceDetailResponse } from '@/utils/api';
 
-function parseTags(petAccessType?: string | null, petRequirements?: string | null): string[] {
+export function parseTags(petAccessType?: string | null, petRequirements?: string | null): string[] {
   const access = petAccessType ? petAccessType.split('/').map((s) => s.trim()) : [];
   const requirements = petRequirements ? petRequirements.split(',').map((s) => s.trim()) : [];
   return [...access, ...requirements].filter(Boolean);

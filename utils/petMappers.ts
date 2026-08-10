@@ -18,11 +18,17 @@ const PERSONALITY_TO_API: Record<string, PetPersonality> = {
   활동적: 'ACTIVE',
   느긋함: 'RELAXED',
   '친화력 좋음': 'FRIENDLY',
+  낯가림: 'SHYNESS',
+  예민함: 'SENSITIVITY',
+  호기심: 'CURIOSITY',
 };
 const PERSONALITY_TO_LABEL: Record<PetPersonality, string> = {
   ACTIVE: '활동적',
   RELAXED: '느긋함',
   FRIENDLY: '친화력 좋음',
+  SHYNESS: '낯가림',
+  SENSITIVITY: '예민함',
+  CURIOSITY: '호기심',
 };
 
 export function sizeToApi(label: string): PetSize {

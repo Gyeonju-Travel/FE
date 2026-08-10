@@ -6,8 +6,10 @@ import FormField, { EyeToggle, InlineActionButton } from '@/components/auth/Form
 import EmailIcon from '@/assets/login/field-email.svg';
 import PasswordIcon from '@/assets/login/field-password.svg';
 import EyeIcon from '@/assets/login/field-password-eye.svg';
+import CodeIcon from '@/assets/login/field-code.svg';
 import { sendPasswordResetVerificationCode, verifyPasswordResetCode, resetPassword, ApiError } from '@/utils/api';
 import Toast from '@/components/ui/Toast';
+import ToastPasswordIcon from '@/assets/icons/toast/password-changed.svg';
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
@@ -90,7 +92,7 @@ export default function ForgotPasswordScreen() {
         newPassword: password,
         newPasswordConfirmation: passwordConfirm,
       });
-      setToastMsg('비밀번호가 변경 되었습니다.');
+      setToastMsg('비밀번호가 변경됐어요.');
       setTimeout(() => router.replace('/login'), 900);
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '비밀번호 재설정에 실패했어요. 잠시 후 다시 시도해주세요.';
@@ -133,6 +135,7 @@ export default function ForgotPasswordScreen() {
         />
         <FormField
           label="인증번호 입력"
+          Icon={CodeIcon}
           placeholder="인증 번호 입력"
           value={code}
           onChangeText={(t) => {
@@ -194,7 +197,13 @@ export default function ForgotPasswordScreen() {
         </TouchableOpacity>
       </View>
 
-      <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={120} />
+      <Toast
+        message={toastMsg}
+        onHide={() => setToastMsg(null)}
+        bottom={120}
+        icon={toastMsg === '비밀번호가 변경됐어요.' ? <ToastPasswordIcon width={18} height={21} /> : undefined}
+        iconTone={toastMsg === '비밀번호가 변경됐어요.' ? 'sage' : 'coral'}
+      />
     </SafeAreaView>
   );
 }
