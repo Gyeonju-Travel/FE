@@ -82,18 +82,17 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     : markers.length > 0 ? markers[0].longitude : longitude;
 
   const likedPlaceIdSet = new Set(likedPlaceIds);
-  const markersJson = JSON.stringify(
-    markers.map((m) => ({
-      id: m.id,
-      lat: m.latitude,
-      lng: m.longitude,
-      category: m.category,
-      liked: likedPlaceIdSet.has(m.id),
-    }))
-  );
-  const routePlacesJson = JSON.stringify(routePlaces);
-  const routePathJson = JSON.stringify(routePath);
+  const markersPayload = markers.map((m) => ({
+    id: m.id,
+    lat: m.latitude,
+    lng: m.longitude,
+    category: m.category,
+    liked: likedPlaceIdSet.has(m.id),
+  }));
 
+  // 마커/핀 이미지(base64 SVG)/경로 데이터는 개수가 많아지면 URL 쿼리스트링이 아주 길어져서
+  // Vercel 엣지 등에서 414(URI Too Long)로 막힐 수 있다. 그래서 URL에는 초기 위치만 싣고,
+  // 나머지 데이터는 iframe이 뜬 뒤 postMessage로 전달한다.
   const src =
     '/kakao-map.html?' +
     new URLSearchParams({
@@ -101,22 +100,36 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       lat: String(centerLat),
       lng: String(centerLng),
       level: String(level),
-      markers: markersJson,
-      pinCafe: categoryPinUri['카페'],
-      pinRestaurant: categoryPinUri['식당'],
-      pinTour: categoryPinUri['관광지'],
-      pinCafeSaved: categoryPinUriSaved['카페'],
-      pinRestaurantSaved: categoryPinUriSaved['식당'],
-      pinTourSaved: categoryPinUriSaved['관광지'],
-      myLoc: currentLocationUri,
-      ...(currentLocation
-        ? { myLocLat: String(currentLocation.lat), myLocLng: String(currentLocation.lng) }
-        : {}),
-      routePlaces: routePlacesJson,
-      routeStartPin: routeStartPinUri,
-      routeNumberPins: JSON.stringify(routeNumberPinUris),
-      routePath: routePathJson,
     }).toString();
+
+  const sendInitData = () => {
+    postToIframe({
+      type: 'init',
+      payload: {
+        markers: markersPayload,
+        categoryPinUri,
+        categoryPinUriSaved,
+        myLoc: currentLocationUri,
+        ...(currentLocation
+          ? { myLocLat: currentLocation.lat, myLocLng: currentLocation.lng }
+          : {}),
+        routePlaces,
+        routeStartPin: routeStartPinUri,
+        routeNumberPins: routeNumberPinUris,
+        routePath,
+      },
+    });
+  };
+
+  const markersJson = JSON.stringify(markersPayload);
+  const routePlacesJson = JSON.stringify(routePlaces);
+  const routePathJson = JSON.stringify(routePath);
+
+  // src(초기 위치)가 안 바뀌어도 마커/저장 상태/경로/내 위치가 바뀌면 다시 보내준다.
+  React.useEffect(() => {
+    sendInitData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markersJson, routePlacesJson, routePathJson, currentLocation?.lat, currentLocation?.lng]);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -141,6 +154,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       <iframe
         ref={iframeRef}
         src={src}
+        onLoad={sendInitData}
         style={{ width: '100%', height: '100%', border: 'none' }}
       />
     </View>

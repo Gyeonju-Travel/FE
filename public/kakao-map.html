@@ -68,6 +68,9 @@
 <body>
   <div id="map"></div>
   <script>
+    // 마커/핀 이미지/경로 데이터는 개수가 많아지면 URL 쿼리스트링 길이 제한(예: Vercel 엣지의
+    // 414 URI Too Long)에 걸릴 수 있어서, 초기 위치(key/lat/lng/level)만 URL로 받고
+    // 나머지는 부모 창(React Native Web)이 postMessage로 보내주는 방식으로 받는다.
     function sendMessage(data) {
       if (window.parent) {
         window.parent.postMessage(JSON.stringify(data), '*');
@@ -79,36 +82,103 @@
     var centerLat = parseFloat(params.get('lat')) || 35.8562;
     var centerLng = parseFloat(params.get('lng')) || 129.2247;
     var level = parseInt(params.get('level'), 10) || 4;
-    var markers = [];
-    try {
-      markers = JSON.parse(params.get('markers') || '[]');
-    } catch (e) {}
-    var categoryPinUri = {
-      '카페': params.get('pinCafe') || '',
-      '식당': params.get('pinRestaurant') || '',
-      '관광지': params.get('pinTour') || '',
-    };
-    var categoryPinUriSaved = {
-      '카페': params.get('pinCafeSaved') || '',
-      '식당': params.get('pinRestaurantSaved') || '',
-      '관광지': params.get('pinTourSaved') || '',
-    };
-    var myLocationImageSrc = params.get('myLoc') || '';
-    var myLocationLat = params.get('myLocLat') ? parseFloat(params.get('myLocLat')) : null;
-    var myLocationLng = params.get('myLocLng') ? parseFloat(params.get('myLocLng')) : null;
-    var routePlaces = [];
-    try {
-      routePlaces = JSON.parse(params.get('routePlaces') || '[]');
-    } catch (e) {}
-    var routeStartPinUri = params.get('routeStartPin') || '';
-    var routeNumberPinUris = [];
-    try {
-      routeNumberPinUris = JSON.parse(params.get('routeNumberPins') || '[]');
-    } catch (e) {}
-    var routePathPoints = [];
-    try {
-      routePathPoints = JSON.parse(params.get('routePath') || '[]');
-    } catch (e) {}
+
+    var myLocationImageSrc = '';
+    var currentOverlays = [];
+    var pendingData = null; // 지도가 준비되기 전에 init 메시지가 오면 저장해뒀다가 준비되면 적용
+
+    function clearOverlays() {
+      currentOverlays.forEach(function (ov) { ov.setMap(null); });
+      currentOverlays = [];
+    }
+
+    function renderData(data) {
+      clearOverlays();
+      var markers = data.markers || [];
+      var categoryPinUri = data.categoryPinUri || {};
+      var categoryPinUriSaved = data.categoryPinUriSaved || {};
+      var routePlaces = data.routePlaces || [];
+      var routeStartPinUri = data.routeStartPin || '';
+      var routeNumberPinUris = data.routeNumberPins || [];
+      var routePathPoints = data.routePath || [];
+      if (data.myLoc) myLocationImageSrc = data.myLoc;
+
+      markers.forEach(function (place) {
+        var el = document.createElement('div');
+        el.className = 'place-marker place-marker--' + place.category;
+        var pinUri = place.liked
+          ? categoryPinUriSaved[place.category]
+          : categoryPinUri[place.category];
+        el.innerHTML = '<div class="pulse"></div>' + '<img src="' + pinUri + '" />';
+        el.addEventListener('click', function () {
+          sendMessage({ type: 'markerClick', id: place.id });
+        });
+        currentOverlays.push(new kakao.maps.CustomOverlay({
+          map: window.kakaoMap,
+          position: new kakao.maps.LatLng(place.lat, place.lng),
+          content: el,
+          xAnchor: 0.5,
+          yAnchor: 1,
+          zIndex: 3,
+        }));
+      });
+
+      if (routePlaces.length > 0) {
+        var hasRealPath = routePathPoints.length > 0;
+        var linePath = (hasRealPath ? routePathPoints : routePlaces).map(function (p) {
+          return new kakao.maps.LatLng(p.lat, p.lng);
+        });
+        currentOverlays.push(new kakao.maps.Polyline({
+          map: window.kakaoMap,
+          path: linePath,
+          strokeWeight: 2,
+          strokeColor: '#E8906A',
+          strokeOpacity: 0.9,
+          strokeStyle: 'shortdot',
+        }));
+
+        routePlaces.forEach(function (place, idx) {
+          var pinUri = idx === 0 ? routeStartPinUri : routeNumberPinUris[idx - 1];
+          var el = document.createElement('div');
+          el.className = 'route-marker';
+          el.innerHTML = '<img src="' + pinUri + '" />';
+          el.addEventListener('click', function () {
+            sendMessage({ type: 'markerClick', id: place.id });
+          });
+          currentOverlays.push(new kakao.maps.CustomOverlay({
+            map: window.kakaoMap,
+            position: new kakao.maps.LatLng(place.lat, place.lng),
+            content: el,
+            xAnchor: 0.5,
+            yAnchor: 1,
+            zIndex: idx === 0 ? 6 : 4,
+          }));
+        });
+
+        var bounds = new kakao.maps.LatLngBounds();
+        linePath.forEach(function (pos) { bounds.extend(pos); });
+        window.kakaoMap.setBounds(bounds, 80, 80, 80, 80);
+      }
+
+      if (data.myLoc && data.myLocLat != null && data.myLocLng != null) {
+        var pos = new kakao.maps.LatLng(data.myLocLat, data.myLocLng);
+        if (window.myLocationOverlay) {
+          window.myLocationOverlay.setPosition(pos);
+        } else {
+          var myEl = document.createElement('div');
+          myEl.className = 'my-location';
+          myEl.innerHTML = '<div class="pulse"></div><img src="' + data.myLoc + '" />';
+          window.myLocationOverlay = new kakao.maps.CustomOverlay({
+            map: window.kakaoMap,
+            position: pos,
+            content: myEl,
+            xAnchor: 0.5,
+            yAnchor: 0.5,
+            zIndex: 5,
+          });
+        }
+      }
+    }
 
     function initMap() {
       kakao.maps.load(function () {
@@ -126,79 +196,9 @@
           sendMessage({ type: 'mapReady' });
         });
 
-        markers.forEach(function (place) {
-          var el = document.createElement('div');
-          el.className = 'place-marker place-marker--' + place.category;
-          var pinUri = place.liked
-            ? categoryPinUriSaved[place.category]
-            : categoryPinUri[place.category];
-          el.innerHTML =
-            '<div class="pulse"></div>' +
-            '<img src="' + pinUri + '" />';
-          el.addEventListener('click', function () {
-            sendMessage({ type: 'markerClick', id: place.id });
-          });
-
-          new kakao.maps.CustomOverlay({
-            map: window.kakaoMap,
-            position: new kakao.maps.LatLng(place.lat, place.lng),
-            content: el,
-            xAnchor: 0.5,
-            yAnchor: 1,
-            zIndex: 3,
-          });
-        });
-
-        if (routePlaces.length > 0) {
-          var hasRealPath = routePathPoints.length > 0;
-          var linePath = (hasRealPath ? routePathPoints : routePlaces).map(function (p) {
-            return new kakao.maps.LatLng(p.lat, p.lng);
-          });
-          new kakao.maps.Polyline({
-            map: window.kakaoMap,
-            path: linePath,
-            strokeWeight: 3,
-            strokeColor: '#E8906A',
-            strokeOpacity: 0.9,
-            strokeStyle: 'dash',
-          });
-
-          routePlaces.forEach(function (place, idx) {
-            var pinUri = idx === 0 ? routeStartPinUri : routeNumberPinUris[idx - 1];
-            var el = document.createElement('div');
-            el.className = 'route-marker';
-            el.innerHTML = '<img src="' + pinUri + '" />';
-            el.addEventListener('click', function () {
-              sendMessage({ type: 'markerClick', id: place.id });
-            });
-
-            new kakao.maps.CustomOverlay({
-              map: window.kakaoMap,
-              position: new kakao.maps.LatLng(place.lat, place.lng),
-              content: el,
-              xAnchor: 0.5,
-              yAnchor: 1,
-              zIndex: idx === 0 ? 6 : 4,
-            });
-          });
-
-          var bounds = new kakao.maps.LatLngBounds();
-          linePath.forEach(function (pos) { bounds.extend(pos); });
-          window.kakaoMap.setBounds(bounds, 80, 80, 80, 80);
-        }
-
-        if (myLocationImageSrc && myLocationLat != null && myLocationLng != null) {
-          var myLocationContent =
-            '<div class="my-location"><div class="pulse"></div>' +
-            '<img src="' + myLocationImageSrc + '" /></div>';
-          window.myLocationOverlay = new kakao.maps.CustomOverlay({
-            map: window.kakaoMap,
-            position: new kakao.maps.LatLng(myLocationLat, myLocationLng),
-            content: myLocationContent,
-            xAnchor: 0.5,
-            yAnchor: 0.5,
-            zIndex: 5,
-          });
+        if (pendingData) {
+          renderData(pendingData);
+          pendingData = null;
         }
       });
     }
@@ -220,7 +220,18 @@
           return;
         }
       }
-      if (!data || !window.kakaoMap) return;
+      if (!data) return;
+
+      if (data.type === 'init') {
+        if (window.kakaoMap) {
+          renderData(data.payload || {});
+        } else {
+          pendingData = data.payload || {};
+        }
+        return;
+      }
+
+      if (!window.kakaoMap) return;
       if (data.type === 'zoomIn') {
         window.kakaoMap.setLevel(window.kakaoMap.getLevel() - 1, { animate: true });
       } else if (data.type === 'zoomOut') {
