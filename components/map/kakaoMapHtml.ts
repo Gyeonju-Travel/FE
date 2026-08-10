@@ -207,7 +207,7 @@ export function buildKakaoMapHtml({
           strokeWeight: 2,
           strokeColor: '#E8906A',
           strokeOpacity: 0.9,
-          strokeStyle: 'shortdot',
+          strokeStyle: 'shortdash',
         });
 
         routePlaces.forEach(function(place, idx) {
