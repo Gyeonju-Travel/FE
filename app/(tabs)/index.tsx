@@ -23,6 +23,7 @@ import WalkingDogIcon from '@/assets/home/walking-dog.svg';
 import BellIcon from '@/assets/home/bell.svg';
 import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
 import { STAMP_ICONS, STAMP_LOCKED_ICON, GEOFENCE_ATTRACTIONS, getEarnedStampIndices } from '@/constants/stamps';
+import { getFootprintCount } from '@/utils/locationTracking';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
 import { getMyPets, getPetDetail, getPlaceDetail, ApiError } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
@@ -61,15 +62,17 @@ export default function HomeScreen() {
   const [profileBottomHeight, setProfileBottomHeight] = useState(0);
   const [showRecommendedRoute, setShowRecommendedRoute] = useState(false);
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
+  const [footprintCount, setFootprintCount] = useState(0);
 
   useEffect(() => {
     fetchGyeongjuWeather().then(setWeather);
   }, []);
 
-  // 다른 탭에 있는 동안 관광지 도착(지오펜싱)으로 스탬프가 늘었을 수 있어, 홈 탭에 올 때마다 다시 읽는다.
+  // 다른 탭에 있는 동안 백그라운드 위치 추적으로 스탬프/발자국이 늘었을 수 있어, 홈 탭에 올 때마다 다시 읽는다.
   useFocusEffect(
     useCallback(() => {
       getEarnedStampIndices().then(setEarnedStampIndices);
+      getFootprintCount().then(setFootprintCount);
     }, [])
   );
 
@@ -224,7 +227,7 @@ export default function HomeScreen() {
                   <Text style={styles.footprintLabel}>오늘까지 모은 발자국</Text>
                 </View>
                 <Text style={styles.footprintCount}>
-                  {dog?.stampCount ?? 0}
+                  {footprintCount}
                   <Text style={styles.footprintUnit}> 개</Text>
                 </Text>
               </View>

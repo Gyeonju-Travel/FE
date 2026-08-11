@@ -14,7 +14,8 @@ import Stamp10Locked from '@/assets/mypage/stamps/stamp-10-locked.svg';
 export type StampIcon = FC<{ width?: number | string; height?: number | string }>;
 
 // 1번(웰컴)은 회원가입 시 지급. 2~7번은 아래 GEOFENCE_ATTRACTIONS에 매핑된 실제 관광지에
-// 지오펜싱으로 도착하면 그 자리에서 지급. 8번(완벽한여행)은 2~7번을 모두 모으면 자동 지급.
+// 도착하면 그 자리에서 지급. 8번(완벽한여행)은 하루 일정을 전부 완주하면 지급, 9번(경주마스터)은
+// 2~7번(관광지 6개)을 모두 모으면 자동 지급.
 export const STAMP_ICONS: StampIcon[] = [
   Stamp01Welcome,
   Stamp02Gyochon,
@@ -52,8 +53,11 @@ export const GEOFENCE_ATTRACTIONS: GeofenceAttraction[] = [
   { stampIndex: 6, name: '첨성대', placeId: 82, latitude: 35.8343745291, longitude: 129.2185644826 },
 ];
 
-// "완벽한여행"(8번, index 7) 자동 지급 조건 — 6개 관광지 스탬프(index 1~6)를 모두 모으면 지급.
-const PERFECT_TRIP_STAMP_INDEX = 7;
+// 8번(완벽한여행, index 7)은 하루 일정을 전부 완주했을 때 지급 — locationTracking.ts가
+// 일정 장소를 다 돌았는지 확인하고 awardStamp(PERFECT_TRIP_STAMP_INDEX)를 직접 호출한다.
+export const PERFECT_TRIP_STAMP_INDEX = 7;
+// 9번(경주마스터, index 8)은 관광지 스탬프 6개(index 1~6)를 전부 모으면 이 파일에서 자동 지급한다.
+const GYEONGJU_MASTER_STAMP_INDEX = 8;
 const NAMED_ATTRACTION_INDICES = GEOFENCE_ATTRACTIONS.map((a) => a.stampIndex);
 
 const EARNED_STAMPS_KEY = 'gyeonjutravel.earnedStampIndices';
@@ -90,7 +94,7 @@ export async function awardStamp(stampIndex: number): Promise<boolean> {
 
   indices.add(stampIndex);
   if (NAMED_ATTRACTION_INDICES.every((i) => indices.has(i))) {
-    indices.add(PERFECT_TRIP_STAMP_INDEX);
+    indices.add(GYEONGJU_MASTER_STAMP_INDEX);
   }
   await AsyncStorage.setItem(EARNED_STAMPS_KEY, JSON.stringify([...indices]));
   return true;
