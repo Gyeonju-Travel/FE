@@ -52,7 +52,7 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
 import { haversineMeters, estimateWalkMinutes, formatDistance, formatWalkDuration } from '@/utils/distance';
 import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
-import { getArrivedPlaceIds } from '@/utils/geofencing';
+import { getArrivedPlaceIds } from '@/utils/locationTracking';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
 import ScheduleTimeIcon from '@/assets/icons/schedule-time.svg';
 import ScheduleEditIcon from '@/assets/icons/schedule-edit.svg';
