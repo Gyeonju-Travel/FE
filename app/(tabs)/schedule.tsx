@@ -52,10 +52,11 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
 import { haversineMeters, estimateWalkMinutes, formatDistance, formatWalkDuration } from '@/utils/distance';
 import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
-import { getArrivedPlaceIds } from '@/utils/locationTracking';
+import { getArrivedPlaceIds, setActiveSchedule, StartTrackingResult } from '@/utils/locationTracking';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
 import ScheduleTimeIcon from '@/assets/icons/schedule-time.svg';
 import ScheduleEditIcon from '@/assets/icons/schedule-edit.svg';
+import ScheduleStartIcon from '@/assets/icons/schedule-start.svg';
 import ScheduleDepartureIcon from '@/assets/icons/schedule-departure.svg';
 import ScheduleDateIcon from '@/assets/icons/schedule-date.svg';
 import WalkingIcon from '@/assets/icons/walking.svg';
@@ -166,6 +167,7 @@ function ScheduleCard({
   expanded,
   onToggle,
   onEdit,
+  onStart,
   onViewRoute,
   isEditMode,
   isSelected,
@@ -176,6 +178,7 @@ function ScheduleCard({
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  onStart: () => void;
   onViewRoute: () => void;
   isEditMode: boolean;
   isSelected: boolean;
@@ -282,7 +285,20 @@ function ScheduleCard({
             <Text style={ss.scheduleCardMetaText}>약 {durationText}</Text>
           </View>
         </View>
-        {!isEditMode && (
+        {!isEditMode && !expanded && (
+          <TouchableOpacity
+            style={ss.cardStartBtn}
+            activeOpacity={0.85}
+            onPress={onStart}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <View style={ss.cardStartIconWrap}>
+              <ScheduleStartIcon width={13} height={13} />
+            </View>
+            <Text style={ss.cardStartBtnText}>시작</Text>
+          </TouchableOpacity>
+        )}
+        {!isEditMode && expanded && (
           <TouchableOpacity
             style={ss.cardEditIconBtn}
             activeOpacity={0.7}
@@ -1235,6 +1251,18 @@ export default function ScheduleScreen() {
     }
   };
 
+  const handleStartSchedule = async (schedule: Schedule) => {
+    const result: StartTrackingResult = await setActiveSchedule(schedule);
+    if (result === 'started') {
+      setToastMsg('일정을 시작했어요! 도착하면 알려드릴게요.');
+    } else if (result === 'no-places') {
+      setToastMsg('이미 모든 장소에 도착했어요!');
+    } else {
+      setToastMsg('위치 접근 권한(항상 허용)이 필요해요. 설정에서 허용해주세요.');
+    }
+    setToastSubtitle(undefined);
+  };
+
   const cells: (number | null)[] = [
     ...Array(firstDay).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -1333,6 +1361,7 @@ export default function ScheduleScreen() {
                 expanded={expandedId === schedule.id}
                 onToggle={() => setExpandedId((id) => (id === schedule.id ? null : schedule.id))}
                 onEdit={() => setEditingSchedule(schedule)}
+                onStart={() => handleStartSchedule(schedule)}
                 onViewRoute={() => setViewingRouteSchedule(schedule)}
                 isEditMode={isEditMode}
                 isSelected={selectedScheduleIds.has(schedule.id)}
@@ -1645,6 +1674,25 @@ const ss = StyleSheet.create({
   scheduleCardMetaIcon: { width: 13, height: 13, marginRight: 4 },
   scheduleCardMetaText: { fontSize: 12, color: Colors.textBody2 },
   cardEditIconBtn: { padding: 4 },
+  cardStartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.primaryTint,
+    borderRadius: Radius.full,
+    paddingLeft: 4,
+    paddingRight: 12,
+    paddingVertical: 4,
+  },
+  cardStartIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.coral,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardStartBtnText: { fontSize: 13, fontWeight: '700', color: Colors.coral },
   scheduleDetail: {
     borderTopWidth: 0.5,
     borderTopColor: '#EDE8E3',
