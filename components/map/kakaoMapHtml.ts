@@ -106,7 +106,20 @@ export function buildKakaoMapHtml({
       position: relative;
       width: 72px;
       height: 82px;
+      pointer-events: none;
+    }
+    /* 실제 눈에 보이는 핀 크기보다 넓은 72x82 박스 전체가 클릭됐었다 — 핀끼리 가까이 있으면
+       뒤쪽 핀을 아예 못 누르는 문제가 있어서, 핀 모양에 가까운 작은 영역만 클릭되게 한다. */
+    .place-marker .hit-area {
+      position: absolute;
+      left: 50%;
+      bottom: 0;
+      width: 38px;
+      height: 50px;
+      margin-left: -19px;
+      pointer-events: auto;
       cursor: pointer;
+      z-index: 2;
     }
     .place-marker .pulse {
       position: absolute;
@@ -177,8 +190,9 @@ export function buildKakaoMapHtml({
           : categoryPinUri[place.category];
         el.innerHTML =
           '<div class="pulse"></div>' +
-          '<img src="' + pinUri + '" />';
-        el.addEventListener('click', function() {
+          '<img src="' + pinUri + '" />' +
+          '<div class="hit-area"></div>';
+        el.querySelector('.hit-area').addEventListener('click', function() {
           sendMessage({ type: 'markerClick', id: place.id });
         });
 
