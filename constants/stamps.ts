@@ -1,5 +1,7 @@
 import type { FC } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getMyPageStamps } from '@/utils/api';
+import { getAccessToken } from '@/utils/authStorage';
 import Stamp01Welcome from '@/assets/mypage/stamps/stamp-01-welcome.svg';
 import Stamp02Gyochon from '@/assets/mypage/stamps/stamp-02-gyochon.svg';
 import Stamp03Hwangridan from '@/assets/mypage/stamps/stamp-03-hwangridan.svg';
@@ -30,6 +32,19 @@ export const STAMP_ICONS: StampIcon[] = [
 export const STAMP_LOCKED_ICON: StampIcon = Stamp10Locked;
 export const TOTAL_STAMP_COUNT = STAMP_ICONS.length;
 
+// STAMP_ICONS와 같은 인덱스 순서. 획득 토스트/알림에 스탬프 이름을 표시할 때 쓴다.
+export const STAMP_NAMES: string[] = [
+  '웰컴',
+  '교촌마을',
+  '황리단길',
+  '계림',
+  '월정교',
+  '경주읍성',
+  '첨성대',
+  '완벽한여행',
+  '경주마스터',
+];
+
 // STAMP_ICONS의 인덱스(0-based) 기준. 좌표는 실제 배포 서버의 /api/places 검색 결과에서
 // 가져왔다 (2026-08-10 기준). 황리단길은 거리 전체라 특정 place 하나로 등록돼 있지 않아서,
 // 그 상권을 대표하는 실제 장소(샬로우커피 황리단길점)의 좌표를 대신 사용한다.
@@ -53,6 +68,56 @@ export const GEOFENCE_ATTRACTIONS: GeofenceAttraction[] = [
   { stampIndex: 6, name: '첨성대', placeId: 82, latitude: 35.8343745291, longitude: 129.2185644826 },
 ];
 
+// 장소명을 직접 말하지 않고, 그 장소를 떠올리게 하는 이미지/전설/특징으로만 설명한다.
+// GEOFENCE_ATTRACTIONS의 stampIndex와 짝을 맞춘다.
+export const STAMP_HINTS: Record<number, string> = {
+  1: '기와지붕 아래,\n향긋한 술 익는 냄새가 퍼지는 마을이 있어요.',
+  2: '오래된 무덤 옆으로 예쁜 카페와\n소품샵이 줄지어 있는 골목이에요.',
+  3: '황금알과 하얀 닭 울음소리,\n신라의 전설이 시작된 숲이에요.',
+  4: '밤이 되면 강물 위로 화려한\n불빛이 켜지는 옛 다리예요.',
+  5: '경주를 둘러싸고 지키던\n오래된 성벽이 남아있는 곳이에요.',
+  6: '밤하늘의 별을 관찰하던\n병 모양의 오래된 탑이에요.',
+};
+
+// 백엔드 StampType.displayName → STAMP_ICONS 인덱스. 문구가 프론트 표기와 미묘하게 달라서
+// (예: "경주 계림" vs "계림", "완벽한 여행" vs "완벽한여행") 직접 매핑 테이블로 연결한다.
+const BACKEND_STAMP_NAME_TO_INDEX: Record<string, number> = {
+  환영하개: 0,
+  교촌마을: 1,
+  황리단길: 2,
+  '경주 계림': 3,
+  월정교: 4,
+  '경주 읍성': 5,
+  '경주 첨성대': 6,
+  '완벽한 여행': 7,
+  '경주 마스터': 8,
+};
+
+/** 서버가 내려준 스탬프 이름(StampAlbumResponse.stampName)을 STAMP_ICONS 인덱스로 변환한다. */
+export function stampIndexFromBackendName(stampName: string): number | undefined {
+  return BACKEND_STAMP_NAME_TO_INDEX[stampName];
+}
+
+/** 화면에 보여줄 획득 스탬프 목록. 서버(GET /api/my-page/stamps)를 우선 사용하고,
+ * 로그인 전이거나 서버 조회에 실패하면(오프라인 등) 로컬 캐시로 대체한다. */
+export async function getDisplayStampIndices(): Promise<Set<number>> {
+  const token = await getAccessToken();
+  if (token) {
+    try {
+      const { stamps } = await getMyPageStamps(token);
+      const indices = new Set<number>();
+      for (const stamp of stamps) {
+        const index = stampIndexFromBackendName(stamp.stampName);
+        if (index !== undefined) indices.add(index);
+      }
+      return indices;
+    } catch {
+      // 서버 조회 실패 시 로컬 캐시로 대체
+    }
+  }
+  return getEarnedStampIndices();
+}
+
 // 8번(완벽한여행, index 7)은 하루 일정을 전부 완주했을 때 지급 — locationTracking.ts가
 // 일정 장소를 다 돌았는지 확인하고 awardStamp(PERFECT_TRIP_STAMP_INDEX)를 직접 호출한다.
 export const PERFECT_TRIP_STAMP_INDEX = 7;
@@ -61,6 +126,7 @@ const GYEONGJU_MASTER_STAMP_INDEX = 8;
 const NAMED_ATTRACTION_INDICES = GEOFENCE_ATTRACTIONS.map((a) => a.stampIndex);
 
 const EARNED_STAMPS_KEY = 'gyeonjutravel.earnedStampIndices';
+const PENDING_STAMP_TOASTS_KEY = 'gyeonjutravel.pendingStampToasts';
 
 // TODO: 실제 획득 현황을 백엔드에서 내려주는 API가 생기면 이 로컬 저장 값을 대체한다.
 export async function getEarnedStampIndices(): Promise<Set<number>> {
@@ -86,6 +152,29 @@ export async function getEarnedStampCount(): Promise<number> {
   return indices.size;
 }
 
+async function pushPendingStampToast(stampIndex: number): Promise<void> {
+  const raw = await AsyncStorage.getItem(PENDING_STAMP_TOASTS_KEY);
+  const list: number[] = raw ? JSON.parse(raw) : [];
+  list.push(stampIndex);
+  await AsyncStorage.setItem(PENDING_STAMP_TOASTS_KEY, JSON.stringify(list));
+}
+
+/** 대기 중인 스탬프 획득 토스트를 하나 꺼내온다(먼저 지급된 것부터). 없으면 null.
+ * 홈 화면이 포커스될 때마다 호출해서, 백그라운드에서 지급된 스탬프도 앱 내 토스트로 보여준다. */
+export async function popPendingStampToast(): Promise<number | null> {
+  const raw = await AsyncStorage.getItem(PENDING_STAMP_TOASTS_KEY);
+  if (!raw) return null;
+  try {
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const [first, ...rest] = list;
+    await AsyncStorage.setItem(PENDING_STAMP_TOASTS_KEY, JSON.stringify(rest));
+    return typeof first === 'number' ? first : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 특정 번호의 스탬프를 지급한다 (지오펜싱 도착 시 사용). 새로 지급됐으면 true. */
 export async function awardStamp(stampIndex: number): Promise<boolean> {
   if (stampIndex <= 0 || stampIndex >= TOTAL_STAMP_COUNT) return false;
@@ -93,9 +182,12 @@ export async function awardStamp(stampIndex: number): Promise<boolean> {
   if (indices.has(stampIndex)) return false;
 
   indices.add(stampIndex);
+  const newlyEarned = [stampIndex];
   if (NAMED_ATTRACTION_INDICES.every((i) => indices.has(i))) {
     indices.add(GYEONGJU_MASTER_STAMP_INDEX);
+    newlyEarned.push(GYEONGJU_MASTER_STAMP_INDEX);
   }
   await AsyncStorage.setItem(EARNED_STAMPS_KEY, JSON.stringify([...indices]));
+  for (const idx of newlyEarned) await pushPendingStampToast(idx);
   return true;
 }

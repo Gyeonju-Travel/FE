@@ -91,7 +91,7 @@ export function toDogDetail(res: PetDetailResponse, isPrimary: boolean): DogProf
     sizeType: sizeToLabel(res.size),
     age: res.age,
     gender: genderToLabel(res.gender),
-    personalityTags: [personalityToLabel(res.personality)].filter(Boolean),
+    personalityTags: res.personality.map(personalityToLabel).filter(Boolean),
     isPrimary,
     stampCount: 0,
     visitedPlacesCount: 0,

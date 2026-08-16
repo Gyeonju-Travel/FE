@@ -6,6 +6,8 @@ import { Schedule } from '@/types/schedule';
 import { haversineMeters } from '@/utils/distance';
 import { calculateFootprintCount } from '@/utils/footprintCalculator';
 import { GEOFENCE_ATTRACTIONS, PERFECT_TRIP_STAMP_INDEX, awardStamp, getEarnedStampIndices } from '@/constants/stamps';
+import { getAccessToken } from '@/utils/authStorage';
+import { addScheduleFootprints, visitPlace, startSchedule } from '@/utils/api';
 
 // 백그라운드 위치 추적을 "하나만" 돌린다. 지오펜싱(점 반경 감지)과 거리 누적(발자국)을
 // 따로 돌리면 백그라운드 위치 구독이 2개가 되어 배터리를 더 쓰게 되므로, 같은 위치
@@ -25,6 +27,9 @@ const LAST_POINT_KEY = 'gyeonjutravel.locationTrackingLastPoint';
 const ARRIVED_PLACES_KEY_PREFIX = 'gyeonjutravel.arrivedPlaces.';
 const ACTIVE_SCHEDULE_KEY = 'gyeonjutravel.activeScheduleId';
 const ACTIVE_SCHEDULE_STATE_KEY = 'gyeonjutravel.activeScheduleState';
+const TODAYS_SCRAP_SCHEDULE_KEY = 'gyeonjutravel.todaysScrapSchedule';
+const SCRAPPED_SCHEDULE_IDS_KEY = 'gyeonjutravel.scrappedScheduleIds';
+const SCRAP_REMINDER_HOUR = 21;
 
 interface LatLng {
   lat: number;
@@ -41,6 +46,12 @@ interface ActiveSchedulePlace {
 interface ActiveScheduleState {
   totalPlaceCount: number;
   places: ActiveSchedulePlace[]; // 아직 도착 안 한 장소만 (근접 체크 대상)
+}
+
+export interface TodaysScrapSchedule {
+  scheduleId: string;
+  date: string; // YYYY-MM-DD
+  places: ActiveSchedulePlace[];
 }
 
 // ─── 위치 권한 ─────────────────────────────────────────────────────────────────
@@ -145,26 +156,116 @@ async function removePendingPlace(scheduleId: string, placeId: string) {
 
 export type StartTrackingResult = 'started' | 'permission-denied' | 'no-places';
 
+// ─── 일정 종료 스크랩 (오늘 하루 기록) ────────────────────────────────────────────
+function todayIsoDate(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** 오늘 21시에 "일정 종료? 스크랩으로 기록해보세요" 알림을 예약한다. 이미 21시가 지났으면 예약하지 않는다. */
+async function scheduleScrapReminder(): Promise<void> {
+  const target = new Date();
+  target.setHours(SCRAP_REMINDER_HOUR, 0, 0, 0);
+  if (target.getTime() <= Date.now()) return;
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '일정이 종료 됐나요?',
+        body: '스크랩으로 오늘 하루를 기록해 보세요',
+        sound: true,
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: target },
+    });
+  } catch {
+    // 알림 예약 실패는 무시 — 앱을 열면 홈 화면에서 자동으로 스크랩 화면을 띄워준다.
+  }
+}
+
+async function getScrappedScheduleIds(): Promise<string[]> {
+  const raw = await AsyncStorage.getItem(SCRAPPED_SCHEDULE_IDS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 스크랩 앨범 저장에 성공한 뒤 호출한다 — 같은 일정으로는 다시 스크랩 화면이 자동으로 뜨지 않는다. */
+export async function markScheduleScrapped(scheduleId: string): Promise<void> {
+  const ids = await getScrappedScheduleIds();
+  if (ids.includes(scheduleId)) return;
+  await AsyncStorage.setItem(SCRAPPED_SCHEDULE_IDS_KEY, JSON.stringify([...ids, scheduleId]));
+}
+
+/** 오늘 '시작'을 눌렀지만 아직 스크랩하지 않은 일정이 있으면 반환한다 (홈 진입 시 스크랩 화면 자동 진입에 사용). */
+export async function getPendingScrapSchedule(): Promise<TodaysScrapSchedule | null> {
+  const raw = await AsyncStorage.getItem(TODAYS_SCRAP_SCHEDULE_KEY);
+  if (!raw) return null;
+  try {
+    const state: TodaysScrapSchedule = JSON.parse(raw);
+    if (state.date !== todayIsoDate()) return null;
+    const scrappedIds = await getScrappedScheduleIds();
+    if (scrappedIds.includes(state.scheduleId)) return null;
+    return state;
+  } catch {
+    return null;
+  }
+}
+
 /** 오늘 진행할 일정을 등록해서, 위치 추적 중 이 일정의 장소들도 같이 도착 감지하도록 한다. */
 export async function setActiveSchedule(schedule: Schedule): Promise<StartTrackingResult> {
   const granted = await ensureLocationPermissions();
   if (!granted) return 'permission-denied';
   await ensureNotificationPermission();
 
+  // 서버에 일정 시작을 알린다 — 이걸 먼저 호출해야 이후의 발자국/관광지 방문 기록(POST .../footprints,
+  // .../visits)이 서버에서 거부되지 않는다(서버가 startedAt 이후 기록만 인정).
+  // 날짜별 목록 조회(toSchedule)로 만든 schedule.places는 좌표가 없는 자리표시자라서, 여기서
+  // 받는 실제 좌표(placeId 포함)를 지오펜싱/스크랩 지도의 진짜 소스로 쓴다.
+  const token = await getAccessToken();
+  let schedulePlaces: ActiveSchedulePlace[] = schedule.places.map((p) => ({
+    id: p.id,
+    name: p.name,
+    lat: p.latitude,
+    lng: p.longitude,
+  }));
+  if (token) {
+    try {
+      const startResult = await startSchedule(Number(schedule.id), token);
+      schedulePlaces = startResult.places.map((p) => ({
+        id: String(p.placeId),
+        name: p.name,
+        lat: p.latitude,
+        lng: p.longitude,
+      }));
+    } catch {
+      // 실패하면 좌표 없는 자리표시자로 폴백 — 이후 개별 발자국/방문 기록 호출도 서버에서 거부될 수 있다.
+    }
+  }
+
   const arrivedIds = await getArrivedPlaceIds(schedule.id);
-  const pendingPlaces = schedule.places.filter((p) => !arrivedIds.includes(p.id));
+  const pendingPlaces = schedulePlaces.filter((p) => !arrivedIds.includes(p.id));
 
   await AsyncStorage.setItem(ACTIVE_SCHEDULE_KEY, schedule.id);
   await AsyncStorage.setItem(
     ACTIVE_SCHEDULE_STATE_KEY,
     JSON.stringify({
-      totalPlaceCount: schedule.places.length,
-      places: pendingPlaces.map((p) => ({ id: p.id, name: p.name, lat: p.latitude, lng: p.longitude })),
+      totalPlaceCount: schedulePlaces.length,
+      places: pendingPlaces,
     })
   );
 
+  // 오늘 '시작'을 누른 일정을 스크랩 대상으로 별도 저장 (ACTIVE_SCHEDULE_KEY는 추적 종료 시 지워지므로 분리 보관)
+  // 하고, 21시 스크랩 알림을 예약한다.
+  const scrapState: TodaysScrapSchedule = { scheduleId: schedule.id, date: todayIsoDate(), places: schedulePlaces };
+  await AsyncStorage.setItem(TODAYS_SCRAP_SCHEDULE_KEY, JSON.stringify(scrapState));
+  await scheduleScrapReminder();
+
   // 이미 일정을 다 돌았는데 지금 막 활성화한 경우("완벽한여행"을 놓쳤을 수 있어) 바로 지급 시도.
-  if (pendingPlaces.length === 0 && schedule.places.length > 0 && arrivedIds.length >= schedule.places.length) {
+  if (pendingPlaces.length === 0 && schedulePlaces.length > 0 && arrivedIds.length >= schedulePlaces.length) {
     const awarded = await awardStamp(PERFECT_TRIP_STAMP_INDEX);
     if (awarded) await notify('완벽한 여행! 🎉', '오늘 일정을 모두 완주했어요.');
   }
@@ -195,17 +296,28 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
     const earnedStampIndices = await getEarnedStampIndices();
     const active = await getActiveSchedule();
     const scheduleId = active?.scheduleId ?? null;
+    const accessToken = await getAccessToken();
     let pendingSchedulePlaces = active?.state.places ?? [];
     const totalPlaceCount = active?.state.totalPlaceCount ?? 0;
 
     for (const loc of locations) {
       const point: LatLng = { lat: loc.coords.latitude, lng: loc.coords.longitude };
 
-      // (1) 거리 누적 → 발자국
+      // (1) 거리 누적 → 발자국 (일정이 진행 중이면 그 일정의 앨범에도 증가분을 동기화)
       if (lastPoint) {
         const segment = haversineMeters(lastPoint.lat, lastPoint.lng, point.lat, point.lng);
         if (segment > 0 && segment < MAX_VALID_JUMP_METERS) {
           total += segment;
+          if (scheduleId && accessToken) {
+            const meters = Math.round(segment);
+            if (meters > 0) {
+              try {
+                await addScheduleFootprints(Number(scheduleId), meters, accessToken);
+              } catch {
+                // 서버 동기화 실패는 무시 — 로컬 누적치(total)는 이미 반영됐다.
+              }
+            }
+          }
         }
       }
       lastPoint = point;
@@ -233,6 +345,17 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
             if (isNew) {
               await notify('도착했어요! 🐾', `${place.name}에 도착했어요.`);
               await removePendingPlace(scheduleId, place.id);
+              if (accessToken) {
+                try {
+                  await visitPlace(
+                    Number(place.id),
+                    { scheduleId: Number(scheduleId), latitude: point.lat, longitude: point.lng },
+                    accessToken
+                  );
+                } catch {
+                  // 방문 기록 서버 저장 실패는 무시 — 로컬 도착 표시(체크마크)는 이미 반영됐다.
+                }
+              }
             }
           } else {
             stillPending.push(place);

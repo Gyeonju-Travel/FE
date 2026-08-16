@@ -190,6 +190,8 @@ function ScheduleCard({
     : schedule.departureLabel;
 
   // 출발지 → 각 장소를 잇는 구간의 직선거리 기반 도보 시간 합계(순수 이동 시간, 체류 시간 제외).
+  // 서버가 좌표 없이 장소명만 내려준 일정은 places에 NaN 좌표가 들어있어 계산할 수 없다.
+  const hasRealCoords = schedule.places.length === 0 || !Number.isNaN(schedule.places[0].latitude);
   const departurePlace = departurePlaces[schedule.departureLabel];
   const routePoints = [
     ...(departurePlace ? [{ lat: departurePlace.latitude, lng: departurePlace.longitude }] : []),
@@ -202,7 +204,7 @@ function ScheduleCard({
         sum + estimateWalkMinutes(haversineMeters(from.lat, from.lng, routePoints[i + 1].lat, routePoints[i + 1].lng)),
       0
     );
-  const durationText = formatWalkDuration(totalWalkMinutes);
+  const durationText = hasRealCoords ? formatWalkDuration(totalWalkMinutes) : null;
 
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
   const animProgress = useRef(new Animated.Value(0)).current;
@@ -282,7 +284,9 @@ function ScheduleCard({
               color={Colors.textBody2}
               style={[ss.scheduleCardMetaIcon, { marginLeft: 10 }]}
             />
-            <Text style={ss.scheduleCardMetaText}>약 {durationText}</Text>
+            <Text style={ss.scheduleCardMetaText}>
+              {durationText ? `약 ${durationText}` : '이동시간 정보 없음'}
+            </Text>
           </View>
         </View>
         {!isEditMode && !expanded && (
@@ -940,6 +944,26 @@ function RouteView({
     .slice(0, -1)
     .flatMap((from, i) => segments[i]?.path ?? [from, stops[i + 1]]);
 
+  // 날짜별 목록 조회로 받은 일정은 장소 좌표가 없다(placeNames만 내려옴). 좌표 없이 지도를
+  // 그리면 위치가 다 틀어지므로, 이 경우엔 지도 대신 안내 문구만 보여준다.
+  const hasRealCoords = schedule.places.length === 0 || !Number.isNaN(schedule.places[0].latitude);
+  if (!hasRealCoords) {
+    return (
+      <View style={rv.safeArea}>
+        <View style={rv.noCoordsWrap}>
+          <TouchableOpacity
+            style={[rv.backBtn, { top: insets.top + 12 }]}
+            activeOpacity={0.8}
+            onPress={onBack}
+          >
+            <Text style={rv.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={rv.noCoordsText}>이 일정은 장소 위치 정보가 없어서{'\n'}경로를 표시할 수 없어요.</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={rv.safeArea}>
       <KakaoMap ref={mapRef} routePlaces={routePlaces} routePath={routePath} />
@@ -1360,7 +1384,17 @@ export default function ScheduleScreen() {
                 departurePlaces={departurePlaces}
                 expanded={expandedId === schedule.id}
                 onToggle={() => setExpandedId((id) => (id === schedule.id ? null : schedule.id))}
-                onEdit={() => setEditingSchedule(schedule)}
+                onEdit={() => {
+                  // 날짜별 목록 조회는 장소 이름만 내려줘서(placeId 없음) 수정 화면이 장소를
+                  // 제대로 선택된 상태로 열 수 없다 — 좌표가 없는(NaN) 자리표시자 장소로 판별한다.
+                  const hasRealPlaceIds =
+                    schedule.places.length === 0 || !Number.isNaN(schedule.places[0].latitude);
+                  if (!hasRealPlaceIds) {
+                    setToastMsg('이 일정은 장소 정보가 불완전해서 아직 수정할 수 없어요.');
+                    return;
+                  }
+                  setEditingSchedule(schedule);
+                }}
                 onStart={() => handleStartSchedule(schedule)}
                 onViewRoute={() => setViewingRouteSchedule(schedule)}
                 isEditMode={isEditMode}
@@ -1805,6 +1839,8 @@ const ss = StyleSheet.create({
 // ─── 경로보기 스타일 (rv) ──────────────────────────────────────────────────────
 const rv = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
+  noCoordsWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.xl },
+  noCoordsText: { fontSize: 14, color: Colors.textBody2, textAlign: 'center', lineHeight: 21 },
   overlaySafeArea: {
     position: 'absolute',
     top: 0,

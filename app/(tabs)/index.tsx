@@ -14,6 +14,8 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import HeroIllustration from '@/components/home/HeroIllustration';
 import RecommendedRouteView from '@/components/home/RecommendedRouteView';
+import UpdateNewsView from '@/components/home/UpdateNewsView';
+import TodayScrapView from '@/components/home/TodayScrapView';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
@@ -21,20 +23,25 @@ import CelebrationToast from '@/components/ui/CelebrationToast';
 import FilterTourIcon from '@/assets/icons/filter-tour.svg';
 import WalkingDogIcon from '@/assets/home/walking-dog.svg';
 import BellIcon from '@/assets/home/bell.svg';
+import BellActiveIcon from '@/assets/home/bell-active.svg';
 import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
-import { STAMP_ICONS, STAMP_LOCKED_ICON, GEOFENCE_ATTRACTIONS, getEarnedStampIndices } from '@/constants/stamps';
-import { getFootprintCount } from '@/utils/locationTracking';
+import {
+  STAMP_ICONS,
+  STAMP_LOCKED_ICON,
+  STAMP_NAMES,
+  getDisplayStampIndices,
+  popPendingStampToast,
+} from '@/constants/stamps';
+import { getPendingScrapSchedule, TodaysScrapSchedule } from '@/utils/locationTracking';
+import { hasUnreadUpdateNews } from '@/constants/updateNews';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
-import { getMyPets, getPetDetail, getPlaceDetail, ApiError } from '@/utils/api';
+import { getHome } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
-import { getPetPersonalityCombo } from '@/utils/petPersonalityCombo';
 import { onTabReset } from '@/utils/tabReset';
-import { toDogFromRepresentative, personalityToLabel } from '@/utils/petMappers';
-import { toMapPlace } from '@/utils/placeMappers';
+import { personalityToLabel } from '@/utils/petMappers';
 import { isDaytime } from '@/utils/timeOfDay';
 import { fetchGyeongjuWeather, GyeongjuWeather, SkyCondition } from '@/utils/weather';
 import { MapPlace } from '@/types/map';
-import { DogProfile } from '@/types/mypage';
 
 const SKY_ICON: Record<SkyCondition, string> = {
   sunny: '☀️',
@@ -52,84 +59,121 @@ const HOME_STAMP_PREVIEW_SLOTS = 3;
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { justOnboarded } = useLocalSearchParams<{ justOnboarded?: string }>();
-  const [dog, setDog] = useState<DogProfile | null>(null);
+  const [dog, setDog] = useState<{ name: string; photoUri: string | null } | null>(null);
   const [personalityLabel, setPersonalityLabel] = useState<string | null>(null);
   const [places, setPlaces] = useState<MapPlace[]>([]);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
-  const [showStampCelebration, setShowStampCelebration] = useState(false);
+  const [celebrationStampIndex, setCelebrationStampIndex] = useState<number | null>(null);
   const [weather, setWeather] = useState<GyeongjuWeather | null>(null);
   const [profileTopHeight, setProfileTopHeight] = useState(0);
   const [profileBottomHeight, setProfileBottomHeight] = useState(0);
   const [showRecommendedRoute, setShowRecommendedRoute] = useState(false);
+  const [showUpdateNews, setShowUpdateNews] = useState(false);
+  const [hasUnreadNotification, setHasUnreadNotification] = useState(false);
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
   const [footprintCount, setFootprintCount] = useState(0);
+  const [pendingScrap, setPendingScrap] = useState<TodaysScrapSchedule | null>(null);
+  const [scrapAccessToken, setScrapAccessToken] = useState<string | null>(null);
 
   useEffect(() => {
     fetchGyeongjuWeather().then(setWeather);
   }, []);
 
+  useEffect(() => {
+    hasUnreadUpdateNews().then(setHasUnreadNotification);
+  }, []);
+
   // 다른 탭에 있는 동안 백그라운드 위치 추적으로 스탬프/발자국이 늘었을 수 있어, 홈 탭에 올 때마다 다시 읽는다.
+  // 온보딩(반려견 등록) 직후라면 웰컴 스탬프 토스트를, 아니라면 백그라운드에서 새로 지급된
+  // 스탬프가 있는지 큐에서 하나 꺼내 토스트로 보여준다.
   useFocusEffect(
     useCallback(() => {
-      getEarnedStampIndices().then(setEarnedStampIndices);
-      getFootprintCount().then(setFootprintCount);
-    }, [])
-  );
+      (async () => {
+        setEarnedStampIndices(await getDisplayStampIndices());
 
-  // 온보딩(반려견 등록)을 마치고 넘어온 경우, 홈 화면에서 스탬프 획득 토스트를 띄운다.
-  // 뒤로가기/재방문 시 다시 뜨지 않도록 파라미터를 즉시 지운다.
-  useEffect(() => {
-    if (justOnboarded !== '1') return;
-    setShowStampCelebration(true);
-    router.setParams({ justOnboarded: undefined });
-  }, [justOnboarded]);
+        const token = await getAccessToken();
+        if (token) {
+          try {
+            const home = await getHome(token);
+            setDog({ name: home.petName, photoUri: home.petProfileImageUrl });
+            setPersonalityLabel(
+              getPersonalityComboLabel(home.petPersonalities) ??
+                home.petPersonalities.map(personalityToLabel).join(' · ')
+            );
+            setFootprintCount(home.footprintCount);
+            setPlaces(
+              home.places.map((p) => ({
+                id: String(p.placeId),
+                name: p.placeName,
+                category: '관광지',
+                tags: [],
+                imageUri: p.imageUrl,
+                latitude: p.latitude,
+                longitude: p.longitude,
+                address: '',
+                phone: '',
+                hours: '',
+              }))
+            );
+          } catch (e) {
+            // 인사말/카드는 기본값으로도 자연스럽게 보이므로 조용히 무시
+          }
+        }
+
+        if (justOnboarded === '1') {
+          setCelebrationStampIndex(0);
+          router.setParams({ justOnboarded: undefined });
+          return;
+        }
+        const pendingToast = await popPendingStampToast();
+        if (pendingToast !== null) setCelebrationStampIndex(pendingToast);
+
+        // 21시 이후, 오늘 '시작'한 일정 중 아직 스크랩하지 않은 게 있으면 스크랩 화면을 바로 띄운다.
+        if (new Date().getHours() >= 21) {
+          const pendingSchedule = await getPendingScrapSchedule();
+          if (pendingSchedule) {
+            const token = await getAccessToken();
+            if (token) {
+              setScrapAccessToken(token);
+              setPendingScrap(pendingSchedule);
+            }
+          }
+        }
+      })();
+    }, [justOnboarded])
+  );
 
   // 홈 탭 아이콘을 다시 누르면 첫 화면으로 되돌아간다.
   useEffect(() => onTabReset('home', () => setShowRecommendedRoute(false)), []);
 
-  useEffect(() => {
-    (async () => {
-      const token = await getAccessToken();
-      if (!token) return;
-      try {
-        const list = await getMyPets(token);
-        if (list.representativePet) {
-          setDog(toDogFromRepresentative(list.representativePet));
-          const petId = list.representativePet.petId;
-          const [detail, combo] = await Promise.all([
-            getPetDetail(petId, token),
-            getPetPersonalityCombo(petId),
-          ]);
-          setPersonalityLabel(getPersonalityComboLabel(combo) ?? personalityToLabel(detail.personality));
-        }
-      } catch (e) {
-        // 인사말/카드는 기본값으로도 자연스럽게 보이므로 조용히 무시
-      }
-    })();
-  }, []);
-
-  // 홈 화면 추천 목적지는 스탬프 6곳(교촌마을/황리단길/계림/월정교/경주읍성/첨성대)으로 고정한다.
-  useEffect(() => {
-    (async () => {
-      const token = await getAccessToken();
-      if (!token) return;
-      const results = await Promise.all(
-        GEOFENCE_ATTRACTIONS.map(async (a) => {
-          if (!a.placeId) return null;
-          const detail = await getPlaceDetail(a.placeId, token).catch(() => null);
-          // 카드에는 실제 상호명(예: "샬로우커피 황리단길점") 대신 관광지 이름 자체를 보여준다.
-          return detail ? { ...toMapPlace(detail), name: a.name } : null;
-        })
-      );
-      setPlaces(results.filter((r): r is NonNullable<typeof r> => r !== null));
-    })();
-  }, []);
-
   const dogName = dog?.name ?? '반려견';
   const daytime = isDaytime(new Date().getHours());
 
+  if (pendingScrap && scrapAccessToken) {
+    return (
+      <TodayScrapView
+        pending={pendingScrap}
+        dogName={dogName}
+        dogProfileImageUri={dog?.photoUri ?? undefined}
+        accessToken={scrapAccessToken}
+        onBack={() => setPendingScrap(null)}
+      />
+    );
+  }
+
   if (showRecommendedRoute) {
     return <RecommendedRouteView dogName={dogName} onBack={() => setShowRecommendedRoute(false)} />;
+  }
+
+  if (showUpdateNews) {
+    return (
+      <UpdateNewsView
+        onBack={() => {
+          setShowUpdateNews(false);
+          hasUnreadUpdateNews().then(setHasUnreadNotification);
+        }}
+      />
+    );
   }
 
   // 구분선이 위/아래 블록 높이 차이와 상관없이 카드 안에서 항상 정중앙에 오도록,
@@ -169,9 +213,13 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={styles.bellBtn}
                 activeOpacity={0.8}
-                onPress={() => setToastMsg('준비 중인 기능이에요.')}
+                onPress={() => setShowUpdateNews(true)}
               >
-                <BellIcon width={15} height={18} />
+                {hasUnreadNotification ? (
+                  <BellActiveIcon width={15} height={18} />
+                ) : (
+                  <BellIcon width={15} height={18} />
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -276,24 +324,12 @@ export default function HomeScreen() {
           </View>
 
           {places.map((place, i) => {
-            const attraction = GEOFENCE_ATTRACTIONS.find((a) => a.name === place.name);
             return (
               <TouchableOpacity
                 key={place.id}
                 style={styles.placeCard}
                 activeOpacity={0.85}
-                onPress={() =>
-                  attraction?.isProxyLocation
-                    ? router.push({
-                        pathname: '/(tabs)/map',
-                        params: {
-                          focusLat: String(place.latitude),
-                          focusLng: String(place.longitude),
-                          focusLabel: place.name,
-                        },
-                      })
-                    : router.push({ pathname: '/(tabs)/map', params: { placeId: place.id } })
-                }
+                onPress={() => router.push({ pathname: '/(tabs)/map', params: { placeId: place.id } })}
               >
                 <PlaceThumbnail uri={place.imageUri} style={styles.placeThumb} />
                 <View style={styles.placeInfo}>
@@ -319,7 +355,7 @@ export default function HomeScreen() {
       <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={100} />
 
       <CelebrationToast
-        visible={showStampCelebration}
+        visible={celebrationStampIndex !== null}
         icon={
           <Image
             source={require('@/assets/mypage/dog-name-paw.png')}
@@ -328,9 +364,13 @@ export default function HomeScreen() {
           />
         }
         title="축하해요!"
-        subtitle="새로운 스탬프를 획득했어요."
+        subtitle={celebrationStampIndex !== null ? `${STAMP_NAMES[celebrationStampIndex]} 스탬프를 획득했어요.` : ''}
         top={insets.top + 12}
-        onHide={() => setShowStampCelebration(false)}
+        onHide={() => setCelebrationStampIndex(null)}
+        onPress={() => {
+          setCelebrationStampIndex(null);
+          router.push({ pathname: '/(tabs)/mypage', params: { openStampGallery: '1' } });
+        }}
       />
     </View>
   );
@@ -367,6 +407,11 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
     paddingHorizontal: 12,
     height: 34,
+    shadowColor: '#3A3330',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   weatherIcon: { fontSize: 14 },
   weatherText: { fontSize: 14, fontWeight: '600', color: Colors.textBody1 },
@@ -377,6 +422,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.85)',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#3A3330',
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   body: { paddingHorizontal: Spacing.xl, marginTop: -CARD_OVERLAP },
   profileCard: {

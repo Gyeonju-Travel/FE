@@ -17,7 +17,7 @@ import EmailIcon from '@/assets/login/field-email.svg';
 import PasswordIcon from '@/assets/login/field-password.svg';
 import EyeIcon from '@/assets/login/field-password-eye.svg';
 import { login } from '@/utils/api';
-import { saveTokens } from '@/utils/authStorage';
+import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -47,6 +47,7 @@ export default function LoginScreen() {
       const result = await login({ email, password });
       console.log('[로그인] 성공. memberId:', result.memberId, 'onboardingCompleted:', result.onboardingCompleted);
       await saveTokens(result.accessToken, result.refreshToken);
+      await saveAccountEmail(email.trim());
       router.replace(result.onboardingCompleted ? '/(tabs)' : '/signup-complete');
     } catch (e) {
       console.error('[로그인] 실패:', e);
@@ -107,6 +108,20 @@ export default function LoginScreen() {
               <Text style={styles.linkText}>비밀번호 찾기</Text>
             </TouchableOpacity>
           </View>
+
+          {__DEV__ && (
+            <TouchableOpacity
+              style={styles.devBtn}
+              activeOpacity={0.85}
+              onPress={async () => {
+                await saveTokens('dev-fake-token');
+                await saveAccountEmail('dev@test.local');
+                router.replace('/(tabs)');
+              }}
+            >
+              <Text style={styles.devBtnText}>[개발용] 테스트 계정으로 바로 진입</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -142,4 +157,6 @@ const styles = StyleSheet.create({
   },
   linkText: { fontSize: 13, color: Colors.textBody2 },
   linkDivider: { fontSize: 13, color: Colors.border },
+  devBtn: { marginTop: Spacing.xl, alignItems: 'center' },
+  devBtnText: { fontSize: 12, color: Colors.textBody2, textDecorationLine: 'underline' },
 });

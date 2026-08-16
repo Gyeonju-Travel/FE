@@ -11,15 +11,26 @@ import {
 } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import WheelPicker from '@/components/schedule/WheelPicker';
+import RecommendedRouteResultView from '@/components/home/RecommendedRouteResultView';
+import RecommendedRouteLoadingView, { MIN_LOADING_MS } from '@/components/home/RecommendedRouteLoadingView';
 import ScheduleDepartureIcon from '@/assets/icons/schedule-departure.svg';
 import ScheduleDateIcon from '@/assets/icons/schedule-date.svg';
 import ConditionBestIcon from '@/assets/home/condition-best.svg';
 import ConditionNormalIcon from '@/assets/home/condition-normal.svg';
 import ConditionBadIcon from '@/assets/home/condition-bad.svg';
 import Toast from '@/components/ui/Toast';
+import { labelToDepartureArea, DEPARTURE_OPTIONS, toIsoDate } from '@/utils/scheduleMappers';
+import { getAccessToken } from '@/utils/authStorage';
+import {
+  createRecommendedRoute,
+  getRecommendedRouteStatus,
+  getRecommendedRouteResult,
+  RecommendedRouteResultResponse,
+  DogCondition,
+  ApiError,
+} from '@/utils/api';
 
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'];
-const DEPARTURE_OPTIONS = ['황리단길', '금리단길', '첨성대', '교촌마을'];
 const YEAR_BASE = 2024;
 const YEARS = Array.from({ length: 6 }, (_, i) => `${YEAR_BASE + i}년`);
 const MONTHS = Array.from({ length: 12 }, (_, i) => `${i + 1}월`);
@@ -39,6 +50,8 @@ const CONDITION_OPTIONS: { id: Condition; label: string; Icon: React.FC<{ width?
   { id: 'normal', label: '보통', Icon: ConditionNormalIcon },
   { id: 'bad', label: '나쁨', Icon: ConditionBadIcon },
 ];
+const CONDITION_TO_API: Record<Condition, DogCondition> = { best: 'BEST', normal: 'NORMAL', bad: 'BAD' };
+const STATUS_POLL_INTERVAL_MS = 1500;
 
 export default function RecommendedRouteView({ dogName, onBack }: { dogName: string; onBack: () => void }) {
   const now = new Date();
@@ -53,12 +66,21 @@ export default function RecommendedRouteView({ dogName, onBack }: { dogName: str
   const [dayIdx, setDayIdx] = useState(currentDayIdx);
   const [condition, setCondition] = useState<Condition | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [result, setResult] = useState<RecommendedRouteResultResponse | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [pickerType, setPickerType] = useState<'location' | 'date' | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
   const sheetY = useRef(new Animated.Value(SHEET_OFFSCREEN_Y)).current;
   const lastPickerType = useRef<'location' | 'date'>('location');
   const swipeClosing = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (pickerType) {
@@ -145,7 +167,7 @@ export default function RecommendedRouteView({ dogName, onBack }: { dogName: str
 
   const dateText = dateConfirmed ? formatDate(yearIdx, monthIdx, dayIdx) : null;
 
-  const handleCreateSchedule = () => {
+  const handleCreateSchedule = async () => {
     if (departureIdx === null) {
       setToastMsg('출발지를 선택해주세요.');
       return;
@@ -158,8 +180,69 @@ export default function RecommendedRouteView({ dogName, onBack }: { dogName: str
       setToastMsg(`${dogName}의 오늘 컨디션을 선택해주세요.`);
       return;
     }
-    setToastMsg('추천 경로를 준비하고 있어요. 곧 만나요!');
+
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+      return;
+    }
+
+    setCreating(true);
+    const creatingStartedAt = Date.now();
+    try {
+      const job = await createRecommendedRoute(
+        {
+          departureArea: labelToDepartureArea(DEPARTURE_OPTIONS[departureIdx]),
+          date: toIsoDate(yearIdx + YEAR_BASE, monthIdx, dayIdx + 1),
+          condition: CONDITION_TO_API[condition],
+        },
+        token
+      );
+
+      pollRef.current = setInterval(async () => {
+        try {
+          const status = await getRecommendedRouteStatus(job.recommendationId, token);
+
+          if (status.status === 'COMPLETED') {
+            if (pollRef.current) clearInterval(pollRef.current);
+            const routeResult = await getRecommendedRouteResult(job.recommendationId, token);
+            // 실제 생성이 로딩 화면의 1~4단계 연출보다 빨리 끝나도, 그 연출을 끝까지 볼 수 있게
+            // 남은 시간만큼 더 기다렸다가 결과 화면으로 넘어간다.
+            const remainingMs = MIN_LOADING_MS - (Date.now() - creatingStartedAt);
+            setTimeout(() => {
+              setResult(routeResult);
+              setCreating(false);
+            }, Math.max(0, remainingMs));
+          } else if (status.status === 'FAILED') {
+            if (pollRef.current) clearInterval(pollRef.current);
+            setCreating(false);
+            setToastMsg(status.errorMessage ?? '추천 경로 생성에 실패했어요. 잠시 후 다시 시도해주세요.');
+          }
+        } catch (e) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setCreating(false);
+          setToastMsg(e instanceof ApiError ? e.message : '추천 경로 상태를 확인하지 못했어요.');
+        }
+      }, STATUS_POLL_INTERVAL_MS);
+    } catch (e) {
+      setCreating(false);
+      setToastMsg(e instanceof ApiError ? e.message : '추천 경로를 만들지 못했어요. 잠시 후 다시 시도해주세요.');
+    }
   };
+
+  if (creating) {
+    return <RecommendedRouteLoadingView dogName={dogName} />;
+  }
+
+  if (result) {
+    return (
+      <RecommendedRouteResultView
+        result={result}
+        onBack={() => setResult(null)}
+        onSaved={onBack}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={s.safeArea}>
@@ -329,6 +412,8 @@ const s = StyleSheet.create({
   conditionLabelSelected: { color: Colors.textBody1, fontWeight: '700' },
   bottomBar: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md },
   createBtn: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
     backgroundColor: Colors.coral,
     borderRadius: Radius.lg,
     height: 54,

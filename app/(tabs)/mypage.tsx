@@ -34,33 +34,56 @@ import SettingInquiryIcon from '@/assets/icons/setting-inquiry.svg';
 import SettingTermsIcon from '@/assets/icons/setting-terms.svg';
 import SettingPrivacyIcon from '@/assets/icons/setting-privacy.svg';
 import SettingLogoutIcon from '@/assets/icons/setting-logout.svg';
+import SettingLocationTermsIcon from '@/assets/icons/map-mylocation.svg';
 import EditCameraIcon from '@/assets/icons/edit-camera.svg';
 import EditSizeIcon from '@/assets/icons/edit-size.svg';
+import EmailFieldIcon from '@/assets/login/field-email.svg';
+import PasswordFieldIcon from '@/assets/login/field-password.svg';
+import PasswordEyeIcon from '@/assets/login/field-password-eye.svg';
+import CodeFieldIcon from '@/assets/login/field-code.svg';
+import SettingPasswordIcon from '@/assets/icons/setting-password.svg';
+import ToastPasswordIcon from '@/assets/icons/toast/password-changed.svg';
 import StampProgressIllustration from '@/assets/mypage/stamp-progress.svg';
 import ProfileBottomLandscape from '@/assets/mypage/profile-bottom-landscape.svg';
 import ReportHeroLandscape from '@/assets/mypage/report-hero-landscape.svg';
-import { STAMP_ICONS, STAMP_LOCKED_ICON, TOTAL_STAMP_COUNT, getEarnedStampIndices } from '@/constants/stamps';
-import { MOCK_TRAVEL_HISTORY } from '@/mock/travelHistory';
-import { MOCK_SCRAP_DATA } from '@/mock/stampAlbum';
+import {
+  STAMP_ICONS,
+  STAMP_LOCKED_ICON,
+  TOTAL_STAMP_COUNT,
+  GEOFENCE_ATTRACTIONS,
+  STAMP_HINTS,
+  getDisplayStampIndices,
+  stampIndexFromBackendName,
+} from '@/constants/stamps';
+import StampHintCarousel from '@/components/mypage/StampHintCarousel';
+import { formatWalkDuration } from '@/utils/distance';
 import { DogProfile } from '@/types/mypage';
-import { ScrapData, RouteStop, TravelBadgeData } from '@/types/stampAlbum';
-import { calculateFootprintCount } from '@/utils/footprintCalculator';
-import { haversineMeters } from '@/utils/distance';
-import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
+import { ScrapData, RouteStop } from '@/types/stampAlbum';
+import StampAlbumScreen from '@/components/mypage/StampAlbumView';
 import {
   logout as logoutApi,
   withdraw as withdrawApi,
   getMyPets,
+  changeRepresentativePet,
   getPetDetail,
   registerPet,
   updatePetProfile,
   createPlaceReport,
   PetPolicy,
   createInquiry,
+  getMyPageTerms,
+  TermsItemResponse,
+  getTravelRecords,
+  TravelRecordsResponse,
+  TravelRecordItemResponse,
+  getStampAlbum,
+  sendPasswordResetVerificationCode,
+  verifyPasswordResetCode,
+  resetPassword,
   ApiError,
 } from '@/utils/api';
-import { getAccessToken, clearTokens } from '@/utils/authStorage';
-import { getPetPersonalityCombo } from '@/utils/petPersonalityCombo';
+import { getAccessToken, clearTokens, getAccountEmail } from '@/utils/authStorage';
+import FormField, { EyeToggle, InlineActionButton } from '@/components/auth/FormField';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
 import { onTabReset } from '@/utils/tabReset';
 import {
@@ -71,8 +94,6 @@ import {
   genderToApi,
   personalityToApi,
 } from '@/utils/petMappers';
-import { useScrapCapture } from '@/hooks/useScrapCapture';
-import KakaoMap from '@/components/map/KakaoMap';
 import Toast from '@/components/ui/Toast';
 import AlertCard from '@/components/ui/AlertCard';
 import { showAlert } from '@/components/ui/AppAlert';
@@ -81,7 +102,6 @@ import ModalCheckIcon from '@/assets/icons/modal-check.svg';
 import ModalPawIcon from '@/assets/icons/modal-paw.svg';
 import ToastInquiryIcon from '@/assets/icons/toast/inquiry-received.svg';
 import ToastPlaceReportIcon from '@/assets/icons/toast/place-report.svg';
-import ToastDailyRecordIcon from '@/assets/icons/toast/daily-record.svg';
 import PhotoPermissionModal from '@/components/ui/PhotoPermissionModal';
 import AddressSearchModal from '@/components/ui/AddressSearchModal';
 import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
@@ -104,6 +124,7 @@ const REPORT_CONDITION_POLICIES: PetPolicy[] = [
 ];
 const DANGER_COLOR = '#C9564D';
 const DANGER_BG = '#FBEAE9';
+const ICON_DARK_GRAY = '#4B4844';
 
 interface MenuRowProps {
   icon: React.ReactNode;
@@ -140,25 +161,44 @@ interface SettingsRowProps {
   danger?: boolean;
   grouped?: boolean;
   isLast?: boolean;
+  /** 정보 수정 화면처럼 카드에 테두리를 둘러야 할 때 */
+  bordered?: boolean;
+  /** 코랄 톤 대신 무채색(회색) 아이콘 박스를 써야 할 때 (정보 수정 화면의 이메일·비밀번호 행) */
+  mutedIcon?: boolean;
+  hideChevron?: boolean;
 }
 
-function SettingsRow({ icon, title, subtitle, onPress, right, danger, grouped, isLast }: SettingsRowProps) {
+function SettingsRow({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  right,
+  danger,
+  grouped,
+  isLast,
+  bordered,
+  mutedIcon,
+  hideChevron,
+}: SettingsRowProps) {
   return (
     <TouchableOpacity
       style={[
         grouped ? st.rowGrouped : st.row,
         grouped && !isLast && st.rowGroupedDivider,
         danger && st.rowDanger,
+        bordered && (danger ? st.rowBorderedDanger : st.rowBordered),
       ]}
-      activeOpacity={right ? 1 : 0.7}
+      activeOpacity={onPress ? 0.7 : 1}
       onPress={onPress}
+      disabled={!onPress}
     >
-      <View style={[st.rowIconBox, danger && st.rowIconBoxDanger]}>{icon}</View>
+      <View style={[st.rowIconBox, danger && st.rowIconBoxDanger, mutedIcon && st.rowIconBoxMuted]}>{icon}</View>
       <View style={st.rowTextCol}>
         <Text style={[st.rowTitle, danger && st.rowTitleDanger]}>{title}</Text>
         {!!subtitle && <Text style={st.rowSubtitle}>{subtitle}</Text>}
       </View>
-      {right ?? <Text style={st.rowChevron}>›</Text>}
+      {right ?? (hideChevron ? null : <Text style={st.rowChevron}>›</Text>)}
     </TouchableOpacity>
   );
 }
@@ -299,12 +339,64 @@ function InquiryView({ onBack }: { onBack: () => void }) {
   );
 }
 
+// ─── TermsView (약관 동의 내역) ─────────────────────────────────────────────────
+function TermsView({ onBack }: { onBack: () => void }) {
+  const [terms, setTerms] = useState<TermsItemResponse[] | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) {
+        setErrorMsg('로그인 정보가 없어요.');
+        return;
+      }
+      try {
+        const result = await getMyPageTerms(token);
+        setTerms(result.terms);
+      } catch (e) {
+        setErrorMsg(e instanceof ApiError ? e.message : '약관 정보를 불러오지 못했어요.');
+      }
+    })();
+  }, []);
+
+  return (
+    <SafeAreaView style={tv.safeArea}>
+      <View style={tv.header}>
+        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={tv.backArrow}>←</Text>
+        </TouchableOpacity>
+        <Text style={tv.headerTitle}>약관 동의</Text>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={tv.scrollContent}>
+        {!terms && !errorMsg && (
+          <View style={tv.loadingCenter}>
+            <ActivityIndicator color={Colors.coral} />
+          </View>
+        )}
+        {errorMsg && <Text style={tv.errorText}>{errorMsg}</Text>}
+        {terms?.map((term) => (
+          <View key={term.code} style={tv.row}>
+            <ModalCheckIcon width={18} height={18} color={Colors.secondaryDark} />
+            <Text style={tv.rowTitle}>{term.title}</Text>
+            {term.required && (
+              <View style={tv.requiredTag}>
+                <Text style={tv.requiredTagText}>필수</Text>
+              </View>
+            )}
+          </View>
+        ))}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 // ─── SettingsView (설정 화면) ─────────────────────────────────────────────────
-function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditProfile: () => void }) {
+function SettingsView({ onBack, onAccountInfo }: { onBack: () => void; onAccountInfo: () => void }) {
   const [pushEnabled, setPushEnabled] = useState(true);
-  const [withdrawStep, setWithdrawStep] = useState<'confirm' | 'success' | null>(null);
-  const [withdrawing, setWithdrawing] = useState(false);
   const [showInquiry, setShowInquiry] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const handleLogout = async () => {
@@ -320,30 +412,12 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
     router.replace('/login');
   };
 
-  const handleWithdrawConfirm = async () => {
-    const token = await getAccessToken();
-    if (!token) {
-      showAlert('회원탈퇴', '로그인 정보가 없어요. 다시 로그인해주세요.');
-      setWithdrawStep(null);
-      router.replace('/login');
-      return;
-    }
-    setWithdrawing(true);
-    try {
-      await withdrawApi(token);
-      await clearTokens();
-      setWithdrawStep('success');
-    } catch (e) {
-      const message = e instanceof ApiError ? e.message : '탈퇴에 실패했어요. 잠시 후 다시 시도해주세요.';
-      showAlert('회원탈퇴 실패', message);
-      setWithdrawStep(null);
-    } finally {
-      setWithdrawing(false);
-    }
-  };
-
   if (showInquiry) {
     return <InquiryView onBack={() => setShowInquiry(false)} />;
+  }
+
+  if (showTerms) {
+    return <TermsView onBack={() => setShowTerms(false)} />;
   }
 
   return (
@@ -356,14 +430,6 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
-        <Text style={st.groupLabel}>계정 관리</Text>
-        <SettingsRow
-          icon={<EditProfileIcon width={20} height={20} color={Colors.coral} />}
-          title="정보 수정"
-          subtitle="사진·이름·종·크기·나이·성향 변경"
-          onPress={onEditProfile}
-        />
-
         <Text style={st.groupLabel}>알림 설정</Text>
         <SettingsRow
           icon={<SettingAlarmIcon width={20} height={20} color={Colors.coral} />}
@@ -393,47 +459,46 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
             title="이용약관"
             subtitle=""
             grouped
+            onPress={() => setShowTerms(true)}
           />
           <SettingsRow
             icon={<SettingPrivacyIcon width={20} height={20} color={Colors.coral} />}
             title="개인정보 처리방침"
             subtitle=""
             grouped
+            onPress={() => setShowTerms(true)}
+          />
+          <SettingsRow
+            icon={<SettingLocationTermsIcon width={20} height={20} color={Colors.coral} />}
+            title="위치기반 서비스 이용약관"
+            subtitle=""
+            grouped
             isLast
+            onPress={() => setShowTerms(true)}
           />
         </View>
 
-        <Text style={st.groupLabel}>로그인 관리</Text>
-        <SettingsRow
-          icon={<SettingLogoutIcon width={20} height={20} color={Colors.coral} />}
-          title="로그아웃"
-          subtitle=""
-          onPress={() => setShowLogoutConfirm(true)}
-        />
-        <SettingsRow
-          icon={<WithdrawIcon width={20} height={20} color={DANGER_COLOR} />}
-          title="회원탈퇴"
-          subtitle="탈퇴 시 모든 데이터가 삭제돼요"
-          danger
-          onPress={() => setWithdrawStep('confirm')}
-        />
+        <Text style={st.groupLabel}>계정 관리</Text>
+        <View style={st.groupCard}>
+          <SettingsRow
+            icon={<EditProfileIcon width={20} height={20} color={Colors.coral} />}
+            title="정보 수정"
+            subtitle="이메일·비밀번호·회원탈퇴"
+            grouped
+            onPress={onAccountInfo}
+          />
+          <SettingsRow
+            icon={<SettingLogoutIcon width={20} height={20} color={Colors.coral} />}
+            title="로그아웃"
+            subtitle=""
+            grouped
+            isLast
+            onPress={() => setShowLogoutConfirm(true)}
+          />
+        </View>
 
         <Text style={st.versionText}>견주여행 v1.0.0</Text>
       </ScrollView>
-
-      <WithdrawConfirmModal
-        visible={withdrawStep === 'confirm'}
-        loading={withdrawing}
-        onCancel={() => setWithdrawStep(null)}
-        onConfirm={handleWithdrawConfirm}
-      />
-      <WithdrawSuccessModal
-        visible={withdrawStep === 'success'}
-        onConfirm={() => {
-          setWithdrawStep(null);
-          router.replace('/login');
-        }}
-      />
 
       <Modal visible={showLogoutConfirm} transparent animationType="fade" onRequestClose={() => setShowLogoutConfirm(false)}>
         <View style={wd.backdrop}>
@@ -453,6 +518,289 @@ function SettingsView({ onBack, onEditProfile }: { onBack: () => void; onEditPro
           />
         </View>
       </Modal>
+    </SafeAreaView>
+  );
+}
+
+// ─── AccountInfoView (정보 수정 화면) ─────────────────────────────────────────
+function AccountInfoView({ onBack, onChangePassword }: { onBack: () => void; onChangePassword: () => void }) {
+  const [email, setEmail] = useState<string | null>(null);
+  const [withdrawStep, setWithdrawStep] = useState<'confirm' | 'success' | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+
+  useEffect(() => {
+    getAccountEmail().then(setEmail);
+  }, []);
+
+  const handleWithdrawConfirm = async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      showAlert('회원탈퇴', '로그인 정보가 없어요. 다시 로그인해주세요.');
+      setWithdrawStep(null);
+      router.replace('/login');
+      return;
+    }
+    setWithdrawing(true);
+    try {
+      await withdrawApi(token);
+      await clearTokens();
+      setWithdrawStep('success');
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '탈퇴에 실패했어요. 잠시 후 다시 시도해주세요.';
+      showAlert('회원탈퇴 실패', message);
+      setWithdrawStep(null);
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={st.safeArea}>
+      <View style={st.header}>
+        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={st.backArrow}>←</Text>
+        </TouchableOpacity>
+        <Text style={st.headerTitle}>정보 수정</Text>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
+        <Text style={st.groupLabel}>계정 정보</Text>
+        <View style={[st.row, st.rowBordered]}>
+          <View style={[st.rowIconBox, st.rowIconBoxMuted]}>
+            <EmailFieldIcon width={20} height={20} color={Colors.textMuted} />
+          </View>
+          <View style={st.rowTextCol}>
+            <Text style={ai.emailLabel}>이메일</Text>
+            <Text style={ai.emailText}>{email ?? ''}</Text>
+          </View>
+        </View>
+
+        <Text style={st.groupLabel}>보안 설정</Text>
+        <SettingsRow
+          icon={<SettingPasswordIcon width={20} height={20} color={ICON_DARK_GRAY} />}
+          title="비밀번호 변경"
+          subtitle="새 비밀번호로 변경할 수 있어요"
+          bordered
+          mutedIcon
+          onPress={onChangePassword}
+        />
+
+        <Text style={st.groupLabel}>회원 탈퇴</Text>
+        <SettingsRow
+          icon={<WithdrawIcon width={20} height={20} color={DANGER_COLOR} />}
+          title="회원탈퇴"
+          subtitle="탈퇴 시 모든 데이터가 삭제돼요"
+          danger
+          bordered
+          onPress={() => setWithdrawStep('confirm')}
+        />
+      </ScrollView>
+
+      <WithdrawConfirmModal
+        visible={withdrawStep === 'confirm'}
+        loading={withdrawing}
+        onCancel={() => setWithdrawStep(null)}
+        onConfirm={handleWithdrawConfirm}
+      />
+      <WithdrawSuccessModal
+        visible={withdrawStep === 'success'}
+        onConfirm={() => {
+          setWithdrawStep(null);
+          router.replace('/login');
+        }}
+      />
+    </SafeAreaView>
+  );
+}
+
+// ─── PasswordChangeView (비밀번호 변경 화면) ──────────────────────────────────
+function PasswordChangeView({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+
+  const [codeSent, setCodeSent] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [verifyingCode, setVerifyingCode] = useState(false);
+  const [changing, setChanging] = useState(false);
+  const codeVerified = resetToken !== null;
+
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAccountEmail().then((stored) => setEmail(stored ?? ''));
+  }, []);
+
+  const passwordConfirmError =
+    passwordConfirm.length > 0 && passwordConfirm !== password ? '비밀번호가 일치하지 않습니다.' : null;
+
+  const handleSendCode = async () => {
+    if (!email) return;
+    setSendingCode(true);
+    try {
+      await sendPasswordResetVerificationCode(email);
+      setCodeSent(true);
+      setResetToken(null);
+      setCode('');
+      setCodeError(null);
+      setToastMsg('인증번호를 보냈어요. 이메일을 확인해주세요.');
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '인증번호 발송에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setCodeError(message);
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (code.trim().length !== 6) {
+      setCodeError('인증번호 6자리를 입력해주세요.');
+      return;
+    }
+    setCodeError(null);
+    setVerifyingCode(true);
+    try {
+      const result = await verifyPasswordResetCode(email, code.trim());
+      setResetToken(result.resetToken);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '인증번호가 일치하지 않습니다.';
+      setCodeError(message);
+    } finally {
+      setVerifyingCode(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!resetToken) return;
+    if (password.length < 8) {
+      setPasswordError('비밀번호는 8자 이상이어야 해요.');
+      return;
+    }
+    if (password !== passwordConfirm) {
+      return;
+    }
+    setPasswordError(null);
+    setChanging(true);
+    try {
+      await resetPassword({
+        email,
+        resetToken,
+        newPassword: password,
+        newPasswordConfirmation: passwordConfirm,
+      });
+      setToastMsg('비밀번호가 변경됐어요.');
+      setTimeout(onBack, 900);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '비밀번호 변경에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setPasswordError(message);
+    } finally {
+      setChanging(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={st.safeArea}>
+      <View style={st.header}>
+        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={st.backArrow}>←</Text>
+        </TouchableOpacity>
+        <Text style={st.headerTitle}>비밀번호 변경</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={ai.scrollContent} showsVerticalScrollIndicator={false}>
+        <FormField
+          label="이메일"
+          Icon={EmailFieldIcon}
+          value={email}
+          editable={false}
+          trailing={
+            <InlineActionButton
+              label={sendingCode ? '발송 중' : codeSent ? '재발송' : '인증번호 발송'}
+              disabled={!email || sendingCode}
+              onPress={handleSendCode}
+            />
+          }
+        />
+        <FormField
+          label="인증번호 입력"
+          Icon={CodeFieldIcon}
+          placeholder="인증 번호 입력"
+          value={code}
+          onChangeText={(t) => {
+            setCode(t);
+            setCodeError(null);
+          }}
+          editable={codeSent && !codeVerified}
+          keyboardType="number-pad"
+          maxLength={6}
+          error={codeError}
+          trailing={
+            <InlineActionButton
+              label={verifyingCode ? '확인 중' : codeVerified ? '확인됨' : '확인'}
+              disabled={!codeSent || codeVerified || code.trim().length !== 6 || verifyingCode}
+              onPress={handleVerifyCode}
+            />
+          }
+        />
+        <FormField
+          label="새 비밀번호"
+          Icon={PasswordFieldIcon}
+          placeholder="새 비밀번호 (8자 이상)"
+          value={password}
+          onChangeText={(t) => {
+            setPassword(t);
+            setPasswordError(null);
+          }}
+          secureTextEntry={!showPassword}
+          textContentType="oneTimeCode"
+          maxLength={30}
+          editable={codeVerified}
+          error={passwordError}
+          trailing={<EyeToggle visible={showPassword} onPress={() => setShowPassword((v) => !v)} Icon={PasswordEyeIcon} />}
+        />
+        <FormField
+          Icon={PasswordFieldIcon}
+          placeholder="비밀번호 재확인"
+          value={passwordConfirm}
+          onChangeText={setPasswordConfirm}
+          secureTextEntry={!showPasswordConfirm}
+          textContentType="oneTimeCode"
+          maxLength={30}
+          editable={codeVerified}
+          error={passwordConfirmError}
+          trailing={
+            <EyeToggle
+              visible={showPasswordConfirm}
+              onPress={() => setShowPasswordConfirm((v) => !v)}
+              Icon={PasswordEyeIcon}
+            />
+          }
+        />
+      </ScrollView>
+
+      <View style={iq.bottomBar}>
+        <TouchableOpacity
+          style={iq.submitBtn}
+          activeOpacity={0.85}
+          onPress={handleSubmit}
+          disabled={!codeVerified || changing}
+        >
+          {changing ? <ActivityIndicator color={Colors.white} /> : <Text style={iq.submitBtnText}>변경하기</Text>}
+        </TouchableOpacity>
+      </View>
+
+      <Toast
+        message={toastMsg}
+        onHide={() => setToastMsg(null)}
+        icon={toastMsg === '비밀번호가 변경됐어요.' ? <ToastPasswordIcon width={18} height={21} /> : undefined}
+        iconTone={toastMsg === '비밀번호가 변경됐어요.' ? 'sage' : 'coral'}
+      />
     </SafeAreaView>
   );
 }
@@ -660,9 +1008,53 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
 
 // ─── TravelHistoryView (여행 기록) ────────────────────────────────────────────
 function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => void }) {
-  const totalTrips = MOCK_TRAVEL_HISTORY.length;
-  const totalPlaces = MOCK_TRAVEL_HISTORY.reduce((sum, item) => sum + item.visitedCount, 0);
+  const [travelRecords, setTravelRecords] = useState<TravelRecordsResponse | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [viewingScrap, setViewingScrap] = useState<ScrapData | null>(null);
+  const [openingScheduleId, setOpeningScheduleId] = useState<number | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const token = await getAccessToken();
+      if (!token) {
+        setListError('로그인 정보가 없어요.');
+        return;
+      }
+      try {
+        setTravelRecords(await getTravelRecords(token));
+      } catch (e) {
+        setListError(e instanceof ApiError ? e.message : '여행 기록을 불러오지 못했어요.');
+      }
+    })();
+  }, []);
+
+  const openRecord = async (record: TravelRecordItemResponse) => {
+    if (openingScheduleId !== null) return;
+    const token = await getAccessToken();
+    if (!token) return;
+    setOpeningScheduleId(record.scheduleId);
+    try {
+      const album = await getStampAlbum(record.scheduleId, token);
+      // GET /api/schedules(날짜별 목록)는 장소 이름만 주고 좌표를 안 줘서, 지난 일정의 경로 지도는
+      // 지금은 재구성할 방법이 없다. 빈 배열을 두면 RouteSnapshotCard가 "저장된 경로가 없어요"로 처리한다.
+      const stops: RouteStop[] = [];
+      setViewingScrap({
+        id: String(record.scheduleId),
+        title: record.title ?? '오늘의 경주',
+        travelDate: album.date.replace(/-/g, ' · '),
+        dogName: dog.name,
+        dogProfileImageUri: dog.photoUri,
+        selectedPhotoUris: album.photoUrls,
+        stops,
+        totalDistanceInMeters: album.totalDistanceMeters,
+        stampIndex: stampIndexFromBackendName(album.stampName),
+      });
+    } catch (e) {
+      setListError(e instanceof ApiError ? e.message : '기록을 불러오지 못했어요.');
+    } finally {
+      setOpeningScheduleId(null);
+    }
+  };
 
   if (viewingScrap) {
     return <StampAlbumScreen scrap={viewingScrap} onBack={() => setViewingScrap(null)} />;
@@ -681,7 +1073,7 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
         <View style={th.statsCard}>
           <View style={th.statItem}>
             <Text style={th.statValue}>
-              {totalTrips}
+              {travelRecords?.totalTravelCount ?? 0}
               <Text style={th.statUnit}>회</Text>
             </Text>
             <Text style={th.statLabel}>총 여행</Text>
@@ -689,7 +1081,7 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
           <View style={th.statDivider} />
           <View style={th.statItem}>
             <Text style={th.statValue}>
-              {totalPlaces}
+              {travelRecords?.totalVisitedPlaceCount ?? 0}
               <Text style={th.statUnit}>곳</Text>
             </Text>
             <Text style={th.statLabel}>총 방문 장소</Text>
@@ -697,357 +1089,65 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
           <View style={th.statDivider} />
           <View style={th.statItem}>
             <Text style={th.statValue}>
-              {dog.stampCount}
+              {travelRecords?.totalStampCount ?? dog.stampCount}
               <Text style={th.statUnit}>개</Text>
             </Text>
             <Text style={th.statLabel}>획득 스탬프</Text>
           </View>
         </View>
 
-        {MOCK_TRAVEL_HISTORY.map((item, i) => {
+        {!travelRecords && !listError && (
+          <View style={th.loadingCenter}>
+            <ActivityIndicator color={Colors.coral} />
+          </View>
+        )}
+        {listError && <Text style={th.errorText}>{listError}</Text>}
+        {travelRecords?.records.length === 0 && <Text style={th.errorText}>아직 기록된 여행이 없어요.</Text>}
+
+        {travelRecords?.records.map((item, i) => {
           const isFirst = i === 0;
+          const isOpening = openingScheduleId === item.scheduleId;
           return (
-            <View key={item.id} style={th.row}>
+            <View key={item.scheduleId} style={th.row}>
               <View style={th.railCol}>
                 <View style={[th.dot, isFirst && th.dotFirst]} />
                 <View style={th.railLine} />
               </View>
               <View style={th.entryCol}>
-                <Text style={th.dateText}>{item.date}</Text>
+                <Text style={th.dateText}>{item.date.replace(/-/g, '.')}</Text>
                 <TouchableOpacity
                   style={th.card}
                   activeOpacity={0.85}
-                  onPress={() =>
-                    setViewingScrap(
-                      MOCK_SCRAP_DATA[item.id] ?? {
-                        id: item.id,
-                        title: '오늘의 경주',
-                        travelDate: item.date.replace(/\./g, ' · '),
-                        dogName: dog.name,
-                        dogProfileImageUri: dog.photoUri,
-                        selectedPhotoUris: [],
-                        stops: [],
-                        totalDistanceInMeters: undefined,
-                      }
-                    )
-                  }
+                  disabled={openingScheduleId !== null}
+                  onPress={() => openRecord(item)}
                 >
-                  <Image source={{ uri: item.imageUri }} style={th.cardImage} resizeMode="cover" />
+                  {item.photoUrl ? (
+                    <Image source={{ uri: item.photoUrl }} style={th.cardImage} resizeMode="cover" />
+                  ) : (
+                    <View style={th.cardImage} />
+                  )}
                   <View style={th.cardBody}>
-                    <Text style={th.cardTitle}>{item.title}</Text>
+                    <Text style={th.cardTitle}>{item.title ?? '오늘의 경주'}</Text>
                     <View style={th.cardMetaRow}>
                       <RecordPlaceIcon width={14} height={14} color={Colors.textBody2} />
-                      <Text style={th.metaText}>{item.visitedCount}곳 방문</Text>
+                      <Text style={th.metaText}>{item.totalPlaceCount}곳 방문</Text>
                       <RecordTimeIcon width={14} height={14} color={Colors.textBody2} style={{ marginLeft: Spacing.md }} />
-                      <Text style={th.metaText}>{item.duration}</Text>
+                      <Text style={th.metaText}>
+                        {formatWalkDuration(Math.round(item.totalWalkingDurationSeconds / 60))}
+                      </Text>
                     </View>
                   </View>
+                  {isOpening && (
+                    <View style={th.cardLoadingOverlay}>
+                      <ActivityIndicator color={Colors.coral} />
+                    </View>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
           );
         })}
       </ScrollView>
-    </SafeAreaView>
-  );
-}
-
-// ─── StampAlbumScreen (스탬프 앨범) ───────────────────────────────────────────
-
-/** 방문지 목록을 Tmap 보행자 경로 API로 이어서, 경로보기와 동일한 실제 도보 경로/거리를 구한다.
- * 키가 없거나 특정 구간 요청이 실패하면 그 구간만 두 지점 간 직선(Haversine)으로 대체한다. */
-function useScrapRoute(stops: RouteStop[]) {
-  const stopLatLngs = useMemo<LatLng[]>(
-    () => stops.map((s) => ({ lat: s.latitude, lng: s.longitude })),
-    [stops]
-  );
-  const [segments, setSegments] = useState<(PedestrianRouteResult | null)[]>([]);
-
-  useEffect(() => {
-    if (stopLatLngs.length < 2) {
-      setSegments([]);
-      return;
-    }
-    let cancelled = false;
-    Promise.all(
-      stopLatLngs.slice(0, -1).map((from, i) => fetchPedestrianRoute(from, stopLatLngs[i + 1]))
-    ).then((results) => {
-      if (!cancelled) setSegments(results);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [stopLatLngs]);
-
-  const routePath = useMemo<LatLng[]>(
-    () =>
-      stopLatLngs.slice(0, -1).flatMap((from, i) => segments[i]?.path ?? [from, stopLatLngs[i + 1]]),
-    [stopLatLngs, segments]
-  );
-
-  const distanceMeters = useMemo(
-    () =>
-      stopLatLngs.slice(0, -1).reduce((sum, from, i) => {
-        const segment = segments[i];
-        if (segment) return sum + segment.distanceMeters;
-        return sum + haversineMeters(from.lat, from.lng, stopLatLngs[i + 1].lat, stopLatLngs[i + 1].lng);
-      }, 0),
-    [stopLatLngs, segments]
-  );
-
-  return { routePath, distanceMeters };
-}
-
-function PolaroidPhoto({
-  uri,
-  rotate,
-  showTape,
-  onPress,
-  style,
-}: {
-  uri?: string;
-  rotate: string;
-  showTape?: boolean;
-  onPress: () => void;
-  style?: StyleProp<ViewStyle>;
-}) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={onPress}
-      style={[sa.polaroid, { transform: [{ rotate }] }, style]}
-    >
-      {showTape && <View style={sa.tape} />}
-      {uri ? (
-        <Image source={{ uri }} style={sa.polaroidPhoto} resizeMode="cover" />
-      ) : (
-        <View style={[sa.polaroidPhoto, sa.polaroidPlaceholder]}>
-          <Text style={sa.polaroidPlaceholderText}>사진 추가</Text>
-        </View>
-      )}
-    </TouchableOpacity>
-  );
-}
-
-function DogProfileImage({ uri }: { uri?: string }) {
-  return (
-    <View style={sa.dogProfileWrap}>
-      {uri ? (
-        <Image source={{ uri }} style={sa.dogProfileImage} resizeMode="cover" />
-      ) : (
-        <DogPhotoBlank width={64} height={64} />
-      )}
-    </View>
-  );
-}
-
-function FootprintSummaryCard({
-  dogName,
-  footprintCount,
-}: {
-  dogName: string;
-  footprintCount: number;
-}) {
-  return (
-    <View style={sa.footprintCard}>
-      <Text style={sa.footprintTitle} numberOfLines={1} ellipsizeMode="tail">
-        {dogName}의 발자국 지도
-      </Text>
-      <View style={sa.footprintCountRow}>
-        <Text style={sa.footprintCount}>{footprintCount}</Text>
-        <Image
-          source={require('@/assets/icons/pets.png')}
-          style={[sa.footprintPawIcon, { tintColor: Colors.coral }]}
-          resizeMode="contain"
-        />
-      </View>
-    </View>
-  );
-}
-
-/** 여행 완료 뱃지. 실제 뱃지 데이터/이미지가 확정되면 badge.imageUri만 채워주면 된다. */
-function TravelBadge({ badge }: { badge?: TravelBadgeData }) {
-  return (
-    <View style={sa.badgeWrap}>
-      {badge?.imageUri && (
-        <Image source={{ uri: badge.imageUri }} style={sa.badgeImage} resizeMode="contain" />
-      )}
-    </View>
-  );
-}
-
-function RouteSnapshotCard({
-  stops,
-  routePath,
-  badge,
-  onMapReady,
-}: {
-  stops: RouteStop[];
-  routePath: LatLng[];
-  badge?: TravelBadgeData;
-  onMapReady: () => void;
-}) {
-  const routePlaces = useMemo(
-    () => stops.map((s) => ({ id: s.id, lat: s.latitude, lng: s.longitude })),
-    [stops]
-  );
-
-  return (
-    <View style={sa.mapCard}>
-      {stops.length > 0 ? (
-        <KakaoMap
-          routePlaces={routePlaces}
-          routePath={routePath}
-          onMapReady={onMapReady}
-        />
-      ) : (
-        <View style={sa.mapPlaceholder}>
-          <Text style={sa.mapPlaceholderText}>저장된 경로가 없어요</Text>
-        </View>
-      )}
-      <View style={sa.mapBadgeOverlay}>
-        <TravelBadge badge={badge} />
-      </View>
-    </View>
-  );
-}
-
-function StampAlbumScreen({ scrap, onBack }: { scrap: ScrapData; onBack: () => void }) {
-  const scrapAreaRef = useRef<View>(null);
-  const [photoUris, setPhotoUris] = useState<(string | undefined)[]>([
-    scrap.selectedPhotoUris[0],
-    scrap.selectedPhotoUris[1],
-  ]);
-  // 저장된 경로가 없으면 기다릴 지도가 없으니 바로 준비된 것으로 본다.
-  const [isMapReady, setIsMapReady] = useState(scrap.stops.length === 0);
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
-  const [showPhotoPermissionModal, setShowPhotoPermissionModal] = useState(false);
-  const { isSaving, isSharing, saveToGallery, shareImage } = useScrapCapture(scrapAreaRef, () => {
-    setToastMsg('하루 기록이 저장됐어요!');
-  });
-
-  const { routePath, distanceMeters } = useScrapRoute(scrap.stops);
-  const totalDistanceInMeters = scrap.totalDistanceInMeters ?? distanceMeters;
-  const footprintCount = useMemo(
-    () => calculateFootprintCount(totalDistanceInMeters),
-    [totalDistanceInMeters]
-  );
-
-  const pickPhoto = async (index: number) => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      setShowPhotoPermissionModal(true);
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    const uri = result.assets[0].uri;
-    setPhotoUris((prev) => {
-      const next = [...prev];
-      next[index] = uri;
-      return next;
-    });
-  };
-
-  const isBusy = isSaving || isSharing;
-  const actionsDisabled = isBusy || !isMapReady;
-
-  return (
-    <SafeAreaView style={sa.safeArea}>
-      <View style={sa.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={sa.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={sa.headerTitle}>스탬프 앨범</Text>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={sa.scrollContent}>
-        {/* 캡처/공유 대상 영역: 헤더와 하단 버튼은 여기 포함되지 않는다 */}
-        <View ref={scrapAreaRef} collapsable={false} style={sa.captureArea}>
-          <Text style={sa.dateText}>{scrap.travelDate}</Text>
-          <Text style={sa.titleText} numberOfLines={1} ellipsizeMode="tail">
-            {scrap.title}
-          </Text>
-          <Text style={sa.subtitleText} numberOfLines={1} ellipsizeMode="tail">
-            {scrap.dogName}와 함께한 하루
-          </Text>
-
-          <View style={sa.photoArea}>
-            <PolaroidPhoto
-              uri={photoUris[0]}
-              rotate="-6deg"
-              showTape
-              onPress={() => pickPhoto(0)}
-              style={sa.photoBack}
-            />
-            <PolaroidPhoto
-              uri={photoUris[1]}
-              rotate="5deg"
-              showTape
-              onPress={() => pickPhoto(1)}
-              style={sa.photoFront}
-            />
-            <View style={sa.dogProfileOverlay}>
-              <DogProfileImage uri={scrap.dogProfileImageUri} />
-            </View>
-          </View>
-
-          <FootprintSummaryCard dogName={scrap.dogName} footprintCount={footprintCount} />
-
-          <RouteSnapshotCard
-            stops={scrap.stops}
-            routePath={routePath}
-            badge={scrap.badge}
-            onMapReady={() => setIsMapReady(true)}
-          />
-        </View>
-      </ScrollView>
-
-      <View style={sa.actionRow}>
-        <TouchableOpacity
-          style={[sa.actionBtn, sa.actionBtnOutline, actionsDisabled && sa.actionBtnDisabled]}
-          activeOpacity={0.85}
-          disabled={actionsDisabled}
-          onPress={saveToGallery}
-        >
-          {isSaving ? (
-            <ActivityIndicator color={Colors.coral} />
-          ) : (
-            <Text style={sa.actionBtnOutlineText}>이미지로 저장</Text>
-          )}
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[sa.actionBtn, sa.actionBtnFilled, actionsDisabled && sa.actionBtnDisabled]}
-          activeOpacity={0.85}
-          disabled={actionsDisabled}
-          onPress={shareImage}
-        >
-          {isSharing ? (
-            <ActivityIndicator color={Colors.white} />
-          ) : (
-            <Text style={sa.actionBtnFilledText}>SNS 공유</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <Toast
-        message={toastMsg}
-        subtitle={toastMsg ? '마이페이지 > 방문한 장소 배너 클릭 후 확인' : undefined}
-        onHide={() => setToastMsg(null)}
-        icon={<ToastDailyRecordIcon width={18} height={20} />}
-      />
-
-      <PhotoPermissionModal
-        visible={showPhotoPermissionModal}
-        onCancel={() => setShowPhotoPermissionModal(false)}
-        onOpenSettings={() => {
-          setShowPhotoPermissionModal(false);
-          Linking.openSettings();
-        }}
-      />
     </SafeAreaView>
   );
 }
@@ -1073,11 +1173,18 @@ function EditProfileView({
   const [name, setName] = useState(dog?.name ?? '');
   const [breed, setBreed] = useState(dog?.breed ?? '');
   const [sizeType, setSizeType] = useState(dog?.sizeType ?? DOG_SIZE_OPTIONS[1].value);
-  const [age, setAge] = useState(dog ? String(dog.age) : '');
+  const [age, setAge] = useState(dog?.age != null ? String(dog.age) : '');
   const [gender, setGender] = useState<DogProfile['gender']>(dog?.gender ?? '남아');
-  const [personality, setPersonality] = useState<string>(
-    dog?.personalityTags.find((tag) => PERSONALITY_OPTIONS.includes(tag)) ?? PERSONALITY_OPTIONS[0]
+  const [personalities, setPersonalities] = useState<string[]>(
+    dog?.personalityTags.filter((tag) => PERSONALITY_OPTIONS.includes(tag)) ?? []
   );
+  const togglePersonality = (tag: string) => {
+    setPersonalities((prev) => {
+      if (prev.includes(tag)) return prev.filter((t) => t !== tag);
+      if (prev.length >= 2) return prev;
+      return [...prev, tag];
+    });
+  };
   const [saving, setSaving] = useState(false);
   const [localPhotoUri, setLocalPhotoUri] = useState<string | null>(null);
   const [showPhotoPermissionModal, setShowPhotoPermissionModal] = useState(false);
@@ -1102,6 +1209,10 @@ function EditProfileView({
       showAlert('반려견 프로필', '이름, 견종, 나이를 입력해주세요.');
       return;
     }
+    if (personalities.length !== 2) {
+      showAlert('반려견 프로필', '강아지의 성향은 두 가지를 선택해주세요.');
+      return;
+    }
     const token = await getAccessToken();
     if (!token) return;
     setSaving(true);
@@ -1112,7 +1223,7 @@ function EditProfileView({
         size: sizeToApi(sizeType),
         age: Number(age) || 1,
         gender: genderToApi(gender),
-        personality: personalityToApi(personality),
+        personality: personalities.map(personalityToApi),
       };
       const result = isNew
         ? await registerPet(body, token, localPhotoUri)
@@ -1217,16 +1328,16 @@ function EditProfileView({
           </TouchableOpacity>
         </View>
 
-        <Text style={ep.label}>성향</Text>
+        <Text style={ep.label}>성향 (2개 선택)</Text>
         <View style={ep.tagRow}>
           {PERSONALITY_OPTIONS.map((tag) => {
-            const selected = personality === tag;
+            const selected = personalities.includes(tag);
             return (
               <TouchableOpacity
                 key={tag}
                 style={[ep.tagChip, selected && ep.tagChipSelected]}
                 activeOpacity={0.8}
-                onPress={() => setPersonality(tag)}
+                onPress={() => togglePersonality(tag)}
               >
                 <Text style={[ep.tagChipText, selected && ep.tagChipTextSelected]}>{tag}</Text>
               </TouchableOpacity>
@@ -1258,10 +1369,14 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
 
   useEffect(() => {
-    getEarnedStampIndices().then(setEarnedStampIndices);
+    getDisplayStampIndices().then(setEarnedStampIndices);
   }, []);
 
   const progressRatio = earnedStampIndices.size / TOTAL_STAMP_COUNT;
+  const hintTexts = GEOFENCE_ATTRACTIONS.filter((a) => !earnedStampIndices.has(a.stampIndex))
+    .slice(0, 3)
+    .map((a) => STAMP_HINTS[a.stampIndex])
+    .filter((h): h is string => !!h);
 
   return (
     <SafeAreaView style={sg.safeArea}>
@@ -1307,16 +1422,7 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
         </View>
       </ScrollView>
 
-      <View style={sg.hintCard}>
-        <View style={sg.hintTitleRow}>
-          <Image source={require('@/assets/mypage/stamp-hint-leaf.png')} style={sg.hintLeaf} resizeMode="contain" />
-          <Text style={sg.hintTitle}>다음 스탬프 힌트</Text>
-        </View>
-        <View style={sg.hintBodyRow}>
-          <Text style={sg.hintBody}>대릉원 방문하기</Text>
-          <Text style={sg.hintChevron}>›</Text>
-        </View>
-      </View>
+      <StampHintCarousel hints={hintTexts} />
     </SafeAreaView>
   );
 }
@@ -1332,6 +1438,8 @@ export default function MyPageScreen() {
   const [loadingPets, setLoadingPets] = useState(true);
   const [petsError, setPetsError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAccountInfo, setShowAccountInfo] = useState(false);
+  const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [showReportPlace, setShowReportPlace] = useState(false);
   const [showTravelHistory, setShowTravelHistory] = useState(false);
   const [showStampGallery, setShowStampGallery] = useState(false);
@@ -1339,13 +1447,17 @@ export default function MyPageScreen() {
   const [pendingPrimaryDog, setPendingPrimaryDog] = useState<DogProfile | null>(null);
   const [primarySwitchSuccess, setPrimarySwitchSuccess] = useState(false);
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
-  const [personalityComboLabel, setPersonalityComboLabel] = useState<string | null>(null);
   const dog = dogProfiles.find((d) => d.id === selectedDogId) ?? dogProfiles[0];
+  const personalityComboLabel = dog
+    ? ((dog.personalityTags.length === 2
+        ? getPersonalityComboLabel(dog.personalityTags.map(personalityToApi))
+        : null) ?? (dog.personalityTags.join(' · ') || null))
+    : null;
 
   // 다른 탭에 있는 동안 관광지 도착(지오펜싱)으로 스탬프가 늘었을 수 있어, 마이 탭에 올 때마다 다시 읽는다.
   useFocusEffect(
     useCallback(() => {
-      getEarnedStampIndices().then(setEarnedStampIndices);
+      getDisplayStampIndices().then(setEarnedStampIndices);
     }, [])
   );
 
@@ -1376,13 +1488,23 @@ export default function MyPageScreen() {
     router.setParams({ openReportPlace: undefined });
   }, [openReportPlace]);
 
-  const handleConfirmPrimarySwitch = () => {
+  const handleConfirmPrimarySwitch = async () => {
     if (!pendingPrimaryDog) return;
     const newPrimaryId = pendingPrimaryDog.id;
-    setDogProfiles((prev) => prev.map((d) => ({ ...d, isPrimary: d.id === newPrimaryId })));
-    setSelectedDogId(newPrimaryId);
     setPendingPrimaryDog(null);
-    setPrimarySwitchSuccess(true);
+    const token = await getAccessToken();
+    if (!token) return;
+    try {
+      const list = await changeRepresentativePet(Number(newPrimaryId), token);
+      const summaries: DogProfile[] = [];
+      if (list.representativePet) summaries.push(toDogFromRepresentative(list.representativePet));
+      list.otherPets.forEach((p) => summaries.push(toDogSummary(p, false)));
+      setDogProfiles(summaries);
+      setSelectedDogId(newPrimaryId);
+      setPrimarySwitchSuccess(true);
+    } catch (e) {
+      setPetsError(e instanceof ApiError ? e.message : '대표 반려견 변경에 실패했어요.');
+    }
   };
 
   const loadPets = useCallback(async () => {
@@ -1432,17 +1554,6 @@ export default function MyPageScreen() {
     })();
   }, [selectedDogId]);
 
-  // 온보딩 때 로컬에 저장해둔 성향 2개 조합이 있으면 그걸로 조합 뱃지를 보여준다.
-  useEffect(() => {
-    if (!selectedDogId) {
-      setPersonalityComboLabel(null);
-      return;
-    }
-    getPetPersonalityCombo(selectedDogId).then((combo) => {
-      setPersonalityComboLabel(getPersonalityComboLabel(combo));
-    });
-  }, [selectedDogId]);
-
   if (loadingPets && dogProfiles.length === 0) {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -1457,12 +1568,28 @@ export default function MyPageScreen() {
     return (
       <SettingsView
         onBack={() => setShowSettings(false)}
-        onEditProfile={() => {
+        onAccountInfo={() => {
           setShowSettings(false);
-          setProfileEditorMode('edit');
+          setShowAccountInfo(true);
         }}
       />
     );
+  }
+
+  if (showAccountInfo) {
+    return (
+      <AccountInfoView
+        onBack={() => setShowAccountInfo(false)}
+        onChangePassword={() => {
+          setShowAccountInfo(false);
+          setShowPasswordChange(true);
+        }}
+      />
+    );
+  }
+
+  if (showPasswordChange) {
+    return <PasswordChangeView onBack={() => setShowPasswordChange(false)} />;
   }
 
   if (showReportPlace) {
@@ -1563,22 +1690,21 @@ export default function MyPageScreen() {
               </View>
               <View style={styles.metaRow}>
                 <Text style={styles.dogMeta}>
-                  {dog.breed} · {dog.sizeType} · {dog.age}살
+                  {dog.breed} · {dog.sizeType}
+                  {dog.age != null ? ` · ${dog.age}살` : ''}
                 </Text>
                 <TouchableOpacity onPress={() => setProfileEditorMode('edit')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <PencilIcon width={14} height={14} color={Colors.textMuted} />
                 </TouchableOpacity>
               </View>
-              {(personalityComboLabel ?? dog.personalityTags[0]) && (
+              {personalityComboLabel && (
                 <View style={styles.personalityChip}>
                   <Image
                     source={require('@/assets/mypage/personality-tag-icon.png')}
                     style={styles.personalityChipIcon}
                     resizeMode="contain"
                   />
-                  <Text style={styles.personalityChipText}>
-                    {personalityComboLabel ?? dog.personalityTags[0]}
-                  </Text>
+                  <Text style={styles.personalityChipText}>{personalityComboLabel}</Text>
                 </View>
               )}
             </View>
@@ -1922,6 +2048,8 @@ const st = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   rowDanger: { backgroundColor: DANGER_BG },
+  rowBordered: { borderWidth: 1, borderColor: Colors.border },
+  rowBorderedDanger: { borderWidth: 1, borderColor: '#F0D3D0' },
   groupCard: {
     backgroundColor: Colors.background,
     borderRadius: Radius.md,
@@ -1946,6 +2074,7 @@ const st = StyleSheet.create({
     justifyContent: 'center',
   },
   rowIconBoxDanger: { backgroundColor: DANGER_BG },
+  rowIconBoxMuted: { backgroundColor: Colors.bgWarm },
   rowTextCol: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
   rowTitleDanger: { color: DANGER_COLOR },
@@ -1988,6 +2117,45 @@ const mp = StyleSheet.create({
 });
 
 // ─── 문의하기 화면 스타일 (iq) ─────────────────────────────────────────────────
+// ─── 정보 수정 / 비밀번호 변경 화면 스타일 (ai) ───────────────────────────────
+const ai = StyleSheet.create({
+  emailLabel: { fontSize: 13, color: Colors.textMuted },
+  emailText: { fontSize: 16, fontWeight: '600', color: Colors.textMuted, marginTop: 2 },
+  scrollContent: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, paddingBottom: 24 },
+});
+
+const tv = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: Colors.background },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+  },
+  backArrow: { fontSize: 22, color: Colors.textBody1, lineHeight: 28 },
+  headerTitle: { fontSize: 20, fontWeight: '700', color: Colors.textBody1 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: Spacing.xl, paddingBottom: 24 },
+  loadingCenter: { paddingTop: Spacing.xxl * 2, alignItems: 'center' },
+  errorText: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.xxl },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingVertical: Spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+  },
+  rowTitle: { flex: 1, fontSize: 15, color: Colors.textBody1 },
+  requiredTag: {
+    backgroundColor: Colors.secondaryTint,
+    borderRadius: Radius.sm,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  requiredTagText: { fontSize: 11, fontWeight: '600', color: Colors.secondaryDark },
+});
+
 const iq = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   header: {
@@ -2210,11 +2378,23 @@ const th = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  cardImage: { width: '100%', height: 160 },
+  cardImage: { width: '100%', height: 160, backgroundColor: Colors.bgWarm },
   cardBody: { padding: Spacing.lg, gap: 6 },
   cardTitle: { fontSize: 16, color: Colors.textBody1 },
   cardMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { fontSize: 13, color: Colors.textBody2, marginRight: Spacing.xs },
+  cardLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingCenter: { paddingTop: Spacing.xxl * 2, alignItems: 'center' },
+  errorText: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.xxl },
 });
 
 // ─── 프로필 편집 스타일 (ep) ───────────────────────────────────────────────────
@@ -2407,186 +2587,6 @@ const sg = StyleSheet.create({
     backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#3A3330',
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
   },
-  hintCard: {
-    backgroundColor: Colors.bgWarm,
-    borderRadius: Radius.lg,
-    padding: Spacing.lg,
-    marginHorizontal: Spacing.xl,
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.md,
-  },
-  hintTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  hintLeaf: { width: 15, height: 18 },
-  hintTitle: { fontSize: 14, fontWeight: '700', color: Colors.secondary },
-  hintBodyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: Spacing.xxl,
-  },
-  hintBody: { fontSize: 14, color: Colors.textBody2 },
-  hintChevron: { fontSize: 16, color: Colors.textMuted },
 });
 
-// ─── 스탬프 앨범 스타일 (sa) ───────────────────────────────────────────────────
-const sa = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.lg,
-  },
-  backArrow: { fontSize: 22, color: Colors.textBody1, lineHeight: 28 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: Colors.textBody1 },
-  scrollContent: { paddingBottom: 24 },
-  captureArea: {
-    backgroundColor: Colors.background,
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.xl,
-  },
-  dateText: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    textAlign: 'left',
-    letterSpacing: 1,
-    marginLeft: 16,
-  },
-  titleText: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: Colors.textBody1,
-    textAlign: 'left',
-    marginTop: 4,
-    marginLeft: 16,
-  },
-  subtitleText: {
-    fontSize: 14,
-    color: Colors.textBody2,
-    textAlign: 'left',
-    marginTop: 4,
-    marginLeft: 16,
-  },
-  photoArea: {
-    height: 260,
-    marginTop: Spacing.xl,
-    marginBottom: Spacing.sm,
-    position: 'relative',
-  },
-  polaroid: {
-    backgroundColor: Colors.white,
-    padding: 8,
-    paddingBottom: 28,
-    borderRadius: 4,
-    shadowColor: '#3A3330',
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 6,
-  },
-  photoBack: { position: 'absolute', left: '4%', top: 0, zIndex: 1 },
-  photoFront: { position: 'absolute', right: '4%', top: 28, zIndex: 2 },
-  polaroidPhoto: {
-    // 가로 4 : 세로 3 비율
-    width: 192,
-    height: 144,
-    borderRadius: 2,
-    backgroundColor: Colors.bgWarm,
-  },
-  polaroidPlaceholder: { alignItems: 'center', justifyContent: 'center' },
-  polaroidPlaceholderText: { fontSize: 12, color: Colors.textMuted },
-  tape: {
-    position: 'absolute',
-    top: -14,
-    left: '50%',
-    marginLeft: -28,
-    width: 56,
-    height: 26,
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.85)',
-    transform: [{ rotate: '-3deg' }],
-    zIndex: 5,
-  },
-  dogProfileOverlay: { position: 'absolute', right: 4, bottom: 24, zIndex: 3 },
-  dogProfileWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: Radius.full,
-    borderWidth: 3,
-    borderColor: Colors.background,
-    backgroundColor: Colors.bgWarm,
-    overflow: 'hidden',
-    shadowColor: '#3A3330',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
-  dogProfileImage: { width: '100%', height: '100%' },
-  footprintCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.bgWarm,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  footprintTitle: { flex: 1, fontSize: 15, fontWeight: '600', color: Colors.textBody1, marginRight: Spacing.sm },
-  footprintCountRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  footprintCount: { fontSize: 22, fontWeight: '700', color: Colors.coral },
-  footprintPawIcon: { width: 20, height: 20 },
-  mapCard: {
-    height: 200,
-    borderRadius: Radius.lg,
-    overflow: 'hidden',
-    backgroundColor: Colors.bgWarm,
-    position: 'relative',
-  },
-  mapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  mapPlaceholderText: { fontSize: 13, color: Colors.textMuted },
-  mapBadgeOverlay: { position: 'absolute', right: 12, bottom: 12 },
-  badgeWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: Radius.full,
-    backgroundColor: Colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#3A3330',
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
-  badgeImage: { width: 40, height: 40 },
-  actionRow: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.md,
-    backgroundColor: Colors.background,
-  },
-  actionBtn: {
-    flex: 1,
-    height: 52,
-    borderRadius: Radius.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionBtnOutline: { backgroundColor: Colors.bgWarm },
-  actionBtnOutlineText: { color: Colors.textBody1, fontSize: 15, fontWeight: '600' },
-  actionBtnFilled: { backgroundColor: Colors.bgWarm },
-  actionBtnFilledText: { color: Colors.textBody1, fontSize: 15, fontWeight: '600' },
-  actionBtnDisabled: { opacity: 0.5 },
-});

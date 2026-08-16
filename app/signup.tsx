@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import FormField, { EyeToggle } from '@/components/auth/FormField';
 import WheelPicker from '@/components/schedule/WheelPicker';
@@ -21,7 +21,7 @@ import PhoneIcon from '@/assets/login/field-phone.svg';
 import GenderMaleIcon from '@/assets/login/field-gender-male.svg';
 import GenderFemaleIcon from '@/assets/login/field-gender-female.svg';
 import { signUp, ApiError } from '@/utils/api';
-import { saveTokens } from '@/utils/authStorage';
+import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
 import { showAlert } from '@/components/ui/AppAlert';
 
 type Gender = '여성' | '남성';
@@ -140,6 +140,7 @@ function BirthDatePickerModal({
 }
 
 export default function SignupScreen() {
+  const { termsAgreementToken } = useLocalSearchParams<{ termsAgreementToken?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
@@ -203,6 +204,10 @@ export default function SignupScreen() {
     ) {
       return;
     }
+    if (!termsAgreementToken) {
+      showAlert('회원가입 실패', '약관 동의 정보가 없어요. 이전 화면으로 돌아가 다시 시도해주세요.');
+      return;
+    }
     setLoading(true);
     try {
       const birthDate = `${BIRTH_YEAR_BASE + birthYearIdx}-${String(birthMonthIdx + 1).padStart(2, '0')}-${String(
@@ -216,8 +221,10 @@ export default function SignupScreen() {
         birthDate,
         gender: gender === '여성' ? 'FEMALE' : 'MALE',
         phoneNumber: phone,
+        termsAgreementToken,
       });
       await saveTokens(result.accessToken);
+      await saveAccountEmail(result.email);
       router.replace('/signup-complete');
     } catch (e) {
       if (e instanceof ApiError) {

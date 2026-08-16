@@ -6,12 +6,6 @@ export interface RouteStop {
   longitude: number;
 }
 
-export interface TravelBadgeData {
-  id: string;
-  name: string;
-  imageUri?: string;
-}
-
 export interface ScrapData {
   id: string;
   title: string;
@@ -23,5 +17,6 @@ export interface ScrapData {
   stops: RouteStop[];
   /** 서버가 총 이동 거리를 제공하는 경우 사용. 없으면 각 구간을 Tmap 도보 경로 API로 조회해 합산한다. */
   totalDistanceInMeters?: number;
-  badge?: TravelBadgeData;
+  /** 방문한 관광지 중 하나로 서버가 무작위 선정한 스탬프. constants/stamps.ts의 STAMP_ICONS 인덱스. */
+  stampIndex?: number;
 }

@@ -1,0 +1,61 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export type UpdateNewsCategory = '점검' | '업데이트' | '안내';
+
+export interface UpdateNewsItem {
+  id: string;
+  category: UpdateNewsCategory;
+  title: string;
+  description: string;
+  date: string;
+}
+
+// TODO: 실제 공지사항 API가 생기면 이 정적 목록을 대체한다.
+export const UPDATE_NEWS: UpdateNewsItem[] = [
+  {
+    id: 'system-check-20260827',
+    category: '점검',
+    title: '시스템 점검 안내 (8/27)',
+    description: '안정적인 서비스를 위한 정기 점검이 진행됩니다.',
+    date: '2026.08.27',
+  },
+  {
+    id: 'schedule-share-20260817',
+    category: '업데이트',
+    title: '여행 일정 공유 기능 추가',
+    description: '함께 하는 여행, 일정 공유 기능을 이용해 보세요.',
+    date: '2026.08.17',
+  },
+  {
+    id: 'privacy-policy-20260811',
+    category: '안내',
+    title: '개인정보 처리방침 개정 안내',
+    description: '개정된 정보 처리 방침을 확인해주세요.',
+    date: '2026.08.11',
+  },
+];
+
+const READ_IDS_KEY = 'gyeonjutravel.readUpdateNewsIds';
+
+export async function getReadUpdateNewsIds(): Promise<Set<string>> {
+  const raw = await AsyncStorage.getItem(READ_IDS_KEY);
+  if (!raw) return new Set();
+  try {
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export async function markUpdateNewsRead(id: string): Promise<void> {
+  const ids = await getReadUpdateNewsIds();
+  if (ids.has(id)) return;
+  ids.add(id);
+  await AsyncStorage.setItem(READ_IDS_KEY, JSON.stringify([...ids]));
+}
+
+export async function hasUnreadUpdateNews(): Promise<boolean> {
+  const readIds = await getReadUpdateNewsIds();
+  return UPDATE_NEWS.some((item) => !readIds.has(item.id));
+}

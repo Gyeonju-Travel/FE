@@ -180,7 +180,78 @@ async function requestMultipart<T>(
   return json.result;
 }
 
+// 사진 여러 장을 "photos" 파트 여러 개로 보내는 전용 멀티파트 요청 (JSON "request" 파트가 없는 형태).
+async function requestPhotosMultipart<T>(
+  path: string,
+  photoUris: string[],
+  accessToken: string
+): Promise<T> {
+  if (!API_BASE_URL) {
+    console.error('[API] EXPO_PUBLIC_API_BASE_URL이 설정되지 않았습니다. .env를 확인하세요.');
+    throw new ApiError('서버 주소가 설정되지 않았어요.', 'NO_API_BASE_URL');
+  }
+
+  console.log(`[API →] POST ${path} (multipart, photos: ${photoUris.length})`);
+
+  const form = new FormData();
+  for (const uri of photoUris) {
+    const extension = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+    const rawBlob = await readLocalFileAsBlob(uri);
+    const photoBlob = new Blob([rawBlob], { type: mimeType });
+    form.append('photos', photoBlob, `photo.${extension}`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    });
+  } catch (networkError) {
+    console.error(`[API ✕ 네트워크 오류] POST ${path}`, networkError);
+    throw networkError;
+  }
+
+  const text = await response.text();
+  const json: ApiEnvelope<T> | null = text ? JSON.parse(text) : null;
+
+  console.log(`[API ←] ${response.status} POST ${path}`, json ?? text);
+
+  if (!response.ok || !json || !json.isSuccess) {
+    console.error(`[API ✕ 실패] POST ${path}`, {
+      status: response.status,
+      code: json?.code,
+      message: json?.message,
+    });
+    if (response.status === 401) {
+      await clearTokens();
+      router.replace('/login');
+    }
+    throw new ApiError(json?.message ?? `요청에 실패했어요. (${response.status})`, json?.code ?? String(response.status));
+  }
+
+  return json.result;
+}
+
 export type Gender = 'FEMALE' | 'MALE';
+
+export interface TermsAgreementRequest {
+  termsOfServiceAgreed: boolean;
+  privacyPolicyAgreed: boolean;
+  locationServiceAgreed: boolean;
+  ageOverFourteenAgreed: boolean;
+}
+
+export interface TermsAgreementResponse {
+  agreementToken: string;
+}
+
+/** 회원가입 전 약관 동의 체크를 서버에 기록하고, 가입 요청에 넣을 토큰을 발급받는다. */
+export function agreeToTerms(body: TermsAgreementRequest) {
+  return request<TermsAgreementResponse>('/api/auth/terms/agreement', { method: 'POST', body });
+}
 
 export interface SignUpRequest {
   email: string;
@@ -190,6 +261,8 @@ export interface SignUpRequest {
   birthDate: string;
   gender: Gender;
   phoneNumber: string;
+  /** POST /api/auth/terms/agreement 로 발급받은 토큰. */
+  termsAgreementToken: string;
 }
 
 export interface SignUpResult {
@@ -363,7 +436,8 @@ export interface PetDetailResponse {
   size: PetSize;
   age: number;
   gender: PetGender;
-  personality: PetPersonality;
+  /** 항상 2개(대표/부 성향)가 내려온다. */
+  personality: PetPersonality[];
 }
 
 export interface PetRegistrationRequest {
@@ -372,7 +446,8 @@ export interface PetRegistrationRequest {
   size: PetSize;
   age: number;
   gender: PetGender;
-  personality: PetPersonality;
+  /** 정확히 2개를 보내야 한다 (서버 @Size(min=2, max=2) 검증). */
+  personality: PetPersonality[];
 }
 
 export type PetProfileUpdateRequest = PetRegistrationRequest;
@@ -383,6 +458,11 @@ export function getMyPets(accessToken: string) {
 
 export function getPetDetail(petId: number, accessToken: string) {
   return request<PetDetailResponse>(`/api/pets/${petId}`, { accessToken });
+}
+
+/** 선택한 반려견을 대표 반려견으로 변경하고 갱신된 반려견 목록을 반환한다. */
+export function changeRepresentativePet(petId: number, accessToken: string) {
+  return request<PetListResponse>(`/api/pets/${petId}/representative`, { method: 'PATCH', accessToken });
 }
 
 export function registerPet(body: PetRegistrationRequest, accessToken: string, imageUri?: string | null) {
@@ -418,6 +498,29 @@ export interface PetOnboardingResponse {
 
 export function completeOnboarding(body: PetOnboardingRequest, accessToken: string, imageUri?: string | null) {
   return requestMultipart<PetOnboardingResponse>('/api/onboarding', 'POST', body, accessToken, imageUri);
+}
+
+// ─── 홈 (Home) ──────────────────────────────────────────────────────────────────
+export interface HomePlaceResponse {
+  placeId: number;
+  placeName: string;
+  imageUrl: string | null;
+  longitude: number;
+  latitude: number;
+}
+
+export interface HomeResponse {
+  petName: string;
+  petProfileImageUrl: string | null;
+  petPersonalities: PetPersonality[];
+  footprintCount: number;
+  stampNames: string[];
+  places: HomePlaceResponse[];
+}
+
+/** 대표 반려견, 발자국 개수, 획득 스탬프 3개, 관광지 6개를 한 번에 조회한다. */
+export function getHome(accessToken: string) {
+  return request<HomeResponse>('/api/home', { accessToken });
 }
 
 // ─── 일정 (Schedule) ──────────────────────────────────────────────────────────
@@ -484,10 +587,13 @@ export interface ScheduleDetailResponse {
   scheduleId: number;
   date: string;
   departure: DepartureResponse;
-  lastPlaceName: string;
+  lastPlaceName: string | null;
+  /** 장소 이름만 내려온다 — placeId/좌표/사진은 없다. 필요하면 POST /{scheduleId}/start 응답을 써야 한다. */
+  placeNames: string[];
   totalPlaceCount: number;
   totalWalkingDurationSeconds: number;
-  places: SchedulePlaceDetailResponse[];
+  started: boolean;
+  startedAt: string | null;
 }
 
 export interface ScheduleDateResponse {
@@ -529,9 +635,95 @@ export function getSchedulesByDate(date: string, accessToken: string) {
   return request<ScheduleDateResponse>('/api/schedules', { accessToken, params: { date } });
 }
 
+export interface ScheduleStartResponse {
+  scheduleId: number;
+  date: string;
+  started: boolean;
+  startedAt: string | null;
+  departure: DepartureResponse;
+  places: SchedulePlaceDetailResponse[];
+}
+
+/** 선택한 일정을 시작 상태로 바꾸고 시작 시각을 서버에 저장한다. 이 호출 이전에는
+ * 발자국/관광지 방문 기록(POST .../footprints, .../visits)이 서버에서 거부된다. */
+export function startSchedule(scheduleId: number, accessToken: string) {
+  return request<ScheduleStartResponse>(`/api/schedules/${scheduleId}/start`, { method: 'POST', accessToken });
+}
+
 /** 선택한 일정을 모두 삭제한다. */
 export function deleteSchedules(scheduleIds: number[], accessToken: string) {
   return request<void>('/api/schedules', { method: 'DELETE', body: { scheduleIds }, accessToken });
+}
+
+// ─── 추천 경로 (Recommended Route) ──────────────────────────────────────────────
+export type DogCondition = 'BAD' | 'NORMAL' | 'BEST';
+export type RecommendedRouteStatus = 'CREATING' | 'COMPLETED' | 'FAILED';
+export type RecommendedRouteStep =
+  | 'DEPARTURE_ANALYZING'
+  | 'COURSE_SEARCHING'
+  | 'CONDITION_CHECKING'
+  | 'ROUTE_COMPLETED';
+
+export interface RecommendedRouteRequest {
+  departureArea: DepartureArea;
+  date: string; // YYYY-MM-DD
+  condition: DogCondition;
+}
+
+export interface RecommendedRouteJobResponse {
+  recommendationId: number;
+  status: RecommendedRouteStatus;
+}
+
+export interface RecommendedRouteStatusResponse {
+  recommendationId: number;
+  status: RecommendedRouteStatus;
+  step: RecommendedRouteStep | null;
+  message: string | null;
+  errorMessage: string | null;
+}
+
+export interface RecommendedRoutePlaceResponse {
+  visitOrder: number;
+  placeId: number;
+  name: string;
+  imageUrl: string | null;
+  petAccessType: string | null;
+  petRequirements: string | null;
+  walkingDurationSeconds: number;
+  walkingDistanceMeters: number;
+}
+
+export interface RecommendedRouteResultResponse {
+  recommendationId: number;
+  date: string;
+  departure: DepartureResponse;
+  recommendedPlaces: RecommendedRoutePlaceResponse[];
+}
+
+/** 출발지/날짜/오늘 컨디션을 입력받아 AI 추천 경로 생성 작업을 비동기로 시작한다. */
+export function createRecommendedRoute(body: RecommendedRouteRequest, accessToken: string) {
+  return request<RecommendedRouteJobResponse>('/api/recommend-routes', { method: 'POST', body, accessToken });
+}
+
+/** 추천 경로 생성 작업의 진행 상태(step/message)만 조회한다. 완료될 때까지 폴링한다. */
+export function getRecommendedRouteStatus(recommendationId: number, accessToken: string) {
+  return request<RecommendedRouteStatusResponse>(`/api/recommend-routes/${recommendationId}`, { accessToken });
+}
+
+/** 생성이 완료된 뒤 추천 장소 목록과 구간별 도보 시간/거리를 조회한다. */
+export function getRecommendedRouteResult(recommendationId: number, accessToken: string) {
+  return request<RecommendedRouteResultResponse>(`/api/recommend-routes/${recommendationId}/result`, {
+    accessToken,
+  });
+}
+
+/** 추천 경로 결과를 그대로 실제 일정으로 저장한다. */
+export function saveRecommendedRouteSchedule(recommendationId: number, accessToken: string) {
+  return request<ScheduleResponse>(`/api/recommend-routes/${recommendationId}/schedule`, {
+    method: 'POST',
+    accessToken,
+  });
 }
 
 // ─── 장소 제보 (Place Report) ──────────────────────────────────────────────────
@@ -579,4 +771,116 @@ export interface InquiryCreateResponse {
 /** 제목과 문의 내용을 입력하여 문의를 접수한다. */
 export function createInquiry(body: InquiryCreateRequest, accessToken: string) {
   return request<InquiryCreateResponse>('/api/inquiries', { method: 'POST', body, accessToken });
+}
+
+// ─── 스탬프 앨범 (Stamp Album) ──────────────────────────────────────────────────
+export interface PlaceVisitRequest {
+  scheduleId: number;
+  longitude: number;
+  latitude: number;
+}
+
+export interface PlaceVisitResponse {
+  visitId: number;
+  scheduleId: number;
+  stampName: string;
+  visitedAt: string;
+}
+
+/** 현재 좌표가 관광지 40m 이내면 방문으로 인정하고 스탬프 방문 기록을 저장한다. */
+export function visitPlace(placeId: number, body: PlaceVisitRequest, accessToken: string) {
+  return request<PlaceVisitResponse>(`/api/places/${placeId}/visits`, { method: 'POST', body, accessToken });
+}
+
+export interface ScheduleFootprintResponse {
+  scheduleId: number;
+  totalDistanceMeters: number;
+  footprintCount: number;
+}
+
+/** 앱이 로컬에서 누적한 증가 이동거리를 해당 일정의 앨범에 더한다. */
+export function addScheduleFootprints(scheduleId: number, distanceMeters: number, accessToken: string) {
+  return request<ScheduleFootprintResponse>(`/api/schedules/${scheduleId}/stamp-album/footprints`, {
+    method: 'POST',
+    body: { distanceMeters },
+    accessToken,
+  });
+}
+
+export interface StampAlbumResponse {
+  scheduleId: number;
+  date: string;
+  petId: number;
+  petName: string;
+  petProfileImageUrl: string | null;
+  footprintCount: number;
+  totalDistanceMeters: number;
+  stampName: string;
+  photoUrls: string[];
+}
+
+/** 선택한 일정의 발자국 개수, 누적 거리, 사진, 획득 스탬프 이름을 조회한다. */
+export function getStampAlbum(scheduleId: number, accessToken: string) {
+  return request<StampAlbumResponse>(`/api/schedules/${scheduleId}/stamp-album`, { accessToken });
+}
+
+/** 일정 종료 화면에서 선택한 사진(최대 2장)을 저장한다. */
+export function saveStampAlbumPhotos(scheduleId: number, photoUris: string[], accessToken: string) {
+  return requestPhotosMultipart<StampAlbumResponse>(
+    `/api/schedules/${scheduleId}/stamp-album/photos`,
+    photoUris,
+    accessToken
+  );
+}
+
+export interface MyPageStampItemResponse {
+  stampName: string;
+  count: number;
+}
+
+export interface MyPageStampsResponse {
+  totalStampCount: number;
+  stamps: MyPageStampItemResponse[];
+}
+
+/** 사용자가 얻은 스탬프 목록을 조회한다. */
+export function getMyPageStamps(accessToken: string) {
+  return request<MyPageStampsResponse>('/api/my-page/stamps', { accessToken });
+}
+
+export interface TravelRecordItemResponse {
+  scheduleId: number;
+  date: string;
+  title: string | null;
+  photoUrl: string | null;
+  totalPlaceCount: number;
+  totalWalkingDurationSeconds: number;
+}
+
+export interface TravelRecordsResponse {
+  totalTravelCount: number;
+  totalVisitedPlaceCount: number;
+  totalStampCount: number;
+  records: TravelRecordItemResponse[];
+}
+
+/** 완료된 일정(스크랩 앨범 마무리된 것)을 여행 기록 목록으로 조회한다. */
+export function getTravelRecords(accessToken: string) {
+  return request<TravelRecordsResponse>('/api/my-page/travel-records', { accessToken });
+}
+
+// ─── 약관 (Terms) ──────────────────────────────────────────────────────────────
+export interface TermsItemResponse {
+  code: string;
+  title: string;
+  required: boolean;
+}
+
+export interface SignUpTermsResponse {
+  terms: TermsItemResponse[];
+}
+
+/** 마이페이지에서 동의한 약관 목록을 조회한다. */
+export function getMyPageTerms(accessToken: string) {
+  return request<SignUpTermsResponse>('/api/my-page/terms', { accessToken });
 }

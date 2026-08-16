@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import Toast from '@/components/ui/Toast';
+import { agreeToTerms, ApiError } from '@/utils/api';
 
 interface TermItem {
-  key: string;
+  key: 'service' | 'privacy' | 'location' | 'age';
   label: string;
 }
 
@@ -19,8 +20,26 @@ const TERMS: TermItem[] = [
 export default function SignupTermsScreen() {
   const [agreed, setAgreed] = useState<Record<string, boolean>>({});
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const allAgreed = TERMS.every((t) => agreed[t.key]);
+
+  const handleNext = async () => {
+    setSubmitting(true);
+    try {
+      const result = await agreeToTerms({
+        termsOfServiceAgreed: !!agreed.service,
+        privacyPolicyAgreed: !!agreed.privacy,
+        locationServiceAgreed: !!agreed.location,
+        ageOverFourteenAgreed: !!agreed.age,
+      });
+      router.push({ pathname: '/signup', params: { termsAgreementToken: result.agreementToken } });
+    } catch (e) {
+      setToastMsg(e instanceof ApiError ? e.message : '약관 동의 처리에 실패했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const toggleAll = () => {
     const next = !allAgreed;
@@ -89,12 +108,12 @@ export default function SignupTermsScreen() {
 
       <View style={styles.bottomBar}>
         <TouchableOpacity
-          style={[styles.primaryBtn, !allAgreed && styles.primaryBtnDisabled]}
+          style={[styles.primaryBtn, (!allAgreed || submitting) && styles.primaryBtnDisabled]}
           activeOpacity={0.85}
-          disabled={!allAgreed}
-          onPress={() => router.push('/signup')}
+          disabled={!allAgreed || submitting}
+          onPress={handleNext}
         >
-          <Text style={styles.primaryBtnText}>다음</Text>
+          {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.primaryBtnText}>다음</Text>}
         </TouchableOpacity>
       </View>
 
@@ -117,7 +136,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.xxl },
   greeting: { fontSize: 24, fontWeight: '700', color: Colors.textBody1, lineHeight: 32 },
   subtitle: { fontSize: 14, color: Colors.textMuted, marginTop: Spacing.sm },
-  bottomSection: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: Spacing.xl },
+  bottomSection: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: Spacing.xl, marginBottom: Spacing.xl },
   allAgreeRow: {
     flexDirection: 'row',
     alignItems: 'center',

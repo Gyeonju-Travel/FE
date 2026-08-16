@@ -14,6 +14,8 @@ interface Props {
   title: string;
   subtitle: string;
   onHide: () => void;
+  /** 닫기(×) 버튼이 아닌 카드 본문을 탭했을 때 실행된다 (예: 스탬프 페이지로 이동). */
+  onPress?: () => void;
   duration?: number;
   top?: number;
 }
@@ -25,6 +27,7 @@ export default function CelebrationToast({
   title,
   subtitle,
   onHide,
+  onPress,
   duration = 3600,
   top = 12,
 }: Props) {
@@ -55,7 +58,12 @@ export default function CelebrationToast({
       pointerEvents="box-none"
     >
       <CelebrationBg width={CARD_WIDTH} height={CARD_HEIGHT} style={StyleSheet.absoluteFill} />
-      <View style={styles.content}>
+      <TouchableOpacity
+        style={styles.content}
+        activeOpacity={onPress ? 0.85 : 1}
+        disabled={!onPress}
+        onPress={onPress}
+      >
         <View style={styles.iconCircle}>{icon}</View>
         <View style={styles.textCol}>
           <Text style={styles.title} numberOfLines={1}>
@@ -69,7 +77,7 @@ export default function CelebrationToast({
         <TouchableOpacity onPress={hide} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <CloseIcon width={14} height={14} />
         </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
     </Animated.View>
   );
 }

@@ -12,6 +12,10 @@ export const Colors = {
   secondaryTint: '#EEF6F0',
   secondaryBorder: '#C0DDD0',
 
+  // 안내 배지용
+  infoDark: '#3E6C93',
+  infoTint: '#E8F0F7',
+
   // Text
   textBody1: '#3A3330',
   textBody2: '#A89E9C',
