@@ -5,15 +5,29 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Schedule } from '@/types/schedule';
 import { haversineMeters } from '@/utils/distance';
 import { calculateFootprintCount } from '@/utils/footprintCalculator';
-import { GEOFENCE_ATTRACTIONS, PERFECT_TRIP_STAMP_INDEX, awardStamp, getEarnedStampIndices } from '@/constants/stamps';
+import {
+  GEOFENCE_ATTRACTIONS,
+  GeofenceAttraction,
+  PERFECT_TRIP_STAMP_INDEX,
+  awardStamp,
+  getEarnedStampIndices,
+} from '@/constants/stamps';
 import { getAccessToken } from '@/utils/authStorage';
 import { addScheduleFootprints, visitPlace, startSchedule } from '@/utils/api';
+import {
+  isPushEnabled,
+  notify,
+  STAMP_NOTIFICATION_DATA,
+  showTrackingNotification,
+  dismissTrackingNotification,
+} from '@/utils/notifications';
+export { isPushEnabled, setPushEnabled } from '@/utils/notifications';
 
 // 백그라운드 위치 추적을 "하나만" 돌린다. 지오펜싱(점 반경 감지)과 거리 누적(발자국)을
 // 따로 돌리면 백그라운드 위치 구독이 2개가 되어 배터리를 더 쓰게 되므로, 같은 위치
 // 업데이트 콜백 안에서 (1) 걸은 거리 누적 → 발자국, (2) 관광지 6곳 근접 체크 → 스탬프,
-// (3) 진행 중인 일정 장소 근접 체크 → 도착 표시 + 일정 완주 시 "완벽한여행" 스탬프까지
-// 한 번에 처리한다.
+// (3) 진행 중인 일정 장소 근접 체크 → 도착 표시 + 일정 완주 시 "완벽한여행" 스탬프,
+// (4) 경주 경계 이탈 감지 → 자동 종료 + 알림까지 한 번에 처리한다.
 export const LOCATION_TRACKING_TASK_NAME = 'gyeonjutravel-location-tracking';
 
 const ARRIVAL_RADIUS_METERS = 40;
@@ -22,16 +36,41 @@ const MIN_DISTANCE_INTERVAL_METERS = 15; // 이 정도 움직였을 때만 위�
 // 막기 위해, 한 번에 이보다 크게 뛴 구간은 거리 누적에서 제외한다.
 const MAX_VALID_JUMP_METERS = 200;
 
+// 경주 시내 4개 경계점(황성대교삼거리·나정교·구황교네거리·배반네거리) 기준 사각 경계.
+// 백엔드 GeoUtil.isCountable과 동일한 기준을 프론트에서도 써서, 발자국 카운팅 여부가
+// 서버와 어긋나지 않게 맞춘다.
+const GYEONGJU_MIN_LAT = 35.814789521055616;
+const GYEONGJU_MAX_LAT = 35.8591577928764;
+const GYEONGJU_MIN_LNG = 129.20040794404179;
+const GYEONGJU_MAX_LNG = 129.236496164066;
+
+function isWithinGyeongju(point: LatLng): boolean {
+  return (
+    point.lat > GYEONGJU_MIN_LAT &&
+    point.lat < GYEONGJU_MAX_LAT &&
+    point.lng > GYEONGJU_MIN_LNG &&
+    point.lng < GYEONGJU_MAX_LNG
+  );
+}
+
 const TOTAL_DISTANCE_KEY = 'gyeonjutravel.totalWalkedMeters';
 const LAST_POINT_KEY = 'gyeonjutravel.locationTrackingLastPoint';
+const OUTSIDE_GYEONGJU_STREAK_KEY = 'gyeonjutravel.outsideGyeongjuStreak';
+// 경계선 부근에서 GPS가 잠깐 흔들리다 들어왔다 나갔다 하는 것만으로 일정이 끊기지 않도록,
+// 연속으로 이 횟수만큼 경주 밖으로 감지돼야 실제 이탈로 확정해서 자동 종료한다.
+const OUTSIDE_GYEONGJU_STREAK_THRESHOLD = 2;
 const ARRIVED_PLACES_KEY_PREFIX = 'gyeonjutravel.arrivedPlaces.';
+const BREADCRUMB_KEY_PREFIX = 'gyeonjutravel.breadcrumb.';
+// 하루짜리 일정 기준으로 넉넉한 상한 — 무한정 커지는 것만 막는다(15m 간격이면 45km 분량).
+const MAX_BREADCRUMB_POINTS = 3000;
 const ACTIVE_SCHEDULE_KEY = 'gyeonjutravel.activeScheduleId';
 const ACTIVE_SCHEDULE_STATE_KEY = 'gyeonjutravel.activeScheduleState';
 const TODAYS_SCRAP_SCHEDULE_KEY = 'gyeonjutravel.todaysScrapSchedule';
 const SCRAPPED_SCHEDULE_IDS_KEY = 'gyeonjutravel.scrappedScheduleIds';
-const SCRAP_REMINDER_HOUR = 21;
+const AUTO_ENDED_SCHEDULE_KEY = 'gyeonjutravel.autoEndedSchedule';
+export const SCRAP_REMINDER_HOUR = 21;
 
-interface LatLng {
+export interface LatLng {
   lat: number;
   lng: number;
 }
@@ -52,6 +91,8 @@ export interface TodaysScrapSchedule {
   scheduleId: string;
   date: string; // YYYY-MM-DD
   places: ActiveSchedulePlace[];
+  /** 경로 지도에 출발지 핀을 표시하기 위한 좌표. /start 호출이 실패하면 없을 수 있다. */
+  departure?: { name: string; lat: number; lng: number };
 }
 
 // ─── 위치 권한 ─────────────────────────────────────────────────────────────────
@@ -71,11 +112,41 @@ async function ensureNotificationPermission(): Promise<void> {
   }
 }
 
-async function notify(title: string, body: string) {
-  try {
-    await Notifications.scheduleNotificationAsync({ content: { title, body, sound: true }, trigger: null });
-  } catch {
-    // 알림 실패는 무시 — 기록/지급 자체는 이미 저장됐으므로 문제 없다.
+/** 관광지 근접(또는 강제 도착 처리) 시 스탬프를 지급한다. 로컬 저장 + 알림뿐 아니라
+ * attraction.placeId로 서버 방문 기록(visitPlace)도 같이 남겨야 한다 — 안 그러면 로컬에는
+ * "받음"으로 뜨고 축하 알림까지 오는데, 마이페이지 스탬프 앨범(서버 기준)에는 안 뜨는
+ * 불일치가 생긴다. isProxyLocation(예: 황리단길 대역 좌표)은 실제 이 관광지의 placeId가
+ * 아니므로 방문 기록을 안 남긴다. */
+async function awardAttractionStamp(
+  attraction: GeofenceAttraction,
+  scheduleId: string | null,
+  accessToken: string | null
+): Promise<boolean> {
+  const awarded = await awardStamp(attraction.stampIndex);
+  if (!awarded) return false;
+  await notify('축하해요! 🎉', `${attraction.name} 스탬프를 획득했어요!`, STAMP_NOTIFICATION_DATA);
+  if (accessToken && scheduleId && attraction.placeId != null && !attraction.isProxyLocation) {
+    try {
+      await visitPlace(
+        attraction.placeId,
+        { scheduleId: Number(scheduleId), latitude: attraction.latitude, longitude: attraction.longitude },
+        accessToken
+      );
+    } catch {
+      // 서버 방문 기록 실패는 무시 — 로컬 지급/알림은 이미 반영됐다.
+    }
+  }
+  return true;
+}
+
+/** 하루 일정을 전부 완주했을 때 보내는 알림. "완벽한여행" 스탬프를 이번에 처음 받았으면 그걸
+ * 알려주고, 이미 갖고 있던 경우(로컬에 없어서 다시 지급 시도됐지만 실패한 경우 포함)에도 완주
+ * 자체는 축하해준다. */
+async function notifyPerfectTrip(awarded: boolean) {
+  if (awarded) {
+    await notify('완벽한 여행! 🎉', '오늘 일정을 모두 완주했어요.', STAMP_NOTIFICATION_DATA);
+  } else {
+    await notify('완주했어요! 🎉', '오늘도 반려견과 즐거운 하루였길 바라요.');
   }
 }
 
@@ -131,6 +202,34 @@ async function markArrived(scheduleId: string, placeId: string): Promise<boolean
   return true;
 }
 
+function breadcrumbKey(scheduleId: string) {
+  return `${BREADCRUMB_KEY_PREFIX}${scheduleId}`;
+}
+
+/** 오늘 기록된 실제 GPS 발자취. 스크랩 화면에서 "계획된 경로" 대신 "실제로 걸은 경로"를
+ * 보여주는 데 쓴다 — 없으면(지난 날짜 기록, 아직 추적을 시작 안 한 경우 등) 빈 배열. */
+export async function getBreadcrumbPath(scheduleId: string): Promise<LatLng[]> {
+  const raw = await AsyncStorage.getItem(breadcrumbKey(scheduleId));
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function appendBreadcrumbPoint(scheduleId: string, point: LatLng): Promise<void> {
+  const path = await getBreadcrumbPath(scheduleId);
+  path.push(point);
+  const trimmed = path.length > MAX_BREADCRUMB_POINTS ? path.slice(path.length - MAX_BREADCRUMB_POINTS) : path;
+  await AsyncStorage.setItem(breadcrumbKey(scheduleId), JSON.stringify(trimmed));
+}
+
+async function clearBreadcrumbPath(scheduleId: string): Promise<void> {
+  await AsyncStorage.removeItem(breadcrumbKey(scheduleId));
+}
+
 async function getActiveSchedule(): Promise<{ scheduleId: string; state: ActiveScheduleState } | null> {
   const scheduleId = await AsyncStorage.getItem(ACTIVE_SCHEDULE_KEY);
   if (!scheduleId) return null;
@@ -168,6 +267,7 @@ async function scheduleScrapReminder(): Promise<void> {
   const target = new Date();
   target.setHours(SCRAP_REMINDER_HOUR, 0, 0, 0);
   if (target.getTime() <= Date.now()) return;
+  if (!(await isPushEnabled())) return;
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
@@ -215,6 +315,19 @@ export async function getPendingScrapSchedule(): Promise<TodaysScrapSchedule | n
   }
 }
 
+/** 오늘 '시작'했던 특정 일정의 스크랩 정보를 반환한다 (이미 스크랩했어도 반환 — 기록 다시 보기용). */
+export async function getTodaysScrapSchedule(scheduleId: string): Promise<TodaysScrapSchedule | null> {
+  const raw = await AsyncStorage.getItem(TODAYS_SCRAP_SCHEDULE_KEY);
+  if (!raw) return null;
+  try {
+    const state: TodaysScrapSchedule = JSON.parse(raw);
+    if (state.date !== todayIsoDate() || state.scheduleId !== scheduleId) return null;
+    return state;
+  } catch {
+    return null;
+  }
+}
+
 /** 오늘 진행할 일정을 등록해서, 위치 추적 중 이 일정의 장소들도 같이 도착 감지하도록 한다. */
 export async function setActiveSchedule(schedule: Schedule): Promise<StartTrackingResult> {
   const granted = await ensureLocationPermissions();
@@ -223,8 +336,7 @@ export async function setActiveSchedule(schedule: Schedule): Promise<StartTracki
 
   // 서버에 일정 시작을 알린다 — 이걸 먼저 호출해야 이후의 발자국/관광지 방문 기록(POST .../footprints,
   // .../visits)이 서버에서 거부되지 않는다(서버가 startedAt 이후 기록만 인정).
-  // 날짜별 목록 조회(toSchedule)로 만든 schedule.places는 좌표가 없는 자리표시자라서, 여기서
-  // 받는 실제 좌표(placeId 포함)를 지오펜싱/스크랩 지도의 진짜 소스로 쓴다.
+  // schedule.places에도 이미 실제 좌표가 있지만, /start 응답을 우선 소스로 써서 항상 최신 상태를 반영한다.
   const token = await getAccessToken();
   let schedulePlaces: ActiveSchedulePlace[] = schedule.places.map((p) => ({
     id: p.id,
@@ -232,6 +344,7 @@ export async function setActiveSchedule(schedule: Schedule): Promise<StartTracki
     lat: p.latitude,
     lng: p.longitude,
   }));
+  let departure: TodaysScrapSchedule['departure'];
   if (token) {
     try {
       const startResult = await startSchedule(Number(schedule.id), token);
@@ -241,8 +354,13 @@ export async function setActiveSchedule(schedule: Schedule): Promise<StartTracki
         lat: p.latitude,
         lng: p.longitude,
       }));
+      departure = {
+        name: startResult.departure.name,
+        lat: startResult.departure.latitude,
+        lng: startResult.departure.longitude,
+      };
     } catch {
-      // 실패하면 좌표 없는 자리표시자로 폴백 — 이후 개별 발자국/방문 기록 호출도 서버에서 거부될 수 있다.
+      // 실패하면 schedule.places의 좌표로 폴백한다.
     }
   }
 
@@ -260,17 +378,23 @@ export async function setActiveSchedule(schedule: Schedule): Promise<StartTracki
 
   // 오늘 '시작'을 누른 일정을 스크랩 대상으로 별도 저장 (ACTIVE_SCHEDULE_KEY는 추적 종료 시 지워지므로 분리 보관)
   // 하고, 21시 스크랩 알림을 예약한다.
-  const scrapState: TodaysScrapSchedule = { scheduleId: schedule.id, date: todayIsoDate(), places: schedulePlaces };
+  const scrapState: TodaysScrapSchedule = {
+    scheduleId: schedule.id,
+    date: todayIsoDate(),
+    places: schedulePlaces,
+    departure,
+  };
   await AsyncStorage.setItem(TODAYS_SCRAP_SCHEDULE_KEY, JSON.stringify(scrapState));
   await scheduleScrapReminder();
 
   // 이미 일정을 다 돌았는데 지금 막 활성화한 경우("완벽한여행"을 놓쳤을 수 있어) 바로 지급 시도.
   if (pendingPlaces.length === 0 && schedulePlaces.length > 0 && arrivedIds.length >= schedulePlaces.length) {
     const awarded = await awardStamp(PERFECT_TRIP_STAMP_INDEX);
-    if (awarded) await notify('완벽한 여행! 🎉', '오늘 일정을 모두 완주했어요.');
+    await notifyPerfectTrip(awarded);
   }
 
   await startLocationTracking();
+  await showTrackingNotification();
   return pendingPlaces.length === 0 ? 'no-places' : 'started';
 }
 
@@ -282,6 +406,39 @@ export async function clearActiveSchedule(): Promise<void> {
 export async function isActiveSchedule(scheduleId: string): Promise<boolean> {
   const activeId = await AsyncStorage.getItem(ACTIVE_SCHEDULE_KEY);
   return activeId === scheduleId;
+}
+
+/** 현재 위치 추적 중인 일정의 id (없으면 null). "여행중" 표시 등 UI에서 쓴다. */
+export async function getActiveScheduleId(): Promise<string | null> {
+  return AsyncStorage.getItem(ACTIVE_SCHEDULE_KEY);
+}
+
+/** 경주 경계를 연속으로 벗어난 게 확인되면(=여행이 자연스럽게 끝난 것으로 간주) 사용자가
+ * 취소한 것과 동일하게 위치 추적을 멈추고 진행 중 상태를 정리한다. 이미 모은 발자국·스탬프·
+ * 오늘의 스크랩 대상 정보(TODAYS_SCRAP_SCHEDULE_KEY)는 지우지 않는다 — 21시 자동 종료 때와
+ * 마찬가지로 스크랩 화면에서 오늘 하루를 계속 기록할 수 있어야 하기 때문이다. 사용자가 직접
+ * 누른 게 아니라 자동으로 끝난 것이므로 별도 알림으로 알려주고, 21시 전이라도 일정 목록에서
+ * 바로 "기록보기"로 넘어갈 수 있게 AUTO_ENDED_SCHEDULE_KEY에 기록해둔다. */
+async function endActiveScheduleDueToExit(scheduleId: string): Promise<void> {
+  await stopLocationTracking();
+  await AsyncStorage.setItem(
+    AUTO_ENDED_SCHEDULE_KEY,
+    JSON.stringify({ scheduleId, date: todayIsoDate() })
+  );
+  await notify('경주를 벗어나 일정이 자동으로 종료됐어요', '오늘 하루를 스크랩으로 기록해보세요!');
+}
+
+/** 경주 이탈 감지로 자동 종료된 일정의 id(오늘 기록이 아니면 null). 일정 목록 화면에서 이
+ * 값과 같은 일정이면 21시 전이라도 "기록보기"로 보여주는 데 쓴다. */
+export async function getAutoEndedScheduleId(): Promise<string | null> {
+  const raw = await AsyncStorage.getItem(AUTO_ENDED_SCHEDULE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: { scheduleId: string; date: string } = JSON.parse(raw);
+    return parsed.date === todayIsoDate() ? parsed.scheduleId : null;
+  } catch {
+    return null;
+  }
 }
 
 // ─── 통합 백그라운드 위치 추적 태스크 ───────────────────────────────────────────
@@ -299,12 +456,17 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
     const accessToken = await getAccessToken();
     let pendingSchedulePlaces = active?.state.places ?? [];
     const totalPlaceCount = active?.state.totalPlaceCount ?? 0;
+    // 일정이 진행 중일 때만 의미가 있는 값이라, 진행 중인 일정이 없으면 0으로 취급해서
+    // 이전 일정에서 남은 값이 다음 일정에 영향을 주지 않게 한다.
+    let outsideStreak = scheduleId ? Number((await AsyncStorage.getItem(OUTSIDE_GYEONGJU_STREAK_KEY)) ?? '0') || 0 : 0;
 
     for (const loc of locations) {
       const point: LatLng = { lat: loc.coords.latitude, lng: loc.coords.longitude };
 
       // (1) 거리 누적 → 발자국 (일정이 진행 중이면 그 일정의 앨범에도 증가분을 동기화)
-      if (lastPoint) {
+      // 경주를 벗어난 구간(예: 집에 돌아가는 길)은 발자국으로 안 쳐준다.
+      const withinGyeongju = isWithinGyeongju(point);
+      if (lastPoint && withinGyeongju) {
         const segment = haversineMeters(lastPoint.lat, lastPoint.lng, point.lat, point.lng);
         if (segment > 0 && segment < MAX_VALID_JUMP_METERS) {
           total += segment;
@@ -320,18 +482,29 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
           }
         }
       }
+      // 계획한 장소가 아닌 곳에 들렀어도 스크랩 화면에 실제 경로로 보여주기 위한 발자취 기록.
+      if (scheduleId && withinGyeongju) await appendBreadcrumbPoint(scheduleId, point);
       lastPoint = point;
+
+      // (4) 경주 경계 이탈 감지 → 연속 OUTSIDE_GYEONGJU_STREAK_THRESHOLD회 확인되면 자동 종료.
+      if (scheduleId) {
+        outsideStreak = withinGyeongju ? 0 : outsideStreak + 1;
+        if (outsideStreak >= OUTSIDE_GYEONGJU_STREAK_THRESHOLD) {
+          await AsyncStorage.setItem(TOTAL_DISTANCE_KEY, String(total));
+          await AsyncStorage.setItem(LAST_POINT_KEY, JSON.stringify(lastPoint));
+          await AsyncStorage.removeItem(OUTSIDE_GYEONGJU_STREAK_KEY);
+          await endActiveScheduleDueToExit(scheduleId);
+          return;
+        }
+      }
 
       // (2) 관광지 6곳 근접 체크 → 스탬프 지급 (+ 6개 다 모으면 constants/stamps.ts에서 "경주마스터" 자동 지급)
       for (const attraction of GEOFENCE_ATTRACTIONS) {
         if (earnedStampIndices.has(attraction.stampIndex)) continue;
         const dist = haversineMeters(point.lat, point.lng, attraction.latitude, attraction.longitude);
         if (dist <= ARRIVAL_RADIUS_METERS) {
-          const awarded = await awardStamp(attraction.stampIndex);
-          if (awarded) {
-            earnedStampIndices.add(attraction.stampIndex);
-            await notify('도착했어요! 🐾', `${attraction.name}에서 새로운 스탬프를 획득했어요.`);
-          }
+          const awarded = await awardAttractionStamp(attraction, scheduleId, accessToken);
+          if (awarded) earnedStampIndices.add(attraction.stampIndex);
         }
       }
 
@@ -365,14 +538,110 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
 
         if (pendingSchedulePlaces.length === 0 && totalPlaceCount > 0) {
           const awarded = await awardStamp(PERFECT_TRIP_STAMP_INDEX);
-          if (awarded) await notify('완벽한 여행! 🎉', '오늘 일정을 모두 완주했어요.');
+          await notifyPerfectTrip(awarded);
         }
       }
     }
 
     await AsyncStorage.setItem(TOTAL_DISTANCE_KEY, String(total));
     await AsyncStorage.setItem(LAST_POINT_KEY, JSON.stringify(lastPoint));
+    if (scheduleId) {
+      await AsyncStorage.setItem(OUTSIDE_GYEONGJU_STREAK_KEY, String(outsideStreak));
+    }
   });
+}
+
+/** 개발/테스트용: 실제로 걸어가지 않아도, 진행 중인 일정의 다음 목적지에 "방금 도착한 것"으로
+ * 처리한다. 그 장소 자신의 좌표를 위치로 써서 실제 도착 판정 로직(스탬프 지급, 방문 기록,
+ * 알림)을 그대로 태운다. 진행 중인 일정이 없거나 남은 목적지가 없으면 null. */
+export async function simulateArrivalAtNextPlace(): Promise<string | null> {
+  const active = await getActiveSchedule();
+  if (!active || active.state.places.length === 0) return null;
+  const target = active.state.places[0];
+  const { scheduleId } = active;
+  const accessToken = await getAccessToken();
+  const point: LatLng = { lat: target.lat, lng: target.lng };
+
+  const earnedStampIndices = await getEarnedStampIndices();
+  for (const attraction of GEOFENCE_ATTRACTIONS) {
+    if (earnedStampIndices.has(attraction.stampIndex)) continue;
+    if (haversineMeters(point.lat, point.lng, attraction.latitude, attraction.longitude) <= ARRIVAL_RADIUS_METERS) {
+      await awardAttractionStamp(attraction, scheduleId, accessToken);
+    }
+  }
+
+  const isNew = await markArrived(scheduleId, target.id);
+  if (isNew) {
+    await notify('도착했어요! 🐾', `${target.name}에 도착했어요.`);
+    await removePendingPlace(scheduleId, target.id);
+    if (accessToken) {
+      try {
+        await visitPlace(
+          Number(target.id),
+          { scheduleId: Number(scheduleId), latitude: point.lat, longitude: point.lng },
+          accessToken
+        );
+      } catch {
+        // 방문 기록 서버 저장 실패는 무시 — 로컬 도착 표시는 이미 반영됐다.
+      }
+    }
+    const remaining = await getActiveSchedule();
+    if ((!remaining || remaining.state.places.length === 0) && active.state.totalPlaceCount > 0) {
+      const awarded = await awardStamp(PERFECT_TRIP_STAMP_INDEX);
+      await notifyPerfectTrip(awarded);
+    }
+  }
+  return target.name;
+}
+
+/** 개발/테스트용: 직접 입력한 좌표를 "지금 내 위치"인 것처럼 써서, 실제 위치 추적 태스크와
+ * 동일한 판정(관광지 6곳 근접 → 스탬프, 진행 중인 일정 장소 근접 → 도착)을 그 자리에서 한 번
+ * 돌려본다. 경주 밖이라 실제 GPS로는 테스트를 못 할 때, 좌표만 알면 그 지점에 있는 것처럼
+ * 확인할 수 있다. 어떤 일이 일어났는지 설명 문자열 목록을 돌려준다(아무 일도 없으면 빈 배열). */
+export async function simulateArrivalAtCoordinate(point: LatLng): Promise<string[]> {
+  const results: string[] = [];
+  const active = await getActiveSchedule();
+  const scheduleId = active?.scheduleId ?? null;
+  const accessToken = await getAccessToken();
+
+  const earnedStampIndices = await getEarnedStampIndices();
+  for (const attraction of GEOFENCE_ATTRACTIONS) {
+    if (earnedStampIndices.has(attraction.stampIndex)) continue;
+    if (haversineMeters(point.lat, point.lng, attraction.latitude, attraction.longitude) <= ARRIVAL_RADIUS_METERS) {
+      const awarded = await awardAttractionStamp(attraction, scheduleId, accessToken);
+      if (awarded) results.push(`${attraction.name} 스탬프 획득`);
+    }
+  }
+
+  if (active) {
+    for (const place of active.state.places) {
+      if (haversineMeters(point.lat, point.lng, place.lat, place.lng) > ARRIVAL_RADIUS_METERS) continue;
+      const isNew = await markArrived(active.scheduleId, place.id);
+      if (!isNew) continue;
+      await notify('도착했어요! 🐾', `${place.name}에 도착했어요.`);
+      await removePendingPlace(active.scheduleId, place.id);
+      if (accessToken) {
+        try {
+          await visitPlace(
+            Number(place.id),
+            { scheduleId: Number(active.scheduleId), latitude: point.lat, longitude: point.lng },
+            accessToken
+          );
+        } catch {
+          // 방문 기록 서버 저장 실패는 무시 — 로컬 도착 표시는 이미 반영됐다.
+        }
+      }
+      results.push(`${place.name} 도착 처리`);
+    }
+    const remaining = await getActiveSchedule();
+    if (remaining && remaining.state.places.length === 0 && active.state.totalPlaceCount > 0) {
+      const awarded = await awardStamp(PERFECT_TRIP_STAMP_INDEX);
+      await notifyPerfectTrip(awarded);
+      results.push(awarded ? '완벽한 여행 스탬프 획득' : '일정 완주');
+    }
+  }
+
+  return results;
 }
 
 /** 백그라운드 위치 추적을 시작한다 (발자국 누적 + 관광지 스탬프 + 일정 도착 감지 전부 포함). 이미 켜져 있으면 그대로 둔다. */
@@ -404,8 +673,34 @@ export async function stopLocationTracking(): Promise<void> {
     await Location.stopLocationUpdatesAsync(LOCATION_TRACKING_TASK_NAME);
   }
   await clearActiveSchedule();
+  await dismissTrackingNotification();
 }
 
 export async function isLocationTrackingActive(): Promise<boolean> {
   return Location.hasStartedLocationUpdatesAsync(LOCATION_TRACKING_TASK_NAME);
+}
+
+/** "여행중"인 일정을 잘못 시작했을 때 되돌리는 용도 — 위치 추적을 끄고 활성 일정을 해제한다.
+ * 오늘의 스크랩 대상으로도 등록돼 있었다면(21시 알림 대상) 그것도 같이 지운다. */
+export async function cancelActiveSchedule(scheduleId: string): Promise<boolean> {
+  const isActive = await isActiveSchedule(scheduleId);
+  if (!isActive) return false;
+
+  await stopLocationTracking();
+  // 취소 후 같은 일정을 다시 시작할 수도 있으니, 이번 시도의 발자취는 여기서 지워서 다음
+  // 시도의 경로에 안 섞이게 한다.
+  await clearBreadcrumbPath(scheduleId);
+
+  const raw = await AsyncStorage.getItem(TODAYS_SCRAP_SCHEDULE_KEY);
+  if (raw) {
+    try {
+      const state: TodaysScrapSchedule = JSON.parse(raw);
+      if (state.scheduleId === scheduleId) {
+        await AsyncStorage.removeItem(TODAYS_SCRAP_SCHEDULE_KEY);
+      }
+    } catch {
+      // 손상된 값이면 그냥 둔다
+    }
+  }
+  return true;
 }
