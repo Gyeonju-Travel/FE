@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   View,
   Text,
@@ -14,6 +15,7 @@ import {
   StyleProp,
   ViewStyle,
   ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -24,7 +26,6 @@ import { Schedule } from '@/types/schedule';
 import { MapPlace } from '@/types/map';
 import {
   getBookmarks,
-  searchPlaces,
   ApiError,
   previewSchedule,
   previewScheduleUpdate,
@@ -33,26 +34,51 @@ import {
   getSchedulesByDate,
   deleteSchedules,
   SchedulePreviewResponse,
+  getHome,
+  startSchedule,
+  visitPlace,
+  addScheduleFootprints,
+  getStampAlbum,
+  getPlaceDetail,
 } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { onTabReset } from '@/utils/tabReset';
-import { toSavedPlace, toMapPlace } from '@/utils/placeMappers';
+import { GEOFENCE_ATTRACTIONS, stampIndexFromBackendName } from '@/constants/stamps';
+import { ScrapData } from '@/types/stampAlbum';
+import StampAlbumScreen from '@/components/mypage/StampAlbumView';
+import { toSavedPlace } from '@/utils/placeMappers';
 import {
   DEPARTURE_OPTIONS,
   labelToDepartureArea,
+  departureAreaToLabel,
   toIsoDate,
   toSchedule,
+  fetchDeparturePlaces,
 } from '@/utils/scheduleMappers';
 import WheelPicker, { PICKER_H } from '@/components/schedule/WheelPicker';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 import EditScheduleView from '@/components/schedule/EditScheduleView';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
 import { haversineMeters, estimateWalkMinutes, formatDistance, formatWalkDuration } from '@/utils/distance';
 import { fetchPedestrianRoute, LatLng, PedestrianRouteResult } from '@/utils/pedestrianRoute';
-import { getArrivedPlaceIds, setActiveSchedule, StartTrackingResult } from '@/utils/locationTracking';
+import {
+  getArrivedPlaceIds,
+  setActiveSchedule,
+  getActiveScheduleId,
+  cancelActiveSchedule,
+  getTodaysScrapSchedule,
+  getAutoEndedScheduleId,
+  TodaysScrapSchedule,
+  StartTrackingResult,
+  SCRAP_REMINDER_HOUR,
+  simulateArrivalAtNextPlace,
+  simulateArrivalAtCoordinate,
+} from '@/utils/locationTracking';
+import TodayScrapView from '@/components/home/TodayScrapView';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
 import ScheduleTimeIcon from '@/assets/icons/schedule-time.svg';
 import ScheduleEditIcon from '@/assets/icons/schedule-edit.svg';
@@ -68,32 +94,10 @@ import ToastDepartureIcon from '@/assets/icons/toast/departure.svg';
 import ToastPlaceLimitIcon from '@/assets/icons/toast/place-limit.svg';
 import ToastScheduleSavedIcon from '@/assets/icons/toast/schedule-saved.svg';
 import ToastScheduleAddedIcon from '@/assets/icons/toast/schedule-added.svg';
-import ToastScheduleEndedIcon from '@/assets/icons/toast/schedule-ended.svg';
 
 // ─── 상수 ───────────────────────────────────────────────────────────────────
 const DAYS_OF_WEEK = ['일', '월', '화', '수', '목', '금', '토'];
 const DOW_KR = ['일', '월', '화', '수', '목', '금', '토'];
-
-/** DB에 등록된 출발지 장소들을 이름으로 찾아 위경도/사진을 가져온다. */
-async function fetchDeparturePlaces(): Promise<Record<string, MapPlace>> {
-  const token = await getAccessToken();
-  if (!token) return {};
-  const entries = await Promise.all(
-    DEPARTURE_OPTIONS.map(async (name) => {
-      try {
-        // 카테고리를 관광지로 한정하지 않으면 "OO황리단길점" 같은 인근 식당/카페가 먼저 잡혀서
-        // 엉뚱한 사진이 붙는다. DB에 등록된 이름은 보통 "경주 " 접두사가 붙어있어 정확히
-        // 일치하진 않으므로, 이름에 검색어가 포함된 것을 우선으로 찾는다.
-        const result = await searchPlaces({ keyword: name, categories: ['ATTRACTION'], size: 10 }, token);
-        const match = result.places.find((p) => p.name.includes(name)) ?? result.places[0];
-        return match ? ([name, toMapPlace(match)] as const) : null;
-      } catch (e) {
-        return null;
-      }
-    })
-  );
-  return Object.fromEntries(entries.filter((e): e is readonly [string, MapPlace] => e !== null));
-}
 
 const SHEET_OFFSCREEN_Y = 500;
 const MAX_PLACES = 5;
@@ -169,6 +173,13 @@ function ScheduleCard({
   onEdit,
   onStart,
   onViewRoute,
+  onViewRecord,
+  onTestComplete,
+  onSimulateArrival,
+  onCancel,
+  isTraveling,
+  isEnded,
+  isPast,
   isEditMode,
   isSelected,
   onToggleSelect,
@@ -180,6 +191,13 @@ function ScheduleCard({
   onEdit: () => void;
   onStart: () => void;
   onViewRoute: () => void;
+  onViewRecord: () => void;
+  onTestComplete: () => void;
+  onSimulateArrival: () => void;
+  onCancel: () => void;
+  isTraveling: boolean;
+  isEnded: boolean;
+  isPast: boolean;
   isEditMode: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
@@ -190,8 +208,6 @@ function ScheduleCard({
     : schedule.departureLabel;
 
   // 출발지 → 각 장소를 잇는 구간의 직선거리 기반 도보 시간 합계(순수 이동 시간, 체류 시간 제외).
-  // 서버가 좌표 없이 장소명만 내려준 일정은 places에 NaN 좌표가 들어있어 계산할 수 없다.
-  const hasRealCoords = schedule.places.length === 0 || !Number.isNaN(schedule.places[0].latitude);
   const departurePlace = departurePlaces[schedule.departureLabel];
   const routePoints = [
     ...(departurePlace ? [{ lat: departurePlace.latitude, lng: departurePlace.longitude }] : []),
@@ -204,7 +220,7 @@ function ScheduleCard({
         sum + estimateWalkMinutes(haversineMeters(from.lat, from.lng, routePoints[i + 1].lat, routePoints[i + 1].lng)),
       0
     );
-  const durationText = hasRealCoords ? formatWalkDuration(totalWalkMinutes) : null;
+  const durationText = formatWalkDuration(totalWalkMinutes);
 
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
   const animProgress = useRef(new Animated.Value(0)).current;
@@ -270,7 +286,7 @@ function ScheduleCard({
             {isSelected && <Text style={ss.scheduleCheckmark}>✓</Text>}
           </View>
         )}
-        <PlaceThumbnail uri={schedule.places[0]?.imageUri} style={ss.scheduleCardImg} />
+        <PlaceThumbnail uri={departurePlace?.imageUri ?? null} style={ss.scheduleCardImg} />
         <View style={ss.scheduleCardInfo}>
           <Text style={ss.scheduleCardTitle} numberOfLines={1}>
             {title}
@@ -285,11 +301,37 @@ function ScheduleCard({
               style={[ss.scheduleCardMetaIcon, { marginLeft: 10 }]}
             />
             <Text style={ss.scheduleCardMetaText}>
-              {durationText ? `약 ${durationText}` : '이동시간 정보 없음'}
+              약 {durationText}
             </Text>
           </View>
         </View>
-        {!isEditMode && !expanded && (
+        {!isEditMode && !expanded && isEnded && (
+          <TouchableOpacity
+            style={ss.cardStartBtn}
+            activeOpacity={0.85}
+            onPress={onViewRecord}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <View style={[ss.cardStartIconWrap, ss.cardTravelingIconWrap]}>
+              <ScheduleStartIcon width={13} height={13} />
+            </View>
+            <Text style={ss.cardTravelingBtnText}>기록보기</Text>
+          </TouchableOpacity>
+        )}
+        {!isEditMode && !expanded && !isEnded && isTraveling && (
+          <TouchableOpacity
+            style={ss.cardStartBtn}
+            activeOpacity={0.7}
+            onPress={onCancel}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <View style={[ss.cardStartIconWrap, ss.cardTravelingIconWrap]}>
+              <ScheduleStartIcon width={13} height={13} />
+            </View>
+            <Text style={ss.cardTravelingBtnText}>여행중</Text>
+          </TouchableOpacity>
+        )}
+        {!isEditMode && !expanded && !isEnded && !isTraveling && (
           <TouchableOpacity
             style={ss.cardStartBtn}
             activeOpacity={0.85}
@@ -302,7 +344,7 @@ function ScheduleCard({
             <Text style={ss.cardStartBtnText}>시작</Text>
           </TouchableOpacity>
         )}
-        {!isEditMode && expanded && (
+        {!isEditMode && expanded && !isTraveling && (
           <TouchableOpacity
             style={ss.cardEditIconBtn}
             activeOpacity={0.7}
@@ -313,6 +355,18 @@ function ScheduleCard({
           </TouchableOpacity>
         )}
       </TouchableOpacity>
+
+      {isPast && !isTraveling && !isEnded && (
+        <TouchableOpacity style={ss.cardTestBtn} activeOpacity={0.7} onPress={onTestComplete}>
+          <Text style={ss.cardTestBtnText}>테스트: 이 일정 완료 처리 (기록에 반영)</Text>
+        </TouchableOpacity>
+      )}
+
+      {isTraveling && !isEnded && (
+        <TouchableOpacity style={ss.cardTestBtn} activeOpacity={0.7} onPress={onSimulateArrival}>
+          <Text style={ss.cardTestBtnText}>테스트: 다음 목적지 도착 처리</Text>
+        </TouchableOpacity>
+      )}
 
       {!isEditMode && (
         <>
@@ -350,12 +404,14 @@ function CreateScheduleView({
   onSave,
   initialSchedule,
   initialDate,
+  underlay,
 }: {
   onBack: () => void;
   onSave: (dateStr: string) => void;
   initialSchedule?: Schedule;
   /** 달력에서 미리 선택해둔 날짜 — 새 일정 만들기 시작 시 기본값으로 쓴다 (수정 시엔 무시). */
   initialDate?: { year: number; month: number; day: number };
+  underlay?: React.ReactNode;
 }) {
   const now = new Date();
   const isEditing = !!initialSchedule;
@@ -407,7 +463,19 @@ function CreateScheduleView({
       }
       try {
         const result = await getBookmarks(undefined, token);
-        setSavedPlaces(result.map(toSavedPlace));
+        const bookmarked = result.map(toSavedPlace);
+        setSavedPlaces(bookmarked);
+        // 서버는 "지금 저장(북마크)돼 있는 장소"만 일정에 넣을 수 있게 한다 — 원래 일정에 있던
+        // 장소가 그 사이 저장 해제됐으면 선택 목록에서 빼야 수정 저장 시 거부당하지 않는다.
+        if (initialSchedule) {
+          const bookmarkedIds = new Set(bookmarked.map((p) => p.id));
+          const stillValid = initialSchedule.places.filter((p) => bookmarkedIds.has(p.id));
+          setSelectedIds(new Set(stillValid.map((p) => p.id)));
+          if (stillValid.length < initialSchedule.places.length) {
+            setToastMsg('일부 장소는 저장이 해제돼 선택에서 빠졌어요.');
+            setToastSubtitle('다시 넣으려면 저장(북마크)부터 해주세요.');
+          }
+        }
       } catch (e) {
         const message = e instanceof ApiError ? e.message : '저장한 장소를 불러오지 못했어요.';
         setToastMsg(message);
@@ -485,6 +553,15 @@ function CreateScheduleView({
   const [tYear, setTYear] = useState(currentYearIdx);
   const [tMonth, setTMonth] = useState(now.getMonth());
   const [tDay, setTDay] = useState(now.getDate() - 1);
+
+  // 서버가 오늘 이전 날짜의 일정 생성/수정을 거부한다. minIndex로 "비활성화 후 스냅백"하면
+  // 스크롤 도중 애니메이션이 겹쳐서 버벅이므로, 과거 연/월/일 항목 자체를 휠 목록에서 뺀다
+  // (아래 date 피커 JSX에서 slicedYears/slicedMonths/slicedDays로 사용).
+  const currentMonthIdx = now.getMonth();
+  const currentDayIdx = now.getDate() - 1;
+  const yearFloorIdx = currentYearIdx;
+  const monthFloorIdx = tYear === currentYearIdx ? currentMonthIdx : 0;
+  const dayFloorIdx = tYear === currentYearIdx && tMonth === currentMonthIdx ? currentDayIdx : 0;
 
   const openLocation = () => { setTDep(departureIdx ?? 0); setPickerType('location'); };
   const openDate = () => { setTYear(yearIdx); setTMonth(monthIdx); setTDay(dayIdx); setPickerType('date'); };
@@ -580,63 +657,11 @@ function CreateScheduleView({
 
   const dateText = dateConfirmed ? formatPreview(yearIdx, monthIdx, dayIdx) : null;
 
-  if (showEdit && departureIdx !== null && preview) {
-    const selectedPlaces = savedPlaces.filter((p) => selectedIds.has(p.id));
-    const orderedPlaces = preview.recommendedPlaces
-      .slice()
-      .sort((a, b) => a.visitOrder - b.visitOrder)
-      .map((rp) => selectedPlaces.find((p) => p.id === String(rp.placeId)))
-      .filter((p): p is SavedPlace => !!p);
-
-    return (
-      <EditScheduleView
-        departureLabel={DEPARTURE_OPTIONS[departureIdx]}
-        departureCoord={{ lat: preview.departure.latitude, lng: preview.departure.longitude }}
-        departureImageUri={departurePlaces[DEPARTURE_OPTIONS[departureIdx]]?.imageUri ?? null}
-        places={orderedPlaces}
-        isEditing={isEditing}
-        submitting={submitting}
-        onBack={() => {
-          setShowEdit(false);
-          setPreview(null);
-        }}
-        onSaved={async (finalPlaces) => {
-          const token = await getAccessToken();
-          if (!token) {
-            setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
-            setToastSubtitle(undefined);
-            return;
-          }
-          setSubmitting(true);
-          try {
-            const createBody = {
-              matrixToken: preview.matrixToken,
-              orderedPlaceIds: finalPlaces.map((p) => Number(p.id)),
-            };
-            const newDateStr = toIsoDate(yearIdx + YEAR_BASE, monthIdx, dayIdx + 1);
-            if (isEditing && initialSchedule) {
-              await updateSchedule(Number(initialSchedule.id), createBody, token);
-              const oldDateStr = toIsoDate(initialSchedule.year, initialSchedule.month, initialSchedule.day);
-              if (oldDateStr !== newDateStr) onSave(oldDateStr);
-            } else {
-              await createSchedule(createBody, token);
-            }
-            onSave(newDateStr);
-            onBack();
-          } catch (e) {
-            const message = e instanceof ApiError ? e.message : '일정 저장에 실패했어요. 잠시 후 다시 시도해주세요.';
-            setToastMsg(message);
-            setToastSubtitle(undefined);
-          } finally {
-            setSubmitting(false);
-          }
-        }}
-      />
-    );
-  }
-
-  return (
-    <SafeAreaView style={cs.safeArea}>
+  // 스와이프 뒤로가기 중 뒤에 깔아 보여줄 이 화면(일정 만들기 입력 폼) 자체. 아래 순서 편집
+  // 화면(EditScheduleView)의 underlay로 재사용한다.
+  const formScreen = (
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={cs.safeArea}>
       {/* 헤더 */}
       <View style={cs.header}>
         <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -763,32 +788,38 @@ function CreateScheduleView({
                 <View style={cs.dateRow}>
                   <WheelPicker
                     key="yr"
-                    data={YEARS}
-                    selectedIdx={tYear}
+                    data={YEARS.slice(yearFloorIdx)}
+                    selectedIdx={Math.max(0, tYear - yearFloorIdx)}
                     flex={1}
                     onSelect={(i) => {
-                      setTYear(i);
-                      const max = getDaysCount(i, tMonth) - 1;
-                      if (tDay > max) setTDay(max);
+                      const y = i + yearFloorIdx;
+                      setTYear(y);
+                      const m = y === currentYearIdx ? Math.max(tMonth, currentMonthIdx) : tMonth;
+                      setTMonth(m);
+                      const max = getDaysCount(y, m) - 1;
+                      const dFloor = y === currentYearIdx && m === currentMonthIdx ? currentDayIdx : 0;
+                      if (tDay > max || tDay < dFloor) setTDay(Math.min(Math.max(tDay, dFloor), max));
                     }}
                   />
                   <WheelPicker
-                    key="mo"
-                    data={MONTHS}
-                    selectedIdx={tMonth}
+                    key={`mo-${tYear}`}
+                    data={MONTHS.slice(monthFloorIdx)}
+                    selectedIdx={Math.max(0, tMonth - monthFloorIdx)}
                     flex={1}
                     onSelect={(i) => {
-                      setTMonth(i);
-                      const max = getDaysCount(tYear, i) - 1;
-                      if (tDay > max) setTDay(max);
+                      const m = i + monthFloorIdx;
+                      setTMonth(m);
+                      const max = getDaysCount(tYear, m) - 1;
+                      const dFloor = tYear === currentYearIdx && m === currentMonthIdx ? currentDayIdx : 0;
+                      if (tDay > max || tDay < dFloor) setTDay(Math.min(Math.max(tDay, dFloor), max));
                     }}
                   />
                   <WheelPicker
                     key={`dy-${tYear}-${tMonth}`}
-                    data={getDaysArr(tYear, tMonth)}
-                    selectedIdx={Math.min(tDay, getDaysCount(tYear, tMonth) - 1)}
+                    data={getDaysArr(tYear, tMonth).slice(dayFloorIdx)}
+                    selectedIdx={Math.max(0, Math.min(tDay, getDaysCount(tYear, tMonth) - 1) - dayFloorIdx)}
                     flex={1}
-                    onSelect={setTDay}
+                    onSelect={(i) => setTDay(i + dayFloorIdx)}
                   />
                 </View>
                 <TouchableOpacity style={cs.confirmBtn} onPress={confirmDate}>
@@ -799,8 +830,67 @@ function CreateScheduleView({
           </Animated.View>
         </>
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
+
+  if (showEdit && departureIdx !== null && preview) {
+    const selectedPlaces = savedPlaces.filter((p) => selectedIds.has(p.id));
+    const orderedPlaces = preview.recommendedPlaces
+      .slice()
+      .sort((a, b) => a.visitOrder - b.visitOrder)
+      .map((rp) => selectedPlaces.find((p) => p.id === String(rp.placeId)))
+      .filter((p): p is SavedPlace => !!p);
+
+    return (
+      <EditScheduleView
+        departureLabel={DEPARTURE_OPTIONS[departureIdx]}
+        departureCoord={{ lat: preview.departure.latitude, lng: preview.departure.longitude }}
+        departureImageUri={departurePlaces[DEPARTURE_OPTIONS[departureIdx]]?.imageUri ?? null}
+        places={orderedPlaces}
+        isEditing={isEditing}
+        submitting={submitting}
+        onBack={() => {
+          setShowEdit(false);
+          setPreview(null);
+        }}
+        onSaved={async (finalPlaces) => {
+          const token = await getAccessToken();
+          if (!token) {
+            setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+            setToastSubtitle(undefined);
+            return;
+          }
+          setSubmitting(true);
+          try {
+            const createBody = {
+              matrixToken: preview.matrixToken,
+              orderedPlaceIds: finalPlaces.map((p) => Number(p.id)),
+            };
+            const newDateStr = toIsoDate(yearIdx + YEAR_BASE, monthIdx, dayIdx + 1);
+            if (isEditing && initialSchedule) {
+              await updateSchedule(Number(initialSchedule.id), createBody, token);
+              const oldDateStr = toIsoDate(initialSchedule.year, initialSchedule.month, initialSchedule.day);
+              if (oldDateStr !== newDateStr) onSave(oldDateStr);
+            } else {
+              await createSchedule(createBody, token);
+            }
+            onSave(newDateStr);
+            onBack();
+          } catch (e) {
+            const message = e instanceof ApiError ? e.message : '일정 저장에 실패했어요. 잠시 후 다시 시도해주세요.';
+            setToastMsg(message);
+            setToastSubtitle(undefined);
+          } finally {
+            setSubmitting(false);
+          }
+        }}
+        underlay={formScreen}
+      />
+    );
+  }
+
+  return formScreen;
 }
 
 // ─── RouteView (경로보기) ──────────────────────────────────────────────────────
@@ -879,10 +969,12 @@ function RouteView({
   schedule,
   departurePlaces,
   onBack,
+  underlay,
 }: {
   schedule: Schedule;
   departurePlaces: Record<string, MapPlace>;
   onBack: () => void;
+  underlay?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
   const mapRef = useRef<KakaoMapHandle>(null);
@@ -906,10 +998,11 @@ function RouteView({
     getArrivedPlaceIds(schedule.id).then(setArrivedPlaceIds);
   }, [schedule.id]);
 
+  // 이름 검색(departurePlaces)은 검색 결과가 엉뚱한 장소로 매칭될 수 있어, 좌표는 서버가 실제로
+  // 사용한 출발지 좌표(schedule.departureLatitude/Longitude)를 신뢰한다. 썸네일 사진은 이름 검색
+  // 결과가 있으면 그대로 쓴다(없어도 좌표에는 영향 없음).
   const departurePlace = departurePlaces[schedule.departureLabel];
-  const departureCoord = departurePlace
-    ? { lat: departurePlace.latitude, lng: departurePlace.longitude }
-    : { lat: schedule.places[0]?.latitude, lng: schedule.places[0]?.longitude };
+  const departureCoord = { lat: schedule.departureLatitude, lng: schedule.departureLongitude };
   const routePlaces = [
     { id: 'departure', lat: departureCoord.lat, lng: departureCoord.lng },
     ...schedule.places.map((p) => ({ id: p.id, lat: p.latitude, lng: p.longitude })),
@@ -944,27 +1037,8 @@ function RouteView({
     .slice(0, -1)
     .flatMap((from, i) => segments[i]?.path ?? [from, stops[i + 1]]);
 
-  // 날짜별 목록 조회로 받은 일정은 장소 좌표가 없다(placeNames만 내려옴). 좌표 없이 지도를
-  // 그리면 위치가 다 틀어지므로, 이 경우엔 지도 대신 안내 문구만 보여준다.
-  const hasRealCoords = schedule.places.length === 0 || !Number.isNaN(schedule.places[0].latitude);
-  if (!hasRealCoords) {
-    return (
-      <View style={rv.safeArea}>
-        <View style={rv.noCoordsWrap}>
-          <TouchableOpacity
-            style={[rv.backBtn, { top: insets.top + 12 }]}
-            activeOpacity={0.8}
-            onPress={onBack}
-          >
-            <Text style={rv.backArrow}>←</Text>
-          </TouchableOpacity>
-          <Text style={rv.noCoordsText}>이 일정은 장소 위치 정보가 없어서{'\n'}경로를 표시할 수 없어요.</Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
     <View style={rv.safeArea}>
       <KakaoMap ref={mapRef} routePlaces={routePlaces} routePath={routePath} />
 
@@ -1083,7 +1157,18 @@ function RouteView({
                     {place.tags.map((tag) => {
                       const cfg = PLACE_TAG_STYLE[tag] ?? DEFAULT_PLACE_TAG_STYLE;
                       return (
-                        <Badge key={tag} label={tag} variant="outline" tone={cfg.tone} dot={cfg.dot} />
+                        <Badge
+                          key={tag}
+                          label={tag}
+                          variant="outline"
+                          tone={cfg.tone}
+                          dot={cfg.dot}
+                          leading={
+                            cfg.Icon ? (
+                              <cfg.Icon width={15} height={15} color={BADGE_TONE_COLORS[cfg.tone].text} />
+                            ) : undefined
+                          }
+                        />
                       );
                     })}
                   </View>
@@ -1094,6 +1179,7 @@ function RouteView({
         </BottomSheetScrollView>
       </BottomSheet>
     </View>
+    </SwipeBackScreen>
   );
 }
 
@@ -1126,15 +1212,55 @@ export default function ScheduleScreen() {
   const [toastSubtitle, setToastSubtitle] = useState<string | undefined>(undefined);
   const [viewingRouteSchedule, setViewingRouteSchedule] = useState<Schedule | null>(null);
   const [departurePlaces, setDeparturePlaces] = useState<Record<string, MapPlace>>({});
-  const endedPromptShownRef = useRef(false);
+  const [activeScheduleId, setActiveScheduleId] = useState<string | null>(null);
+  const [autoEndedScheduleId, setAutoEndedScheduleId] = useState<string | null>(null);
+  const [scrapView, setScrapView] = useState<{
+    pending: TodaysScrapSchedule;
+    dogName: string;
+    dogProfileImageUri?: string;
+    accessToken: string;
+  } | null>(null);
+  const [viewingRecord, setViewingRecord] = useState<{
+    scrap: ScrapData;
+    scheduleId: number;
+    accessToken: string;
+  } | null>(null);
   const schedules = useMemo(() => Object.values(scheduleCache).flat(), [scheduleCache]);
+
+  // 일정 상세 API는 장소 카테고리를 안 내려줘서(toSchedule은 임시로 '관광지'로 채워둠),
+  // placeId별로 실제 카테고리를 조회해 채운다. 세션 동안 재사용하도록 캐싱한다.
+  const placeCategoryCacheRef = useRef<Map<string, SavedPlace['category']>>(new Map());
+
+  const enrichPlaceCategories = async (scheduleList: Schedule[], token: string): Promise<Schedule[]> => {
+    const cache = placeCategoryCacheRef.current;
+    const uncachedIds = Array.from(
+      new Set(scheduleList.flatMap((s) => s.places.map((p) => p.id)).filter((id) => !cache.has(id)))
+    );
+    if (uncachedIds.length > 0) {
+      await Promise.all(
+        uncachedIds.map(async (id) => {
+          try {
+            const detail = await getPlaceDetail(Number(id), token);
+            cache.set(id, (detail.categoryLabel as SavedPlace['category']) ?? '관광지');
+          } catch (e) {
+            // 카테고리 조회 실패 — 이 장소는 이번엔 그냥 기본값(관광지)으로 남겨둔다
+          }
+        })
+      );
+    }
+    return scheduleList.map((s) => ({
+      ...s,
+      places: s.places.map((p) => ({ ...p, category: cache.get(p.id) ?? p.category })),
+    }));
+  };
 
   const fetchDateSchedules = async (dateStr: string) => {
     const token = await getAccessToken();
     if (!token) return;
     try {
       const result = await getSchedulesByDate(dateStr, token);
-      setScheduleCache((prev) => ({ ...prev, [dateStr]: result.schedules.map(toSchedule) }));
+      const scheduleList = await enrichPlaceCategories(result.schedules.map(toSchedule), token);
+      setScheduleCache((prev) => ({ ...prev, [dateStr]: scheduleList }));
     } catch (e) {
       // 하루 조회 실패는 조용히 무시 — 달력의 다른 날짜에는 영향 없음
     }
@@ -1151,24 +1277,21 @@ export default function ScheduleScreen() {
     fetchDeparturePlaces().then(setDeparturePlaces);
   }, []);
 
+  // 다른 화면(홈의 AI 추천경로 저장 등)에서 일정을 추가/종료/변경했을 수 있어, 이 탭에 올 때마다
+  // 여행중인 일정과 이번 달 일정 목록을 다시 확인한다.
+  useFocusEffect(
+    useCallback(() => {
+      getActiveScheduleId().then(setActiveScheduleId);
+      getAutoEndedScheduleId().then(setAutoEndedScheduleId);
+      fetchMonthSchedules(year, month);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [year, month])
+  );
+
   useEffect(() => {
     fetchMonthSchedules(year, month);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year, month]);
-
-  // 지난 일정인데 아직 하루 기록(스크랩)을 남기지 않았다면 한 번 알려준다.
-  useEffect(() => {
-    if (endedPromptShownRef.current || schedules.length === 0) return;
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const hasEndedSchedule = schedules.some(
-      (s) => new Date(s.year, s.month, s.day) < todayStart
-    );
-    if (hasEndedSchedule) {
-      endedPromptShownRef.current = true;
-      setToastMsg('일정이 종료 됐나요?');
-      setToastSubtitle('스크랩으로 오늘 하루를 기록해보세요');
-    }
-  }, [schedules]);
 
   const exitScheduleEditMode = () => {
     setIsEditMode(false);
@@ -1195,34 +1318,6 @@ export default function ScheduleScreen() {
       return next;
     });
   };
-
-  if (viewingRouteSchedule) {
-    return (
-      <RouteView
-        schedule={viewingRouteSchedule}
-        departurePlaces={departurePlaces}
-        onBack={() => setViewingRouteSchedule(null)}
-      />
-    );
-  }
-
-  if (showCreate || editingSchedule) {
-    return (
-      <CreateScheduleView
-        initialSchedule={editingSchedule ?? undefined}
-        initialDate={editingSchedule ? undefined : selectedDate}
-        onBack={() => {
-          setShowCreate(false);
-          setEditingSchedule(null);
-        }}
-        onSave={(dateStr) => {
-          fetchDateSchedules(dateStr);
-          setToastMsg(editingSchedule ? '일정이 저장됐어요!' : '일정이 추가됐어요!');
-          setToastSubtitle(undefined);
-        }}
-      />
-    );
-  }
 
   const daysInMonth = getDaysInMonth(year, month);
   const firstDay = getFirstDayOfMonth(year, month);
@@ -1278,13 +1373,209 @@ export default function ScheduleScreen() {
   const handleStartSchedule = async (schedule: Schedule) => {
     const result: StartTrackingResult = await setActiveSchedule(schedule);
     if (result === 'started') {
+      setActiveScheduleId(schedule.id);
       setToastMsg('일정을 시작했어요! 도착하면 알려드릴게요.');
     } else if (result === 'no-places') {
+      setActiveScheduleId(schedule.id);
       setToastMsg('이미 모든 장소에 도착했어요!');
     } else {
       setToastMsg('위치 접근 권한(항상 허용)이 필요해요. 설정에서 허용해주세요.');
     }
     setToastSubtitle(undefined);
+  };
+
+  const handleCancelSchedule = async (schedule: Schedule) => {
+    const cancelled = await cancelActiveSchedule(schedule.id);
+    if (cancelled) {
+      setActiveScheduleId(null);
+      setToastMsg('일정 시작을 취소했어요.');
+      setToastSubtitle(undefined);
+    }
+  };
+
+  // 개발용: 실제로 이동하지 않고도 다음 목적지에 도착한 것으로 처리해 스탬프/방문 기록을 테스트한다.
+  const handleSimulateArrival = async () => {
+    const placeName = await simulateArrivalAtNextPlace();
+    setToastMsg(placeName ? `${placeName} 도착 처리했어요.` : '진행 중인 목적지가 없어요.');
+    setToastSubtitle(undefined);
+  };
+
+  // 개발용: 경주 밖이라 실제 GPS로 테스트를 못 할 때, 위도/경도를 직접 입력해서 그 지점에
+  // 있는 것처럼 관광지 스탬프·일정 도착 판정을 한 번 돌려본다.
+  const [devLat, setDevLat] = useState('');
+  const [devLng, setDevLng] = useState('');
+  const handleSimulateCoordinate = async () => {
+    const lat = Number(devLat);
+    const lng = Number(devLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setToastMsg('위도/경도를 숫자로 입력해주세요.');
+      setToastSubtitle(undefined);
+      return;
+    }
+    const results = await simulateArrivalAtCoordinate({ lat, lng });
+    setToastMsg(results.length > 0 ? results.join(', ') : '이 좌표 근처엔 아무것도 없어요.');
+    setToastSubtitle(undefined);
+  };
+
+  const handleViewRecord = async (schedule: Schedule) => {
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+      setToastSubtitle(undefined);
+      return;
+    }
+    const isToday =
+      schedule.year === today.getFullYear() &&
+      schedule.month === today.getMonth() &&
+      schedule.day === today.getDate();
+
+    if (isToday) {
+      const pending = await getTodaysScrapSchedule(schedule.id);
+      if (!pending) {
+        setToastMsg('스크랩 정보를 찾을 수 없어요.');
+        setToastSubtitle(undefined);
+        return;
+      }
+      try {
+        const home = await getHome(token);
+        setScrapView({
+          pending,
+          dogName: home.petName,
+          dogProfileImageUri: home.petProfileImageUrl ?? undefined,
+          accessToken: token,
+        });
+      } catch (e) {
+        const message = e instanceof ApiError ? e.message : '기록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
+        setToastMsg(message);
+        setToastSubtitle(undefined);
+      }
+      return;
+    }
+
+    // 지난 날짜 일정은 로컬에 스크랩 대상 정보가 없다(TODAYS_SCRAP_SCHEDULE_KEY는 "오늘"만 유지) —
+    // 서버에 저장된 스탬프 앨범을 그대로 읽기 전용으로 보여준다(마이페이지 여행기록과 동일한 방식).
+    try {
+      const [home, album, arrivedIds] = await Promise.all([
+        getHome(token),
+        getStampAlbum(Number(schedule.id), token),
+        getArrivedPlaceIds(schedule.id),
+      ]);
+      // 목적지로 저장은 해놨지만 실제로 안 간 곳은 경로에서 뺀다 — 출발지는 항상 실제로 거쳤으니
+      // 예외. (기기를 바꿨거나 로컬 도착 기록이 지워졌으면 필터링 없이 저장된 장소 전부가 뜬다.)
+      const visitedPlaces = schedule.places.filter((p) => arrivedIds.includes(p.id));
+      setViewingRecord({
+        scheduleId: Number(schedule.id),
+        accessToken: token,
+        scrap: {
+          id: schedule.id,
+          title: '오늘의 경주',
+          travelDate: album.date.replace(/-/g, ' · '),
+          dogName: home.petName,
+          dogProfileImageUri: home.petProfileImageUrl ?? undefined,
+          selectedPhotoUris: album.photoUrls,
+          // 경로보기(RouteView)와 동일하게 출발지를 첫 지점으로 포함해야 경로/핀 번호가 맞게 표시된다.
+          // 좌표는 이름 검색(departurePlaces) 대신 서버가 실제로 사용한 출발지 좌표를 신뢰한다.
+          stops: [
+            {
+              id: 'departure',
+              name: schedule.departureLabel,
+              latitude: schedule.departureLatitude,
+              longitude: schedule.departureLongitude,
+            },
+            ...visitedPlaces.map((p) => ({
+              id: p.id,
+              name: p.name,
+              latitude: p.latitude,
+              longitude: p.longitude,
+            })),
+          ],
+          totalDistanceInMeters: album.totalDistanceMeters,
+          stampIndex: stampIndexFromBackendName(album.stampName),
+        },
+      });
+    } catch (e) {
+      // STAMP_400_7: 시작만 하고 저장한 장소를 한 곳도 방문하지 않은 일정은 서버에 스탬프 앨범
+      // 자체가 안 만들어져서, 지난 날짜인데도 "오후 9시 이후에 조회 가능" 문구가 그대로 내려온다.
+      // 이 경우엔 그 문구 대신, 다녀온 곳이 없다는 걸 있는 그대로 안내한다.
+      const message =
+        e instanceof ApiError && e.code === 'STAMP_400_7'
+          ? '이 날은 다녀온 곳이 없어서 기록이 없어요.'
+          : e instanceof ApiError
+            ? e.message
+            : '기록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
+      setToastMsg(message);
+      setToastSubtitle(undefined);
+    }
+  };
+
+  // 개발용: 지난 일정을 실제로 여행하지 않고도 "완료" 상태로 만들어 마이페이지 여행기록에서 확인할 수 있게 한다.
+  // 백엔드는 시작된(started) 일정 중 날짜가 지난 것을 자동으로 완료 처리하므로(StampService.completedSchedules),
+  // 시작 + 각 장소 방문 기록만 실제 API로 남기면 된다 — 로컬 데이터 조작이 아니라 실제 서버 데이터다.
+  const handleTestComplete = async (schedule: Schedule) => {
+    const token = await getAccessToken();
+    if (!token) {
+      setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
+      setToastSubtitle(undefined);
+      return;
+    }
+    try {
+      const started = await startSchedule(Number(schedule.id), token);
+      // 방문 기록(visits)은 스탬프 대상 관광지(GEOFENCE_ATTRACTIONS)에만 의미가 있다 — 식당/카페 등
+      // 스탬프 대상이 아닌 장소로 호출하면 백엔드가 STAMP_400_6("스탬프를 받을 수 있는 관광지가
+      // 아닙니다")로 거부한다(정상 동작). 여행기록에 남기는 데는 시작 처리만으로 충분하니 여기선
+      // 스탬프 대상 장소만 골라서 호출한다.
+      const stampPlaceIds = new Set(
+        GEOFENCE_ATTRACTIONS.filter((a) => !a.isProxyLocation).map((a) => a.placeId)
+      );
+      const visitCalls = started.places
+        .filter((p) => stampPlaceIds.has(p.placeId))
+        .map((p) => ({ placeId: p.placeId, latitude: p.latitude, longitude: p.longitude }));
+
+      // 출발지도 관광지 중 하나일 수 있다(예: 교촌마을에서 출발). departure 응답엔 placeId가 없어서
+      // 이름으로 GEOFENCE_ATTRACTIONS에서 매칭하고, 방문 좌표는 그 관광지의 등록된 좌표를 그대로 쓴다.
+      const departureLabel = departureAreaToLabel(started.departure.code);
+      const departureAttraction = GEOFENCE_ATTRACTIONS.find((a) => a.name === departureLabel);
+      if (departureAttraction?.placeId != null) {
+        visitCalls.push({
+          placeId: departureAttraction.placeId,
+          latitude: departureAttraction.latitude,
+          longitude: departureAttraction.longitude,
+        });
+      }
+
+      await Promise.all(
+        visitCalls.map((v) =>
+          visitPlace(v.placeId, { scheduleId: started.scheduleId, latitude: v.latitude, longitude: v.longitude }, token).catch(
+            () => {}
+          )
+        )
+      );
+
+      // 실제로 걷지 않아서 서버 누적 거리가 0으로 남으면 발자국 개수도 0으로 떠서, 출발지→각
+      // 장소를 잇는 직선거리 합계만큼 발자국 기록도 같이 남긴다.
+      const footprintStops = [
+        { lat: started.departure.latitude, lng: started.departure.longitude },
+        ...started.places.map((p) => ({ lat: p.latitude, lng: p.longitude })),
+      ];
+      const totalDistanceMeters = footprintStops
+        .slice(0, -1)
+        .reduce(
+          (sum, from, i) => sum + haversineMeters(from.lat, from.lng, footprintStops[i + 1].lat, footprintStops[i + 1].lng),
+          0
+        );
+      if (totalDistanceMeters > 0) {
+        await addScheduleFootprints(started.scheduleId, Math.round(totalDistanceMeters), token).catch(() => {});
+      }
+
+      // started 값을 반영해서 카드가 "시작" 대신 "기록보기"로 바로 바뀌게 이 날짜만 다시 불러온다.
+      await fetchDateSchedules(toIsoDate(schedule.year, schedule.month, schedule.day));
+      setToastMsg('테스트 완료 처리했어요. 마이페이지 여행기록에서도 확인해보세요.');
+      setToastSubtitle(undefined);
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : '완료 처리에 실패했어요.';
+      setToastMsg(message);
+      setToastSubtitle(undefined);
+    }
   };
 
   const cells: (number | null)[] = [
@@ -1294,10 +1585,42 @@ export default function ScheduleScreen() {
   const rows: (number | null)[][] = [];
   for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
 
-  return (
+  // 지난 날짜는 서버가 일정 생성을 거부한다(날짜는 오늘 이후여야 함) — 캘린더에서 지난 날짜를
+  // 선택했을 땐 만들기 버튼을 아예 눌러도 소용없게 미리 막는다.
+  const isSelectedDatePast =
+    new Date(selectedDate.year, selectedDate.month, selectedDate.day) <
+    new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+  // 스와이프 뒤로가기 중 뒤에 깔아 보여줄 일정 탭 기본(달력) 화면. 아래 early-return 분기들
+  // (경로보기, 일정 만들기/수정, 오늘의 기록, 지난 기록보기)의 underlay로 재사용한다.
+  const baseScreen = (
     <SafeAreaView style={ss.safeArea}>
       <View style={ss.container}>
         <Text style={ss.pageTitle}>나의 일정</Text>
+
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        {/* 개발용: 경주 밖에 있을 때 좌표를 직접 입력해서 GPS 판정을 테스트한다. */}
+        <View style={ss.devCoordRow}>
+          <TextInput
+            style={ss.devCoordInput}
+            placeholder="위도 (예: 35.8343745)"
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="numbers-and-punctuation"
+            value={devLat}
+            onChangeText={setDevLat}
+          />
+          <TextInput
+            style={ss.devCoordInput}
+            placeholder="경도 (예: 129.2185645)"
+            placeholderTextColor={Colors.textMuted}
+            keyboardType="numbers-and-punctuation"
+            value={devLng}
+            onChangeText={setDevLng}
+          />
+          <TouchableOpacity style={ss.devCoordBtn} activeOpacity={0.7} onPress={handleSimulateCoordinate}>
+            <Text style={ss.devCoordBtnText}>테스트</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={ss.calendarCard}>
           <View style={ss.monthNav}>
@@ -1347,7 +1670,7 @@ export default function ScheduleScreen() {
         </View>
 
         {daySchedules.length > 0 ? (
-          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+          <>
             <View style={ss.dayHeaderRow}>
               <TabScheduleIcon width={16} height={16} color={Colors.textBody1} />
               <Text style={ss.dayHeaderText}>
@@ -1384,25 +1707,33 @@ export default function ScheduleScreen() {
                 departurePlaces={departurePlaces}
                 expanded={expandedId === schedule.id}
                 onToggle={() => setExpandedId((id) => (id === schedule.id ? null : schedule.id))}
-                onEdit={() => {
-                  // 날짜별 목록 조회는 장소 이름만 내려줘서(placeId 없음) 수정 화면이 장소를
-                  // 제대로 선택된 상태로 열 수 없다 — 좌표가 없는(NaN) 자리표시자 장소로 판별한다.
-                  const hasRealPlaceIds =
-                    schedule.places.length === 0 || !Number.isNaN(schedule.places[0].latitude);
-                  if (!hasRealPlaceIds) {
-                    setToastMsg('이 일정은 장소 정보가 불완전해서 아직 수정할 수 없어요.');
-                    return;
-                  }
-                  setEditingSchedule(schedule);
-                }}
+                onEdit={() => setEditingSchedule(schedule)}
                 onStart={() => handleStartSchedule(schedule)}
                 onViewRoute={() => setViewingRouteSchedule(schedule)}
+                onViewRecord={() => handleViewRecord(schedule)}
+                onTestComplete={() => handleTestComplete(schedule)}
+                onSimulateArrival={handleSimulateArrival}
+                onCancel={() => handleCancelSchedule(schedule)}
+                isTraveling={schedule.id === activeScheduleId}
+                // "기록보기"로 바뀌는 조건: (오늘 일정이면) 시작한 채로 21시(스크랩 알림 시각)를
+                // 넘겼거나 경주 이탈로 자동 종료됐거나, (지난 날짜 일정이면) 이미 시작(started)돼서
+                // 백엔드가 완료로 간주하는 경우.
+                isEnded={
+                  schedule.started &&
+                  (new Date(schedule.year, schedule.month, schedule.day) <
+                    new Date(today.getFullYear(), today.getMonth(), today.getDate()) ||
+                    (schedule.year === today.getFullYear() &&
+                      schedule.month === today.getMonth() &&
+                      schedule.day === today.getDate() &&
+                      (today.getHours() >= SCRAP_REMINDER_HOUR || schedule.id === autoEndedScheduleId)))
+                }
+                isPast={new Date(schedule.year, schedule.month, schedule.day) < new Date(today.getFullYear(), today.getMonth(), today.getDate())}
                 isEditMode={isEditMode}
                 isSelected={selectedScheduleIds.has(schedule.id)}
                 onToggleSelect={() => toggleScheduleSelect(schedule.id)}
               />
             ))}
-          </ScrollView>
+          </>
         ) : (
           <View style={ss.emptyCard}>
             <ScheduleEmptyIllustration width={280} height={141} style={{ marginBottom: Spacing.md }} />
@@ -1410,6 +1741,7 @@ export default function ScheduleScreen() {
             <Text style={ss.emptySubtitle}>하단 + 버튼을 누른 후 새 일정을 만들어 보세요</Text>
           </View>
         )}
+        </ScrollView>
       </View>
 
       {isEditMode && daySchedules.length > 0 ? (
@@ -1426,7 +1758,12 @@ export default function ScheduleScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <TouchableOpacity style={ss.fab} activeOpacity={0.85} onPress={() => setShowCreate(true)}>
+        <TouchableOpacity
+          style={[ss.fab, isSelectedDatePast && ss.fabDisabled]}
+          activeOpacity={isSelectedDatePast ? 1 : 0.85}
+          disabled={isSelectedDatePast}
+          onPress={() => setShowCreate(true)}
+        >
           <Image source={require('@/assets/icons/add.png')} style={ss.fabIcon} resizeMode="contain" />
         </TouchableOpacity>
       )}
@@ -1444,13 +1781,67 @@ export default function ScheduleScreen() {
             <ToastScheduleSavedIcon width={21} height={22} />
           ) : toastMsg === '일정이 추가됐어요!' ? (
             <ToastScheduleAddedIcon width={21} height={22} />
-          ) : toastMsg === '일정이 종료 됐나요?' ? (
-            <ToastScheduleEndedIcon width={21} height={21} />
           ) : undefined
         }
       />
     </SafeAreaView>
   );
+
+  if (viewingRouteSchedule) {
+    return (
+      <RouteView
+        schedule={viewingRouteSchedule}
+        departurePlaces={departurePlaces}
+        onBack={() => setViewingRouteSchedule(null)}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  if (showCreate || editingSchedule) {
+    return (
+      <CreateScheduleView
+        initialSchedule={editingSchedule ?? undefined}
+        initialDate={editingSchedule ? undefined : selectedDate}
+        onBack={() => {
+          setShowCreate(false);
+          setEditingSchedule(null);
+        }}
+        onSave={(dateStr) => {
+          fetchDateSchedules(dateStr);
+          setToastMsg(editingSchedule ? '일정이 저장됐어요!' : '일정이 추가됐어요!');
+          setToastSubtitle(undefined);
+        }}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  if (scrapView) {
+    return (
+      <TodayScrapView
+        pending={scrapView.pending}
+        dogName={scrapView.dogName}
+        dogProfileImageUri={scrapView.dogProfileImageUri}
+        accessToken={scrapView.accessToken}
+        onBack={() => setScrapView(null)}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  if (viewingRecord) {
+    return (
+      <StampAlbumScreen
+        scrap={viewingRecord.scrap}
+        onBack={() => setViewingRecord(null)}
+        underlay={baseScreen}
+        serverSave={{ scheduleId: viewingRecord.scheduleId, accessToken: viewingRecord.accessToken }}
+      />
+    );
+  }
+
+  return baseScreen;
 }
 
 // ─── 일정 만들기 스타일 (cs) ──────────────────────────────────────────────────
@@ -1493,13 +1884,15 @@ const cs = StyleSheet.create({
   placeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 88,
+    // 태그가 많아서 줄바꿈되면(예: 월정교) 카드가 그만큼 늘어나야 하므로 height가 아니라 minHeight.
+    minHeight: 88,
     backgroundColor: Colors.background,
     borderWidth: 0.5,
     borderColor: '#EDE8E3',
     borderRadius: Radius.md,
     marginBottom: Spacing.sm,
     paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
     gap: Spacing.md,
     shadowColor: '#3A3330',
     shadowOpacity: 0.06,
@@ -1727,6 +2120,38 @@ const ss = StyleSheet.create({
     justifyContent: 'center',
   },
   cardStartBtnText: { fontSize: 13, fontWeight: '700', color: Colors.coral },
+  cardTravelingIconWrap: { backgroundColor: Colors.textMuted },
+  cardTravelingBtnText: { fontSize: 13, fontWeight: '700', color: Colors.textMuted },
+  cardTestBtn: {
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.sm,
+  },
+  cardTestBtnText: { fontSize: 11, color: Colors.secondaryDark, textDecorationLine: 'underline' },
+  devCoordRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+    alignItems: 'center',
+  },
+  devCoordInput: {
+    flex: 1,
+    height: 36,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: Spacing.sm,
+    fontSize: 12,
+    color: Colors.textBody1,
+  },
+  devCoordBtn: {
+    height: 36,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.bgWarm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  devCoordBtnText: { fontSize: 12, fontWeight: '600', color: Colors.textBody1 },
   scheduleDetail: {
     borderTopWidth: 0.5,
     borderTopColor: '#EDE8E3',
@@ -1804,6 +2229,11 @@ const ss = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
+  fabDisabled: {
+    backgroundColor: Colors.border,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   fabIcon: { width: 24, height: 24, tintColor: Colors.white },
   deleteBar: {
     paddingHorizontal: Spacing.xl,
@@ -1839,8 +2269,6 @@ const ss = StyleSheet.create({
 // ─── 경로보기 스타일 (rv) ──────────────────────────────────────────────────────
 const rv = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
-  noCoordsWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.xl },
-  noCoordsText: { fontSize: 14, color: Colors.textBody2, textAlign: 'center', lineHeight: 21 },
   overlaySafeArea: {
     position: 'absolute',
     top: 0,
