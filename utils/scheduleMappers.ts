@@ -1,6 +1,9 @@
 import { Schedule } from '@/types/schedule';
 import { SavedPlace } from '@/types/save';
-import { DepartureArea, ScheduleDetailResponse } from '@/utils/api';
+import { MapPlace } from '@/types/map';
+import { DepartureArea, ScheduleDetailResponse, searchPlaces } from '@/utils/api';
+import { parseTags, toMapPlace } from '@/utils/placeMappers';
+import { getAccessToken } from '@/utils/authStorage';
 
 /** 출발지 화면에 노출하는 4개 지역과 서버 departureArea enum 간의 매핑. */
 export const DEPARTURE_OPTIONS: string[] = ['황리단길', '금리단길', '첨성대', '교촌마을'];
@@ -32,22 +35,17 @@ export function toIsoDate(year: number, month: number, day: number): string {
   return `${year}-${pad(month + 1)}-${pad(day)}`;
 }
 
-/** 서버 일정 상세 응답을 화면에서 쓰는 Schedule(연/월/일 분리) 형태로 변환한다.
- *
- * GET /api/schedules(날짜별 목록)는 장소 이름만 내려주고 placeId/좌표/사진은 주지 않는다.
- * 이름만으로 자리표시자 SavedPlace를 만들어 개수·제목·타임라인 텍스트는 정확히 보여주되,
- * latitude/longitude는 NaN으로 채운다 — 지도가 필요한 화면(경로보기 등)은 이 값을 실제
- * 좌표로 신뢰하면 안 되고, 사용 전에 NaN 여부를 확인해서 안내 문구로 대체해야 한다. */
+/** 서버 일정 상세 응답을 화면에서 쓰는 Schedule(연/월/일 분리) 형태로 변환한다. */
 export function toSchedule(detail: ScheduleDetailResponse): Schedule {
   const [y, m, d] = detail.date.split('-').map(Number);
-  const places: SavedPlace[] = detail.placeNames.map((name, i) => ({
-    id: `${detail.scheduleId}-${i}`,
-    name,
+  const places: SavedPlace[] = detail.places.map((p) => ({
+    id: String(p.placeId),
+    name: p.name,
     category: '관광지',
-    tags: [],
-    imageUri: null,
-    latitude: NaN,
-    longitude: NaN,
+    tags: parseTags(p.petAccessType, p.petRequirements),
+    imageUri: p.imageUrl,
+    latitude: p.latitude,
+    longitude: p.longitude,
   }));
 
   return {
@@ -56,6 +54,44 @@ export function toSchedule(detail: ScheduleDetailResponse): Schedule {
     month: m - 1,
     day: d,
     departureLabel: departureAreaToLabel(detail.departure.code) || detail.departure.name,
+    departureLatitude: detail.departure.latitude,
+    departureLongitude: detail.departure.longitude,
     places,
+    started: detail.started,
   };
+}
+
+/** 장소 이름으로 대표 사진을 검색한다. 관광지 카테고리에 없으면(예: 금리단길) 카테고리 제한을
+ * 풀어 한 번 더 찾는다 — 완전히 사진 없이 두는 것보다는 근처 식당/카페 사진이라도 보여주는 게 낫다. */
+export async function searchPlaceByName(name: string, token: string): Promise<MapPlace | undefined> {
+  try {
+    // 카테고리를 관광지로 한정하지 않으면 "OO황리단길점" 같은 인근 식당/카페가 먼저 잡혀서
+    // 엉뚱한 사진이 붙는다. DB에 등록된 이름은 보통 "경주 " 접두사가 붙어있어 정확히
+    // 일치하진 않으므로, 이름에 검색어가 포함된 것을 우선으로 찾는다.
+    let result = await searchPlaces({ keyword: name, categories: ['ATTRACTION'], size: 10 }, token);
+    if (result.places.length === 0) {
+      result = await searchPlaces({ keyword: name, size: 10 }, token);
+    }
+    const match = result.places.find((p) => p.name.includes(name)) ?? result.places[0];
+    return match ? toMapPlace(match) : undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+/** 4개 출발지 지역 각각의 대표 장소(이름/좌표/사진)를 검색해 이름으로 조회할 수 있게 맵으로 묶는다. */
+export async function fetchDeparturePlaces(): Promise<Record<string, MapPlace>> {
+  const token = await getAccessToken();
+  if (!token) return {};
+  const entries = await Promise.all(
+    DEPARTURE_OPTIONS.map(async (name) => {
+      try {
+        const place = await searchPlaceByName(name, token);
+        return place ? ([name, place] as const) : null;
+      } catch (e) {
+        return null;
+      }
+    })
+  );
+  return Object.fromEntries(entries.filter((e): e is readonly [string, MapPlace] => e !== null));
 }

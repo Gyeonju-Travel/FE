@@ -588,10 +588,9 @@ export interface ScheduleDetailResponse {
   date: string;
   departure: DepartureResponse;
   lastPlaceName: string | null;
-  /** 장소 이름만 내려온다 — placeId/좌표/사진은 없다. 필요하면 POST /{scheduleId}/start 응답을 써야 한다. */
-  placeNames: string[];
   totalPlaceCount: number;
   totalWalkingDurationSeconds: number;
+  places: SchedulePlaceDetailResponse[];
   started: boolean;
   startedAt: string | null;
 }
@@ -687,6 +686,8 @@ export interface RecommendedRoutePlaceResponse {
   visitOrder: number;
   placeId: number;
   name: string;
+  category: PlaceCategoryCode;
+  categoryLabel: string;
   imageUrl: string | null;
   petAccessType: string | null;
   petRequirements: string | null;

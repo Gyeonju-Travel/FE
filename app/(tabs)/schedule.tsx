@@ -16,6 +16,7 @@ import {
   ViewStyle,
   ActivityIndicator,
   TextInput,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -58,6 +59,8 @@ import {
 import WheelPicker, { PICKER_H } from '@/components/schedule/WheelPicker';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
+import AlertCard from '@/components/ui/AlertCard';
+import ModalWarningIcon from '@/assets/icons/modal-warning.svg';
 import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 import EditScheduleView from '@/components/schedule/EditScheduleView';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
@@ -1214,6 +1217,12 @@ export default function ScheduleScreen() {
   const [departurePlaces, setDeparturePlaces] = useState<Record<string, MapPlace>>({});
   const [activeScheduleId, setActiveScheduleId] = useState<string | null>(null);
   const [autoEndedScheduleId, setAutoEndedScheduleId] = useState<string | null>(null);
+  // "여행중" 버튼을 한 번 더 누르면 바로 취소하지 않고, 진행 중인 일정이 초기화된다는 걸
+  // 확인받는 모달을 먼저 띄운다.
+  const [cancelConfirmSchedule, setCancelConfirmSchedule] = useState<Schedule | null>(null);
+  // 다른 일정이 이미 진행 중일 때 "시작"을 누르면 기존 진행 중인 일정이 조용히 초기화돼서
+  // 잘못 누르기 쉽다 — 이때도 먼저 확인 모달을 띄운다.
+  const [startConfirmSchedule, setStartConfirmSchedule] = useState<Schedule | null>(null);
   const [scrapView, setScrapView] = useState<{
     pending: TodaysScrapSchedule;
     dogName: string;
@@ -1384,7 +1393,38 @@ export default function ScheduleScreen() {
     setToastSubtitle(undefined);
   };
 
-  const handleCancelSchedule = async (schedule: Schedule) => {
+  // 이미 다른 일정이 진행 중일 때 "시작"을 누르면 그 일정이 조용히 초기화되므로, 먼저 확인
+  // 모달을 띄운다. 진행 중인 일정이 없으면(또는 같은 일정이면) 바로 시작한다.
+  const handleStartPress = (schedule: Schedule) => {
+    if (activeScheduleId && activeScheduleId !== schedule.id) {
+      setStartConfirmSchedule(schedule);
+      return;
+    }
+    handleStartSchedule(schedule);
+  };
+
+  const handleConfirmStartSchedule = async () => {
+    const schedule = startConfirmSchedule;
+    if (!schedule) return;
+    setStartConfirmSchedule(null);
+    // 진행 중이던 일정을 실제로 취소(도착 기록·발자취 초기화)한 다음에 새 일정을 시작해야
+    // 모달에서 안내한 "진행 중인 일정은 초기화돼요"가 실제로 이뤄진다. 이걸 안 하면 이전
+    // 일정으로 다시 돌아왔을 때 이미 다 도착한 것으로 남아있게 된다.
+    if (activeScheduleId && activeScheduleId !== schedule.id) {
+      await cancelActiveSchedule(activeScheduleId);
+      setActiveScheduleId(null);
+    }
+    await handleStartSchedule(schedule);
+  };
+
+  const handleCancelSchedule = (schedule: Schedule) => {
+    setCancelConfirmSchedule(schedule);
+  };
+
+  const handleConfirmCancelSchedule = async () => {
+    const schedule = cancelConfirmSchedule;
+    if (!schedule) return;
+    setCancelConfirmSchedule(null);
     const cancelled = await cancelActiveSchedule(schedule.id);
     if (cancelled) {
       setActiveScheduleId(null);
@@ -1708,7 +1748,7 @@ export default function ScheduleScreen() {
                 expanded={expandedId === schedule.id}
                 onToggle={() => setExpandedId((id) => (id === schedule.id ? null : schedule.id))}
                 onEdit={() => setEditingSchedule(schedule)}
-                onStart={() => handleStartSchedule(schedule)}
+                onStart={() => handleStartPress(schedule)}
                 onViewRoute={() => setViewingRouteSchedule(schedule)}
                 onViewRecord={() => handleViewRecord(schedule)}
                 onTestComplete={() => handleTestComplete(schedule)}
@@ -1784,6 +1824,46 @@ export default function ScheduleScreen() {
           ) : undefined
         }
       />
+
+      <Modal
+        visible={!!cancelConfirmSchedule}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCancelConfirmSchedule(null)}
+      >
+        <View style={ss.cancelConfirmBackdrop}>
+          <AlertCard
+            icon={<ModalWarningIcon width={64} height={64} />}
+            iconStandalone
+            title="정말 초기화하시겠어요?"
+            subtitle={'취소하면 지금까지 기록된\n진행 중인 일정이 초기화돼요.'}
+            buttons={[
+              { label: '계속 진행하기', onPress: () => setCancelConfirmSchedule(null), variant: 'outline' },
+              { label: '초기화하기', onPress: handleConfirmCancelSchedule, tone: 'coral' },
+            ]}
+          />
+        </View>
+      </Modal>
+
+      <Modal
+        visible={!!startConfirmSchedule}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setStartConfirmSchedule(null)}
+      >
+        <View style={ss.cancelConfirmBackdrop}>
+          <AlertCard
+            icon={<ModalWarningIcon width={64} height={64} />}
+            iconStandalone
+            title="이 일정을 시작하시겠어요?"
+            subtitle={'다른 일정이 진행 중이에요.\n지금 시작하면 진행 중인 일정은 초기화돼요.'}
+            buttons={[
+              { label: '취소', onPress: () => setStartConfirmSchedule(null), variant: 'outline' },
+              { label: '시작하기', onPress: handleConfirmStartSchedule, tone: 'coral' },
+            ]}
+          />
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 
@@ -2002,6 +2082,13 @@ const cs = StyleSheet.create({
 const ss = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
   container: { flex: 1, paddingHorizontal: Spacing.xl, paddingTop: Spacing.xl },
+  cancelConfirmBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(58,51,48,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
   pageTitle: { fontSize: 22, fontWeight: '700', color: Colors.textPrimary, marginBottom: Spacing.lg },
   calendarCard: {
     backgroundColor: Colors.background,

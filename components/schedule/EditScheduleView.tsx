@@ -18,25 +18,17 @@ import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE } from '@/constants/badgeConfig';
 import { haversineMeters, estimateWalkMinutes, formatDistance } from '@/utils/distance';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 
 const DEPARTURE_HEIGHT = 88;
+// 장소 카드 기본(최소) 높이 — 태그가 적어 1줄이면 이 높이 그대로, 태그가 여러 줄로 줄바꿈되면
+// (예: 월정교) 그 카드만 측정된 콘텐츠 높이만큼 커진다(measuredHeights, 아래 참고). 카드마다
+// 높이가 달라졌으니 드래그 위치 계산(slotY)도 균일 곱셈이 아니라 누적합으로 한다.
 const CARD_HEIGHT = 88;
 const PILL_HEIGHT = 34;
-const ROW_GAP = 12;
-// 출발지 → 첫 장소 구간도 장소↔장소 구간과 동일하게 도보 배지가 껴서 모든 구간이 균일한 슬롯이다.
-const FIRST_PLACE_OFFSET = DEPARTURE_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
-const PLACE_SLOT = CARD_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
+const ROW_GAP = 6;
 const DEPARTURE_ID = '__departure__';
 const LONG_PRESS_MS = 250;
-
-function slotHeightAt(index: number): number {
-  return index === 0 ? DEPARTURE_HEIGHT : CARD_HEIGHT;
-}
-
-function slotY(index: number): number {
-  if (index === 0) return 0;
-  return FIRST_PLACE_OFFSET + (index - 1) * PLACE_SLOT;
-}
 
 interface RowItem {
   id: string;
@@ -53,6 +45,7 @@ interface Props {
   submitting?: boolean;
   onBack: () => void;
   onSaved: (places: SavedPlace[]) => void;
+  underlay?: React.ReactNode;
 }
 
 function GripDots() {
@@ -74,6 +67,7 @@ export default function EditScheduleView({
   submitting,
   onBack,
   onSaved,
+  underlay,
 }: Props) {
   const [order, setOrder] = useState<RowItem[]>(() => [
     { id: DEPARTURE_ID },
@@ -93,6 +87,39 @@ export default function EditScheduleView({
   const dragStartIndex = useRef(0);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 카드마다 태그 줄바꿈 여부가 달라서 콘텐츠(이름+태그) 높이가 제각각이다 — 태그가 적은
+  // 카드는 CARD_HEIGHT(최소 높이) 그대로 두고, 여러 줄로 줄바꿈되는 카드(예: 월정교)만 측정된
+  // 높이만큼 커지게 한다.
+  const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
+  // PanResponder는 id별로 한 번 만들어서 재사용하기 때문에(getResponder), 콜백 안에서 최신
+  // order/measuredHeights를 쓰려면 ref로 읽어야 한다 — 클로저로 캡처하면 처음 만들어질 때
+  // 값에 고정돼서, 나중에 값이 바뀌어도 드래그 중엔 옛날 값으로 계산해버린다.
+  const measuredHeightsRef = useRef(measuredHeights);
+  measuredHeightsRef.current = measuredHeights;
+
+  // 측정값은 내용(이름+태그)만의 높이라, 장소 선택 화면(PlaceCard)과 똑같이 보이려면 거기서
+  // 쓰는 것과 같은 상하 패딩(Spacing.md*2, es.row에도 적용)을 더해줘야 카드 높이가 일치한다.
+  const heightForItem = (item: RowItem) => {
+    if (!item.place) return DEPARTURE_HEIGHT;
+    const measured = measuredHeightsRef.current[item.id];
+    return Math.max(CARD_HEIGHT, (measured ?? 0) + Spacing.md * 2);
+  };
+  const slotHeightAt = (index: number) => {
+    const item = orderRef.current[index];
+    return item ? heightForItem(item) : CARD_HEIGHT;
+  };
+  const firstPlaceOffset = () => DEPARTURE_HEIGHT + ROW_GAP + PILL_HEIGHT + ROW_GAP;
+  // 카드 높이가 슬롯마다 달라져서 더 이상 단순 곱셈으로 위치를 못 구하고, 앞 슬롯들의 높이를
+  // 하나씩 누적해서 더해야 한다. 일정 장소 개수가 적어서(보통 10곳 이내) 성능은 문제없다.
+  const slotY = (index: number) => {
+    if (index === 0) return 0;
+    let y = firstPlaceOffset();
+    for (let i = 1; i < index; i++) {
+      y += slotHeightAt(i) + ROW_GAP + PILL_HEIGHT + ROW_GAP;
+    }
+    return y;
+  };
+
   const getPosition = (id: string, index: number) => {
     if (!positions[id]) positions[id] = new Animated.Value(slotY(index));
     return positions[id];
@@ -104,7 +131,8 @@ export default function EditScheduleView({
       const pos = getPosition(item.id, index);
       Animated.timing(pos, { toValue: slotY(index), duration: 200, useNativeDriver: true }).start();
     });
-  }, [order, draggingId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, draggingId, measuredHeights]);
 
   const clearLongPressTimer = () => {
     if (longPressTimer.current) {
@@ -138,15 +166,18 @@ export default function EditScheduleView({
           slotY(dragStartIndex.current) + (gestureState.dy - activationOffset.current);
         getPosition(id, dragStartIndex.current).setValue(rawY);
 
-        // index 0은 출발지 고정 자리라 장소는 그 아래로만 이동 가능. 장소 슬롯은 모두 균일한
-        // 간격(PLACE_SLOT)이라 첫 장소 기준 오프셋만 빼주면 바로 인덱스로 환산된다.
-        const targetIndex = Math.max(
-          1,
-          Math.min(
-            Math.round((rawY - FIRST_PLACE_OFFSET) / PLACE_SLOT) + 1,
-            orderRef.current.length - 1
-          )
-        );
+        // index 0은 출발지 고정 자리라 장소는 그 아래로만 이동 가능. 카드 슬롯 높이가 다 달라서
+        // (measuredHeights) 나눗셈으로는 인덱스를 못 구하고, 각 장소 슬롯의 시작 위치(slotY) 중
+        // 지금 위치(rawY)와 가장 가까운 슬롯을 찾는다.
+        let targetIndex = 1;
+        let bestDist = Infinity;
+        for (let i = 1; i < orderRef.current.length; i++) {
+          const dist = Math.abs(rawY - slotY(i));
+          if (dist < bestDist) {
+            bestDist = dist;
+            targetIndex = i;
+          }
+        }
         const currentIndex = orderRef.current.findIndex((it) => it.id === id);
         if (targetIndex !== currentIndex) {
           setOrder((prev) => {
@@ -185,9 +216,15 @@ export default function EditScheduleView({
 
   const removePlace = (id: string) => {
     setOrder((prev) => prev.filter((it) => it.id !== id));
+    setMeasuredHeights((prev) => {
+      if (!(id in prev)) return prev;
+      const { [id]: _removed, ...rest } = prev;
+      return rest;
+    });
   };
 
   return (
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
     <SafeAreaView style={es.safeArea}>
       <View style={es.header}>
         <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -261,7 +298,15 @@ export default function EditScheduleView({
                 />
 
                 {item.place ? (
-                  <View style={es.rowBody}>
+                  <View
+                    style={es.rowBody}
+                    onLayout={(e) => {
+                      const h = e.nativeEvent.layout.height;
+                      setMeasuredHeights((prev) =>
+                        prev[item.id] === h ? prev : { ...prev, [item.id]: h }
+                      );
+                    }}
+                  >
                     <Text style={es.rowLabel} numberOfLines={1}>
                       {item.place.name}
                     </Text>
@@ -334,6 +379,7 @@ export default function EditScheduleView({
         </TouchableOpacity>
       </View>
     </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
@@ -393,6 +439,8 @@ const es = StyleSheet.create({
     borderColor: '#EDE8E3',
     borderRadius: Radius.md,
     paddingHorizontal: Spacing.md,
+    // 장소 선택 화면(PlaceCard)과 카드 높이를 맞추려고 같은 상하 패딩을 준다.
+    paddingVertical: Spacing.md,
     gap: Spacing.sm,
     shadowColor: '#3A3330',
     shadowOpacity: 0.05,

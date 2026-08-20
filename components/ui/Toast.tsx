@@ -6,6 +6,8 @@ interface Props {
   message: string | null;
   subtitle?: string;
   onHide: () => void;
+  /** 있으면 토스트 본문(아이콘+텍스트)을 탭했을 때 호출되고, 토스트도 함께 닫힌다. */
+  onPress?: () => void;
   duration?: number;
   bottom?: number;
   icon?: React.ReactNode;
@@ -16,6 +18,7 @@ export default function Toast({
   message,
   subtitle,
   onHide,
+  onPress,
   duration = 2000,
   bottom,
   icon,
@@ -40,19 +43,29 @@ export default function Toast({
       style={[styles.container, bottom !== undefined && { bottom }, { opacity }]}
       pointerEvents="box-none"
     >
-      <View style={[styles.iconCircle, iconTone === 'sage' ? styles.iconCircleSage : styles.iconCircleCoral]}>
-        {icon ?? <Image source={require('@/assets/icons/pets.png')} style={styles.icon} resizeMode="contain" />}
-      </View>
-      <View style={styles.textCol}>
-        <Text style={styles.title} numberOfLines={1}>
-          {message}
-        </Text>
-        {subtitle && (
-          <Text style={styles.subtitle} numberOfLines={1}>
-            {subtitle}
+      <TouchableOpacity
+        style={styles.body}
+        activeOpacity={onPress ? 0.7 : 1}
+        disabled={!onPress}
+        onPress={() => {
+          onPress?.();
+          onHide();
+        }}
+      >
+        <View style={[styles.iconCircle, iconTone === 'sage' ? styles.iconCircleSage : styles.iconCircleCoral]}>
+          {icon ?? <Image source={require('@/assets/icons/pets.png')} style={styles.icon} resizeMode="contain" />}
+        </View>
+        <View style={styles.textCol}>
+          <Text style={styles.title} numberOfLines={1}>
+            {message}
           </Text>
-        )}
-      </View>
+          {subtitle && (
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          )}
+        </View>
+      </TouchableOpacity>
       <TouchableOpacity onPress={onHide} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
         <Text style={styles.close}>×</Text>
       </TouchableOpacity>
@@ -81,6 +94,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 6 },
+  },
+  body: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   iconCircle: {
     width: 36,

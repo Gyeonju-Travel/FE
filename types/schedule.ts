@@ -6,5 +6,8 @@ export interface Schedule {
   month: number; // 0-indexed, matches Date#getMonth()
   day: number; // 1-indexed
   departureLabel: string;
+  departureLatitude: number;
+  departureLongitude: number;
   places: SavedPlace[];
+  started: boolean;
 }

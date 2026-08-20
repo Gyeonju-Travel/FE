@@ -91,8 +91,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
 
-    // 카드 높이 113px
-    height: 113,
+    // 카드 기본 높이 113px — 태그가 많아서 줄바꿈되면(예: 월정교) 카드가 그만큼 늘어나야 하므로
+    // height가 아니라 minHeight로 둔다.
+    minHeight: 113,
 
     // 화면 배경색과 동일하게
     backgroundColor: Colors.background,
