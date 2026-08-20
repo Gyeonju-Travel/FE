@@ -13,7 +13,7 @@ import {
   getEarnedStampIndices,
 } from '@/constants/stamps';
 import { getAccessToken } from '@/utils/authStorage';
-import { addScheduleFootprints, visitPlace, startSchedule } from '@/utils/api';
+import { addScheduleFootprints, visitPlace, startSchedule, cancelStartSchedule } from '@/utils/api';
 import {
   isPushEnabled,
   notify,
@@ -446,6 +446,14 @@ async function endActiveScheduleDueToExit(scheduleId: string): Promise<void> {
   await stopLocationTracking();
   const arrivedIds = await getArrivedPlaceIds(scheduleId);
   if (arrivedIds.length === 0) {
+    const token = await getAccessToken();
+    if (token) {
+      try {
+        await cancelStartSchedule(Number(scheduleId), token);
+      } catch {
+        // 서버 취소 실패는 무시 — 로컬은 이미 취소된 것으로 정리된다.
+      }
+    }
     await notify(
       '경주 안에서만 일정을 시작할 수 있어요',
       '경주 밖에 있어서 일정이 취소됐어요. 경주에 도착하면 다시 시작해주세요.'
@@ -722,6 +730,18 @@ export async function cancelActiveSchedule(scheduleId: string): Promise<boolean>
   // 기록도 여기서 지워서 다음 시도가 "이미 다 갔다 왔다"는 상태로 시작하지 않게 한다.
   await clearBreadcrumbPath(scheduleId);
   await clearArrivedPlaces(scheduleId);
+
+  // 서버에도 취소를 알려서 started 상태를 되돌린다. 이걸 안 하면 서버는 계속 "시작됨"으로
+  // 보고 있어서, 날짜가 지나거나 21시가 지나면 아무 기록도 없는데 "기록보기"로 고정되고
+  // 21시 알림 대상에서도 계속 잡힌다.
+  const token = await getAccessToken();
+  if (token) {
+    try {
+      await cancelStartSchedule(Number(scheduleId), token);
+    } catch {
+      // 서버 취소 실패는 무시 — 로컬은 이미 취소된 것으로 정리된다.
+    }
+  }
 
   const raw = await AsyncStorage.getItem(TODAYS_SCRAP_SCHEDULE_KEY);
   if (raw) {

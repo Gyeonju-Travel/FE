@@ -649,6 +649,13 @@ export function startSchedule(scheduleId: number, accessToken: string) {
   return request<ScheduleStartResponse>(`/api/schedules/${scheduleId}/start`, { method: 'POST', accessToken });
 }
 
+/** 시작했던 일정을 취소해서 서버의 started 상태를 되돌린다. 이걸 안 부르면 서버는 이 일정을
+ * 계속 "시작됨"으로 보고, 날짜가 지나거나 21시가 지나면 앱에서 영구히 "기록보기"로 고정되고
+ * 21시 알림 대상에서도 계속 잡힌다. */
+export function cancelStartSchedule(scheduleId: number, accessToken: string) {
+  return request<ScheduleStartResponse>(`/api/schedules/${scheduleId}/start`, { method: 'DELETE', accessToken });
+}
+
 /** 선택한 일정을 모두 삭제한다. */
 export function deleteSchedules(scheduleIds: number[], accessToken: string) {
   return request<void>('/api/schedules', { method: 'DELETE', body: { scheduleIds }, accessToken });
