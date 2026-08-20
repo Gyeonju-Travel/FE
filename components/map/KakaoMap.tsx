@@ -1,4 +1,4 @@
-import React, { forwardRef, useImperativeHandle, useRef } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { MapPlace } from '@/types/map';
@@ -8,6 +8,7 @@ import {
   currentLocationUri,
   routeStartPinUri,
   routeNumberPinUris,
+  pawTrailUri,
 } from './kakaoMapAssets';
 import { buildKakaoMapHtml, RouteMapPlace, RoutePathPoint } from './kakaoMapHtml';
 
@@ -33,6 +34,10 @@ interface Props {
   currentLocation?: { lat: number; lng: number } | null;
   routePlaces?: RouteMapPlace[];
   routePath?: RoutePathPoint[];
+  /** 'paw'면 점선 대신 경로를 따라 발자국 아이콘을 찍는다. 기본은 점선('dash'). */
+  routeLineStyle?: 'dash' | 'paw';
+  /** 경로 전체가 보이도록 맞출 때 가장자리에 남기는 여백(px). 기본 80 — 작을수록 더 확대돼 보인다. */
+  routeBoundsPadding?: number;
   onMarkerPress?: (id: string) => void;
   onMapPress?: () => void;
   onMapReady?: () => void;
@@ -48,6 +53,8 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     currentLocation = null,
     routePlaces = [],
     routePath = [],
+    routeLineStyle = 'dash',
+    routeBoundsPadding = 80,
     onMarkerPress,
     onMapPress,
     onMapReady,
@@ -55,6 +62,31 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
   ref
 ) {
   const webViewRef = useRef<WebView>(null);
+  const [mapReady, setMapReady] = useState(false);
+
+  const updateMyLocation = (lat: number, lng: number) => {
+    webViewRef.current?.injectJavaScript(`
+      if (window.kakaoMap) {
+        var pos = new kakao.maps.LatLng(${lat}, ${lng});
+        if (window.myLocationOverlay) {
+          window.myLocationOverlay.setPosition(pos);
+        } else {
+          var el = document.createElement('div');
+          el.className = 'my-location';
+          el.innerHTML = '<div class="pulse"></div><img src="${currentLocationUri}" />';
+          window.myLocationOverlay = new kakao.maps.CustomOverlay({
+            map: window.kakaoMap,
+            position: pos,
+            content: el,
+            xAnchor: 0.5,
+            yAnchor: 0.5,
+            zIndex: 5,
+          });
+        }
+      }
+      true;
+    `);
+  };
 
   useImperativeHandle(ref, () => ({
     zoomIn() {
@@ -72,30 +104,17 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         `if(window.kakaoMap){window.kakaoMap.panTo(new kakao.maps.LatLng(${lat},${lng}));}true;`
       );
     },
-    updateMyLocation(lat: number, lng: number) {
-      webViewRef.current?.injectJavaScript(`
-        if (window.kakaoMap) {
-          var pos = new kakao.maps.LatLng(${lat}, ${lng});
-          if (window.myLocationOverlay) {
-            window.myLocationOverlay.setPosition(pos);
-          } else {
-            var el = document.createElement('div');
-            el.className = 'my-location';
-            el.innerHTML = '<div class="pulse"></div><img src="${currentLocationUri}" />';
-            window.myLocationOverlay = new kakao.maps.CustomOverlay({
-              map: window.kakaoMap,
-              position: pos,
-              content: el,
-              xAnchor: 0.5,
-              yAnchor: 0.5,
-              zIndex: 5,
-            });
-          }
-        }
-        true;
-      `);
-    },
+    updateMyLocation,
   }));
+
+  // currentLocation prop이 바뀔 때(위치 권한 최초 허용, 위치 갱신 등)도 오버레이가 따라가도록,
+  // 지도가 준비된 뒤에는 이 effect로도 한 번 더 반영해둔다 (버튼을 누르지 않아도 갱신됨).
+  useEffect(() => {
+    if (mapReady && currentLocation) {
+      updateMyLocation(currentLocation.lat, currentLocation.lng);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, currentLocation?.lat, currentLocation?.lng]);
 
   const centerLat = routePlaces.length > 0
     ? routePlaces[0].lat
@@ -104,23 +123,43 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     ? routePlaces[0].lng
     : markers.length > 0 ? markers[0].longitude : longitude;
 
-  const html = buildKakaoMapHtml({
-    kakaoJsKey: KAKAO_JS_KEY,
-    centerLat,
-    centerLng,
-    level,
-    markers,
-    categoryPinUri,
-    categoryPinUriSaved,
-    likedPlaceIds,
-    currentLocationImageUri: currentLocationUri,
-    currentLocationLat: currentLocation?.lat,
-    currentLocationLng: currentLocation?.lng,
-    routePlaces,
-    routeStartPinUri,
-    routeNumberPinUris,
-    routePath,
-  });
+  // currentLocation은 최초 1회만 html에 반영한다. 이후 위치가 갱신될 때마다 이 값을 html에
+  // 반영하면 WebView의 source.html이 바뀌어 페이지 전체가 리로드되면서, 같은 타이밍에 호출한
+  // moveTo()의 panTo 이동이 새로 로드된(원래 중심으로 되돌아간) 지도에 의해 무효화된다.
+  // 이후 위치 갱신은 updateMyLocation()으로 오버레이만 이동시켜 리로드 없이 처리한다.
+  const initialCurrentLocationRef = useRef(currentLocation);
+
+  const html = useMemo(
+    () =>
+      buildKakaoMapHtml({
+        kakaoJsKey: KAKAO_JS_KEY,
+        centerLat,
+        centerLng,
+        level,
+        markers,
+        categoryPinUri,
+        categoryPinUriSaved,
+        likedPlaceIds,
+        currentLocationImageUri: currentLocationUri,
+        currentLocationLat: initialCurrentLocationRef.current?.lat,
+        currentLocationLng: initialCurrentLocationRef.current?.lng,
+        routePlaces,
+        routeStartPinUri,
+        routeNumberPinUris,
+        routePath,
+        routeLineStyle,
+        pawTrailUri,
+        routeBoundsPadding,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [centerLat, centerLng, level, markers, likedPlaceIds, routePlaces, routePath, routeLineStyle, routeBoundsPadding]
+  );
+
+  // html이 바뀌면 WebView가 통째로 리로드되어 window.kakaoMap이 새로 생성되므로,
+  // 다음 'mapReady' 메시지가 올 때까지는 준비 안 된 상태로 취급한다.
+  useEffect(() => {
+    setMapReady(false);
+  }, [html]);
 
   const handleMessage = (event: WebViewMessageEvent) => {
     try {
@@ -130,6 +169,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       } else if (data.type === 'mapClick') {
         onMapPress?.();
       } else if (data.type === 'mapReady') {
+        setMapReady(true);
         onMapReady?.();
       }
     } catch (_) {}
@@ -139,7 +179,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     <WebView
       ref={webViewRef}
       style={styles.map}
-      source={{ html }}
+      source={{ html, baseUrl: 'https://gyeonju-travel.vercel.app' }}
       originWhitelist={['*']}
       javaScriptEnabled
       domStorageEnabled

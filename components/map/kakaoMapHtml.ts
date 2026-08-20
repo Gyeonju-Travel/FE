@@ -31,6 +31,12 @@ interface BuildKakaoMapHtmlParams {
   routeNumberPinUris?: string[];
   /** 인도를 따라가는 실제 보행 경로 좌표. 있으면 실선으로, 없으면 정류장 간 직선(점선)으로 대체 표시. */
   routePath?: RoutePathPoint[];
+  /** 'paw'면 점선 대신 경로를 따라 발자국 아이콘을 일정 간격으로 찍는다. 기본은 점선('dash'). */
+  routeLineStyle?: 'dash' | 'paw';
+  /** routeLineStyle이 'paw'일 때 쓰는 발바닥 아이콘. */
+  pawTrailUri?: string;
+  /** 경로 전체가 보이도록 맞출 때 가장자리에 남기는 여백(px). 기본 80. */
+  routeBoundsPadding?: number;
 }
 
 export function buildKakaoMapHtml({
@@ -49,6 +55,9 @@ export function buildKakaoMapHtml({
   routeStartPinUri = '',
   routeNumberPinUris = [],
   routePath = [],
+  routeLineStyle = 'dash',
+  pawTrailUri = '',
+  routeBoundsPadding = 80,
 }: BuildKakaoMapHtmlParams): string {
   const likedPlaceIdSet = new Set(likedPlaceIds);
   const markersJson = JSON.stringify(
@@ -210,19 +219,84 @@ export function buildKakaoMapHtml({
       var routeStartPinUri = '${routeStartPinUri}';
       var routeNumberPinUris = ${routeNumberPinUrisJson};
       var routePathPoints = ${routePathJson};
+      var routeLineStyle = '${routeLineStyle}';
+      var pawTrailUri = '${pawTrailUri}';
       if (routePlaces.length > 0) {
         var hasRealPath = routePathPoints.length > 0;
         var linePath = (hasRealPath ? routePathPoints : routePlaces).map(function(p) {
           return new kakao.maps.LatLng(p.lat, p.lng);
         });
-        new kakao.maps.Polyline({
-          map: window.kakaoMap,
-          path: linePath,
-          strokeWeight: 2,
-          strokeColor: '#E8906A',
-          strokeOpacity: 0.9,
-          strokeStyle: 'shortdash',
-        });
+
+        if (routeLineStyle === 'paw' && linePath.length > 1) {
+          // 점선 대신 실제 보행 경로를 따라 일정 간격(미터 기준)으로 발자국 아이콘을 지그재그로 찍는다.
+          var plainPath = linePath.map(function(ll) { return { lat: ll.getLat(), lng: ll.getLng() }; });
+          function haversineMeters(a, b) {
+            var R = 6371000;
+            var dLat = (b.lat - a.lat) * Math.PI / 180;
+            var dLng = (b.lng - a.lng) * Math.PI / 180;
+            var s = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+              + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            return 2 * R * Math.asin(Math.sqrt(s));
+          }
+          var segLens = [];
+          var totalLen = 0;
+          for (var si = 0; si < plainPath.length - 1; si++) {
+            var segLen = haversineMeters(plainPath[si], plainPath[si + 1]);
+            segLens.push(segLen);
+            totalLen += segLen;
+          }
+          // 경로 길이가 다양해서(수백m~수km) 고정 간격을 쓰면 짧은 구간은 겹쳐서 실선처럼 뭉치고
+          // 긴 구간은 너무 듬성듬성해진다. 전체 길이를 발자국 약 18개로 나눈 간격을 쓰되,
+          // 너무 촘촘해지지 않도록 최소 간격을 둔다.
+          var PAW_SPACING_M = Math.max(12, totalLen / 18);
+          var PAW_SIDE_OFFSET_M = Math.min(4, PAW_SPACING_M * 0.2);
+          var pawSide = 1;
+          for (var dist = PAW_SPACING_M / 2; dist < totalLen; dist += PAW_SPACING_M) {
+            var remaining = dist;
+            var segIndex = 0;
+            while (segIndex < segLens.length && remaining > segLens[segIndex]) {
+              remaining -= segLens[segIndex];
+              segIndex++;
+            }
+            if (segIndex >= segLens.length) break;
+            var from = plainPath[segIndex];
+            var to = plainPath[segIndex + 1];
+            var t = remaining / (segLens[segIndex] || 1);
+            var lat = from.lat + (to.lat - from.lat) * t;
+            var lng = from.lng + (to.lng - from.lng) * t;
+            var bearing = Math.atan2(to.lng - from.lng, to.lat - from.lat);
+            var perp = bearing + Math.PI / 2;
+            var mPerDegLat = 111320;
+            var mPerDegLng = 111320 * Math.cos(lat * Math.PI / 180);
+            var offsetLat = (Math.cos(perp) * PAW_SIDE_OFFSET_M * pawSide) / mPerDegLat;
+            var offsetLng = (Math.sin(perp) * PAW_SIDE_OFFSET_M * pawSide) / mPerDegLng;
+
+            var pawEl = document.createElement('img');
+            pawEl.src = pawTrailUri;
+            pawEl.style.width = '14px';
+            pawEl.style.height = '13px';
+            // bearing은 정북 기준 시계방향 각도라 CSS rotate()와 기준이 같다(0deg=진행방향 그대로).
+            pawEl.style.transform = 'rotate(' + (bearing * 180 / Math.PI) + 'deg)';
+            new kakao.maps.CustomOverlay({
+              map: window.kakaoMap,
+              position: new kakao.maps.LatLng(lat + offsetLat, lng + offsetLng),
+              content: pawEl,
+              xAnchor: 0.5,
+              yAnchor: 0.5,
+              zIndex: 2,
+            });
+            pawSide *= -1;
+          }
+        } else {
+          new kakao.maps.Polyline({
+            map: window.kakaoMap,
+            path: linePath,
+            strokeWeight: 2,
+            strokeColor: '#E8906A',
+            strokeOpacity: 0.9,
+            strokeStyle: 'shortdash',
+          });
+        }
 
         routePlaces.forEach(function(place, idx) {
           var pinUri = idx === 0 ? routeStartPinUri : routeNumberPinUris[idx - 1];
@@ -245,7 +319,7 @@ export function buildKakaoMapHtml({
 
         var bounds = new kakao.maps.LatLngBounds();
         linePath.forEach(function(pos) { bounds.extend(pos); });
-        window.kakaoMap.setBounds(bounds, 80, 80, 80, 80);
+        window.kakaoMap.setBounds(bounds, ${routeBoundsPadding}, ${routeBoundsPadding}, ${routeBoundsPadding}, ${routeBoundsPadding});
       }
 
       ${
