@@ -88,6 +88,7 @@ import {
   ApiError,
 } from '@/utils/api';
 import { getAccessToken, clearTokens, getAccountEmail } from '@/utils/authStorage';
+import { unregisterPushToken } from '@/utils/notifications';
 import FormField, { EyeToggle, InlineActionButton } from '@/components/auth/FormField';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
 import { onTabReset } from '@/utils/tabReset';
@@ -431,6 +432,7 @@ function SettingsView({
   const handleLogout = async () => {
     const token = await getAccessToken();
     if (token) {
+      await unregisterPushToken(token);
       try {
         await logoutApi(token);
       } catch (e) {

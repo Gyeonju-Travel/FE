@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { registerFcmToken, deleteFcmToken } from '@/utils/api';
 
 // locationTracking.ts와 constants/stamps.ts 둘 다 알림을 보내야 해서(스탬프는 stamps.ts가
 // 완주 판정을 하고, 위치 추적은 locationTracking.ts가 처리) 순환 참조 없이 공유할 수 있게
@@ -72,5 +73,39 @@ export async function dismissTrackingNotification(): Promise<void> {
     await Notifications.dismissNotificationAsync(id);
   } catch {
     // 사용자가 이미 지웠거나 실패해도 무시
+  }
+}
+
+// ─── 서버 푸시(FCM) 토큰 등록 ────────────────────────────────────────────────────
+// 로컬 알림(21시 리마인더, 스탬프 획득 알림 등)은 이 등록과 무관하게 항상 동작한다. 여기서
+// 등록하는 건 서버가 능동적으로 보내는 푸시(예: 21시 스탬프 앨범 준비 알림)를 받기 위한 것.
+
+/** 로그인 직후/앱 재실행 시 호출한다. 알림 권한이 없으면 요청부터 하고, 기기 푸시 토큰을 받아
+ * 서버에 등록한다. Firebase 설정(google-services.json 등)이 아직 없는 환경에서는
+ * getDevicePushTokenAsync()가 실패하는데, 그 경우도 조용히 무시한다 — 로컬 알림엔 영향 없다. */
+export async function registerPushToken(accessToken: string): Promise<void> {
+  try {
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let status = existingStatus;
+    if (status !== 'granted') {
+      ({ status } = await Notifications.requestPermissionsAsync());
+    }
+    if (status !== 'granted') return;
+
+    const { data } = await Notifications.getDevicePushTokenAsync();
+    await registerFcmToken(String(data), accessToken);
+  } catch {
+    // 토큰 발급/등록 실패는 무시
+  }
+}
+
+/** 로그아웃 시 호출한다. 이 기기의 푸시 토큰을 서버에서 삭제해서, 로그아웃한 기기가 이전
+ * 계정 앞으로 온 푸시를 계속 받지 않게 한다. */
+export async function unregisterPushToken(accessToken: string): Promise<void> {
+  try {
+    const { data } = await Notifications.getDevicePushTokenAsync();
+    await deleteFcmToken(String(data), accessToken);
+  } catch {
+    // 토큰 조회/삭제 실패는 무시 — 세션은 어차피 로그아웃으로 정리된다.
   }
 }

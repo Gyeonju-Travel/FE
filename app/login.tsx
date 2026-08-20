@@ -18,6 +18,7 @@ import PasswordIcon from '@/assets/login/field-password.svg';
 import EyeIcon from '@/assets/login/field-password-eye.svg';
 import { login } from '@/utils/api';
 import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
+import { registerPushToken } from '@/utils/notifications';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -48,6 +49,7 @@ export default function LoginScreen() {
       console.log('[로그인] 성공. memberId:', result.memberId, 'onboardingCompleted:', result.onboardingCompleted);
       await saveTokens(result.accessToken, result.refreshToken);
       await saveAccountEmail(email.trim());
+      registerPushToken(result.accessToken);
       router.replace(result.onboardingCompleted ? '/(tabs)' : '/signup-complete');
     } catch (e) {
       console.error('[로그인] 실패:', e);

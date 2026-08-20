@@ -885,3 +885,16 @@ export interface SignUpTermsResponse {
 export function getMyPageTerms(accessToken: string) {
   return request<SignUpTermsResponse>('/api/my-page/terms', { accessToken });
 }
+
+// ─── 알림 (Notification) ──────────────────────────────────────────────────────
+/** 현재 기기의 FCM 토큰을 서버에 등록한다 — 이 회원에게 스탬프 앨범 준비 등 서버 발 푸시가
+ * 오려면 먼저 이 토큰이 등록돼 있어야 한다. */
+export function registerFcmToken(token: string, accessToken: string) {
+  return request<void>('/api/notifications/fcm-token', { method: 'POST', body: { token }, accessToken });
+}
+
+/** 로그아웃 시 현재 기기의 FCM 토큰을 서버에서 삭제한다 — 안 지우면 로그아웃한 기기가
+ * 이전 계정 앞으로 온 푸시를 계속 받게 된다. */
+export function deleteFcmToken(token: string, accessToken: string) {
+  return request<void>('/api/notifications/fcm-token', { method: 'DELETE', body: { token }, accessToken });
+}

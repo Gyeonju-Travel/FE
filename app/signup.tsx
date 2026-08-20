@@ -22,6 +22,7 @@ import GenderMaleIcon from '@/assets/login/field-gender-male.svg';
 import GenderFemaleIcon from '@/assets/login/field-gender-female.svg';
 import { signUp, ApiError } from '@/utils/api';
 import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
+import { registerPushToken } from '@/utils/notifications';
 import { showAlert } from '@/components/ui/AppAlert';
 
 type Gender = '여성' | '남성';
@@ -225,6 +226,7 @@ export default function SignupScreen() {
       });
       await saveTokens(result.accessToken);
       await saveAccountEmail(result.email);
+      registerPushToken(result.accessToken);
       router.replace('/signup-complete');
     } catch (e) {
       if (e instanceof ApiError) {

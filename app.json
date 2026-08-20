@@ -10,6 +10,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.anonymous.gyeonju-travel",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "UIBackgroundModes": [
           "location"
@@ -38,7 +39,8 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
-      "package": "com.anonymous.gyeonjutravel"
+      "package": "com.anonymous.gyeonjutravel",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",

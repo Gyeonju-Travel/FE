@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "182927890578",
+    "project_id": "gyeonju-travel",
+    "storage_bucket": "gyeonju-travel.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:182927890578:android:8da5ca02b411cc24a32e4b",
+        "android_client_info": {
+          "package_name": "com.anonymous.gyeonjutravel"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD-ubP_qYzllcWh-dU6oE61W8Rh-SMMr_k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
