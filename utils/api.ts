@@ -894,6 +894,32 @@ export function getMyPageTerms(accessToken: string) {
 }
 
 // ─── 알림 (Notification) ──────────────────────────────────────────────────────
+// 주의: NotificationListItemResponse엔 아직 title/body/type이 안 내려온다(백엔드 확인 필요).
+// 그래서 목록 화면에서는 어떤 알림인지 내용을 못 보여주고 읽음 여부만 다룰 수 있다.
+export interface NotificationListItemResponse {
+  notificationId: number;
+  read: boolean;
+  readAt: string | null;
+}
+
+export interface NotificationListResponse {
+  unreadCount: number;
+  notifications: NotificationListItemResponse[];
+}
+
+/** 이 회원에게 온 개인 알림 목록을 조회한다. */
+export function getNotifications(accessToken: string) {
+  return request<NotificationListResponse>('/api/notifications', { accessToken });
+}
+
+/** 알림 하나를 읽음 처리한다. */
+export function markNotificationRead(notificationId: number, accessToken: string) {
+  return request<NotificationListItemResponse>(`/api/notifications/${notificationId}/read`, {
+    method: 'PATCH',
+    accessToken,
+  });
+}
+
 /** 현재 기기의 FCM 토큰을 서버에 등록한다 — 이 회원에게 스탬프 앨범 준비 등 서버 발 푸시가
  * 오려면 먼저 이 토큰이 등록돼 있어야 한다. */
 export function registerFcmToken(token: string, accessToken: string) {

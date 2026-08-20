@@ -14,7 +14,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import HeroIllustration from '@/components/home/HeroIllustration';
 import RecommendedRouteView from '@/components/home/RecommendedRouteView';
-import UpdateNewsView from '@/components/home/UpdateNewsView';
+import NotificationListView from '@/components/home/NotificationListView';
 import TodayScrapView from '@/components/home/TodayScrapView';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
@@ -35,9 +35,8 @@ import {
   popPendingStampToast,
 } from '@/constants/stamps';
 import { getPendingScrapSchedule, TodaysScrapSchedule } from '@/utils/locationTracking';
-import { hasUnreadUpdateNews } from '@/constants/updateNews';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
-import { getHome, getStampAlbum, getTravelRecords } from '@/utils/api';
+import { getHome, getStampAlbum, getTravelRecords, getNotifications } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { onTabReset } from '@/utils/tabReset';
 import { personalityToLabel } from '@/utils/petMappers';
@@ -71,7 +70,7 @@ export default function HomeScreen() {
   const [profileTopHeight, setProfileTopHeight] = useState(0);
   const [profileBottomHeight, setProfileBottomHeight] = useState(0);
   const [showRecommendedRoute, setShowRecommendedRoute] = useState(false);
-  const [showUpdateNews, setShowUpdateNews] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [hasUnreadNotification, setHasUnreadNotification] = useState(false);
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
   const [recentStampIndices, setRecentStampIndices] = useState<number[]>([0]);
@@ -85,10 +84,6 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchGyeongjuWeather().then(setWeather);
-  }, []);
-
-  useEffect(() => {
-    hasUnreadUpdateNews().then(setHasUnreadNotification);
   }, []);
 
   // 다른 탭에 있는 동안 백그라운드 위치 추적으로 스탬프/발자국이 늘었을 수 있어, 홈 탭에 올 때마다 다시 읽는다.
@@ -138,6 +133,13 @@ export default function HomeScreen() {
             setFootprintCount(total);
           } catch (e) {
             // 발자국 합계 집계 실패는 조용히 무시 — 이전에 표시된 값을 유지한다.
+          }
+
+          try {
+            const { unreadCount } = await getNotifications(token);
+            setHasUnreadNotification(unreadCount > 0);
+          } catch (e) {
+            // 알림 미확인 개수 조회 실패는 무시 — 벨 아이콘은 이전 상태로 유지된다.
           }
         }
 
@@ -212,7 +214,7 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={styles.bellBtn}
                 activeOpacity={0.8}
-                onPress={() => setShowUpdateNews(true)}
+                onPress={() => setShowNotifications(true)}
               >
                 {hasUnreadNotification ? (
                   <BellActiveIcon width={15} height={18} />
@@ -420,12 +422,19 @@ export default function HomeScreen() {
     );
   }
 
-  if (showUpdateNews) {
+  if (showNotifications) {
     return (
-      <UpdateNewsView
-        onBack={() => {
-          setShowUpdateNews(false);
-          hasUnreadUpdateNews().then(setHasUnreadNotification);
+      <NotificationListView
+        onBack={async () => {
+          setShowNotifications(false);
+          const token = await getAccessToken();
+          if (!token) return;
+          try {
+            const { unreadCount } = await getNotifications(token);
+            setHasUnreadNotification(unreadCount > 0);
+          } catch (e) {
+            // 무시 — 이전 상태 유지
+          }
         }}
         underlay={baseScreen}
       />
