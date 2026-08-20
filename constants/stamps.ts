@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getMyPageStamps } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
+import { notify, STAMP_NOTIFICATION_DATA } from '@/utils/notifications';
 import Stamp01Welcome from '@/assets/mypage/stamps/stamp-01-welcome.svg';
 import Stamp02Gyochon from '@/assets/mypage/stamps/stamp-02-gyochon.svg';
 import Stamp03Hwangridan from '@/assets/mypage/stamps/stamp-03-hwangridan.svg';
@@ -102,10 +103,11 @@ export function stampIndexFromBackendName(stampName: string): number | undefined
  * 로그인 전이거나 서버 조회에 실패하면(오프라인 등) 로컬 캐시로 대체한다. */
 export async function getDisplayStampIndices(): Promise<Set<number>> {
   const token = await getAccessToken();
+  let indices: Set<number>;
   if (token) {
     try {
       const { stamps } = await getMyPageStamps(token);
-      const indices = new Set<number>();
+      indices = new Set<number>();
       for (const stamp of stamps) {
         const index = stampIndexFromBackendName(stamp.stampName);
         if (index !== undefined) indices.add(index);
@@ -114,12 +116,23 @@ export async function getDisplayStampIndices(): Promise<Set<number>> {
       // 기기 변경으로 로컬 캐시가 비어있을 때, awardStamp()가 이미 획득한 관광지 스탬프를 다시
       // "새로 획득"으로 착각해서 축하 토스트/푸시 알림이 중복으로 뜬다.
       await mergeEarnedStampIndices(indices);
-      return indices;
     } catch {
       // 서버 조회 실패 시 로컬 캐시로 대체
+      indices = await getEarnedStampIndices();
     }
+  } else {
+    indices = await getEarnedStampIndices();
   }
-  return getEarnedStampIndices();
+
+  // 관광지 6개(서버 기준)를 다 모았는데 "경주마스터"(로컬 전용 보너스 배지)가 아직 로컬에
+  // 없으면 여기서 보정 지급한다. 관광지 스탬프는 서버에서 하나씩 받아오는 반면 6개를 다
+  // 모았을 때의 보너스는 로컬에서만 판단하다 보니, 순서·타이밍에 따라(예: 재설치로 로컬
+  // 캐시가 초기화된 경우) awardStamp() 안의 완주 체크를 놓칠 수 있다.
+  if (NAMED_ATTRACTION_INDICES.every((i) => indices.has(i)) && !indices.has(GYEONGJU_MASTER_STAMP_INDEX)) {
+    await awardStamp(GYEONGJU_MASTER_STAMP_INDEX);
+    indices.add(GYEONGJU_MASTER_STAMP_INDEX);
+  }
+  return indices;
 }
 
 // 8번(완벽한여행, index 7)은 하루 일정을 전부 완주했을 때 지급 — locationTracking.ts가
@@ -173,6 +186,30 @@ async function mergeEarnedStampIndices(serverIndices: Set<number>): Promise<void
   }
 }
 
+async function getLocalEarnedOrder(): Promise<number[]> {
+  const raw = await AsyncStorage.getItem(EARNED_STAMPS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((n): n is number => typeof n === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 홈 화면 미리보기용: 최근 획득한 스탬프를 최신순으로 최대 count개 반환한다.
+ * 서버는 획득 순서를 안 줘서, 로컬에 기록된 획득 순서(웰컴이 항상 가장 먼저)를 기준으로 삼는다.
+ * 로컬 기록에 없는(다른 기기 등에서 획득된) 스탬프는 오래된 것으로 간주해 뒤에 붙인다. */
+export async function getRecentStampIndices(count: number): Promise<number[]> {
+  const earned = await getDisplayStampIndices();
+  const localOrder = await getLocalEarnedOrder();
+  const chronological = [0, ...localOrder.filter((i) => i !== 0)];
+  const known = chronological.filter((i) => earned.has(i));
+  const unknown = [...earned].filter((i) => !chronological.includes(i));
+  const oldestFirst = [...known, ...unknown];
+  return oldestFirst.slice(-count).reverse();
+}
+
 async function pushPendingStampToast(stampIndex: number): Promise<void> {
   const raw = await AsyncStorage.getItem(PENDING_STAMP_TOASTS_KEY);
   const list: number[] = raw ? JSON.parse(raw) : [];
@@ -204,9 +241,13 @@ export async function awardStamp(stampIndex: number): Promise<boolean> {
 
   indices.add(stampIndex);
   const newlyEarned = [stampIndex];
-  if (NAMED_ATTRACTION_INDICES.every((i) => indices.has(i))) {
+  if (!indices.has(GYEONGJU_MASTER_STAMP_INDEX) && NAMED_ATTRACTION_INDICES.every((i) => indices.has(i))) {
     indices.add(GYEONGJU_MASTER_STAMP_INDEX);
     newlyEarned.push(GYEONGJU_MASTER_STAMP_INDEX);
+    // 관광지 스탬프 알림엔 그 관광지 이름이 붙어서 따로 나가지만, 이걸로 완성되는 "경주마스터"
+    // 보너스는 어느 호출 경로로 지급되든(관광지 알림, getDisplayStampIndices 보정 등) 여기
+    // 한 곳에서만 판단되므로, 푸시 알림도 여기서 직접 보낸다.
+    await notify('경주 마스터! 🏆', '관광지 스탬프 6개를 모두 모았어요!', STAMP_NOTIFICATION_DATA);
   }
   await AsyncStorage.setItem(EARNED_STAMPS_KEY, JSON.stringify([...indices]));
   for (const idx of newlyEarned) await pushPendingStampToast(idx);

@@ -15,15 +15,19 @@ import {
   Modal,
   Dimensions,
   Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 import EditProfileIcon from '@/assets/icons/edit-profile.svg';
 import WithdrawIcon from '@/assets/icons/withdraw.svg';
 import RecordPlaceIcon from '@/assets/icons/record-place.svg';
 import RecordTimeIcon from '@/assets/icons/record-time.svg';
+import RecordArrowIcon from '@/assets/icons/record-arrow.svg';
 import PencilIcon from '@/assets/icons/pencil.svg';
 import MenuDiaryIcon from '@/assets/icons/menu-diary.svg';
 import MenuReportIcon from '@/assets/icons/menu-report.svg';
@@ -44,7 +48,6 @@ import CodeFieldIcon from '@/assets/login/field-code.svg';
 import SettingPasswordIcon from '@/assets/icons/setting-password.svg';
 import ToastPasswordIcon from '@/assets/icons/toast/password-changed.svg';
 import StampProgressIllustration from '@/assets/mypage/stamp-progress.svg';
-import ProfileBottomLandscape from '@/assets/mypage/profile-bottom-landscape.svg';
 import ReportHeroLandscape from '@/assets/mypage/report-hero-landscape.svg';
 import {
   STAMP_ICONS,
@@ -53,6 +56,7 @@ import {
   GEOFENCE_ATTRACTIONS,
   STAMP_HINTS,
   getDisplayStampIndices,
+  getRecentStampIndices,
   stampIndexFromBackendName,
 } from '@/constants/stamps';
 import StampHintCarousel from '@/components/mypage/StampHintCarousel';
@@ -77,6 +81,7 @@ import {
   TravelRecordsResponse,
   TravelRecordItemResponse,
   getStampAlbum,
+  getSchedulesByDate,
   sendPasswordResetVerificationCode,
   verifyPasswordResetCode,
   resetPassword,
@@ -105,6 +110,9 @@ import ToastPlaceReportIcon from '@/assets/icons/toast/place-report.svg';
 import PhotoPermissionModal from '@/components/ui/PhotoPermissionModal';
 import AddressSearchModal from '@/components/ui/AddressSearchModal';
 import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
+import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
+import { isPushEnabled, setPushEnabled as savePushEnabled, getArrivedPlaceIds } from '@/utils/locationTracking';
+import { searchPlaceByName } from '@/utils/scheduleMappers';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const PROFILE_TOP_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 350) / 390;
@@ -250,7 +258,7 @@ function WithdrawSuccessModal({ visible, onConfirm }: { visible: boolean; onConf
 }
 
 // ─── InquiryView (문의하기) ───────────────────────────────────────────────────
-function InquiryView({ onBack }: { onBack: () => void }) {
+function InquiryView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -290,57 +298,59 @@ function InquiryView({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <SafeAreaView style={iq.safeArea}>
-      <View style={iq.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={iq.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={iq.headerTitle}>문의하기</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={iq.safeArea}>
+        <View style={iq.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={iq.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={iq.headerTitle}>문의하기</Text>
+        </View>
 
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={iq.scrollContent}>
-        <Text style={iq.label}>제목</Text>
-        <TextInput
-          style={iq.input}
-          placeholder="장소 이름 입력"
-          placeholderTextColor={Colors.textMuted}
-          value={title}
-          onChangeText={setTitle}
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={iq.scrollContent}>
+          <Text style={iq.label}>제목</Text>
+          <TextInput
+            style={iq.input}
+            placeholder="장소 이름 입력"
+            placeholderTextColor={Colors.textMuted}
+            value={title}
+            onChangeText={setTitle}
+          />
+
+          <Text style={iq.label}>문의 내용</Text>
+          <TextInput
+            style={[iq.input, iq.contentInput]}
+            placeholder="문의사항을 입력해주세요."
+            placeholderTextColor={Colors.textMuted}
+            value={content}
+            onChangeText={setContent}
+            multiline
+            textAlignVertical="top"
+          />
+        </ScrollView>
+
+        <View style={iq.bottomBar}>
+          <TouchableOpacity style={iq.submitBtn} activeOpacity={0.85} onPress={handleSubmit} disabled={submitting}>
+            {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={iq.submitBtnText}>제출하기</Text>}
+          </TouchableOpacity>
+        </View>
+
+        <Toast
+          message={toastMsg}
+          subtitle={toastSubtitle}
+          onHide={() => {
+            setToastMsg(null);
+            setToastSubtitle(undefined);
+          }}
+          icon={toastMsg === '접수되었습니다!' ? <ToastInquiryIcon width={20} height={22} /> : undefined}
         />
-
-        <Text style={iq.label}>문의 내용</Text>
-        <TextInput
-          style={[iq.input, iq.contentInput]}
-          placeholder="문의사항을 입력해주세요."
-          placeholderTextColor={Colors.textMuted}
-          value={content}
-          onChangeText={setContent}
-          multiline
-          textAlignVertical="top"
-        />
-      </ScrollView>
-
-      <View style={iq.bottomBar}>
-        <TouchableOpacity style={iq.submitBtn} activeOpacity={0.85} onPress={handleSubmit} disabled={submitting}>
-          {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={iq.submitBtnText}>제출하기</Text>}
-        </TouchableOpacity>
-      </View>
-
-      <Toast
-        message={toastMsg}
-        subtitle={toastSubtitle}
-        onHide={() => {
-          setToastMsg(null);
-          setToastSubtitle(undefined);
-        }}
-        icon={toastMsg === '접수되었습니다!' ? <ToastInquiryIcon width={20} height={22} /> : undefined}
-      />
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
 // ─── TermsView (약관 동의 내역) ─────────────────────────────────────────────────
-function TermsView({ onBack }: { onBack: () => void }) {
+function TermsView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
   const [terms, setTerms] = useState<TermsItemResponse[] | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -361,43 +371,62 @@ function TermsView({ onBack }: { onBack: () => void }) {
   }, []);
 
   return (
-    <SafeAreaView style={tv.safeArea}>
-      <View style={tv.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={tv.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={tv.headerTitle}>약관 동의</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={tv.safeArea}>
+        <View style={tv.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={tv.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={tv.headerTitle}>약관 동의</Text>
+        </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={tv.scrollContent}>
-        {!terms && !errorMsg && (
-          <View style={tv.loadingCenter}>
-            <ActivityIndicator color={Colors.coral} />
-          </View>
-        )}
-        {errorMsg && <Text style={tv.errorText}>{errorMsg}</Text>}
-        {terms?.map((term) => (
-          <View key={term.code} style={tv.row}>
-            <ModalCheckIcon width={18} height={18} color={Colors.secondaryDark} />
-            <Text style={tv.rowTitle}>{term.title}</Text>
-            {term.required && (
-              <View style={tv.requiredTag}>
-                <Text style={tv.requiredTagText}>필수</Text>
-              </View>
-            )}
-          </View>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={tv.scrollContent}>
+          {!terms && !errorMsg && (
+            <View style={tv.loadingCenter}>
+              <ActivityIndicator color={Colors.coral} />
+            </View>
+          )}
+          {errorMsg && <Text style={tv.errorText}>{errorMsg}</Text>}
+          {terms?.map((term) => (
+            <View key={term.code} style={tv.row}>
+              <ModalCheckIcon width={18} height={18} color={Colors.secondaryDark} />
+              <Text style={tv.rowTitle}>{term.title}</Text>
+              {term.required && (
+                <View style={tv.requiredTag}>
+                  <Text style={tv.requiredTagText}>필수</Text>
+                </View>
+              )}
+            </View>
+          ))}
+        </ScrollView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
 // ─── SettingsView (설정 화면) ─────────────────────────────────────────────────
-function SettingsView({ onBack, onAccountInfo }: { onBack: () => void; onAccountInfo: () => void }) {
+function SettingsView({
+  onBack,
+  onAccountInfo,
+  underlay,
+}: {
+  onBack: () => void;
+  onAccountInfo: () => void;
+  underlay?: React.ReactNode;
+}) {
   const [pushEnabled, setPushEnabled] = useState(true);
   const [showInquiry, setShowInquiry] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  useEffect(() => {
+    isPushEnabled().then(setPushEnabled);
+  }, []);
+
+  const handleTogglePush = (value: boolean) => {
+    setPushEnabled(value);
+    savePushEnabled(value);
+  };
 
   const handleLogout = async () => {
     const token = await getAccessToken();
@@ -412,24 +441,17 @@ function SettingsView({ onBack, onAccountInfo }: { onBack: () => void; onAccount
     router.replace('/login');
   };
 
-  if (showInquiry) {
-    return <InquiryView onBack={() => setShowInquiry(false)} />;
-  }
+  const settingsMain = (
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={st.safeArea}>
+        <View style={st.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={st.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={st.headerTitle}>설정</Text>
+        </View>
 
-  if (showTerms) {
-    return <TermsView onBack={() => setShowTerms(false)} />;
-  }
-
-  return (
-    <SafeAreaView style={st.safeArea}>
-      <View style={st.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={st.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={st.headerTitle}>설정</Text>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
         <Text style={st.groupLabel}>알림 설정</Text>
         <SettingsRow
           icon={<SettingAlarmIcon width={20} height={20} color={Colors.coral} />}
@@ -438,7 +460,7 @@ function SettingsView({ onBack, onAccountInfo }: { onBack: () => void; onAccount
           right={
             <Switch
               value={pushEnabled}
-              onValueChange={setPushEnabled}
+              onValueChange={handleTogglePush}
               trackColor={{ false: Colors.border, true: Colors.coral }}
               thumbColor={Colors.white}
             />
@@ -518,12 +540,31 @@ function SettingsView({ onBack, onAccountInfo }: { onBack: () => void; onAccount
           />
         </View>
       </Modal>
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
+
+  if (showInquiry) {
+    return <InquiryView onBack={() => setShowInquiry(false)} underlay={settingsMain} />;
+  }
+
+  if (showTerms) {
+    return <TermsView onBack={() => setShowTerms(false)} underlay={settingsMain} />;
+  }
+
+  return settingsMain;
 }
 
 // ─── AccountInfoView (정보 수정 화면) ─────────────────────────────────────────
-function AccountInfoView({ onBack, onChangePassword }: { onBack: () => void; onChangePassword: () => void }) {
+function AccountInfoView({
+  onBack,
+  onChangePassword,
+  underlay,
+}: {
+  onBack: () => void;
+  onChangePassword: () => void;
+  underlay?: React.ReactNode;
+}) {
   const [email, setEmail] = useState<string | null>(null);
   const [withdrawStep, setWithdrawStep] = useState<'confirm' | 'success' | null>(null);
   const [withdrawing, setWithdrawing] = useState(false);
@@ -555,15 +596,16 @@ function AccountInfoView({ onBack, onChangePassword }: { onBack: () => void; onC
   };
 
   return (
-    <SafeAreaView style={st.safeArea}>
-      <View style={st.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={st.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={st.headerTitle}>정보 수정</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={st.safeArea}>
+        <View style={st.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={st.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={st.headerTitle}>정보 수정</Text>
+        </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
         <Text style={st.groupLabel}>계정 정보</Text>
         <View style={[st.row, st.rowBordered]}>
           <View style={[st.rowIconBox, st.rowIconBoxMuted]}>
@@ -609,12 +651,13 @@ function AccountInfoView({ onBack, onChangePassword }: { onBack: () => void; onC
           router.replace('/login');
         }}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
 // ─── PasswordChangeView (비밀번호 변경 화면) ──────────────────────────────────
-function PasswordChangeView({ onBack }: { onBack: () => void }) {
+function PasswordChangeView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
@@ -705,15 +748,16 @@ function PasswordChangeView({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <SafeAreaView style={st.safeArea}>
-      <View style={st.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={st.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={st.headerTitle}>비밀번호 변경</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={st.safeArea}>
+        <View style={st.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={st.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={st.headerTitle}>비밀번호 변경</Text>
+        </View>
 
-      <ScrollView contentContainerStyle={ai.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={ai.scrollContent} showsVerticalScrollIndicator={false}>
         <FormField
           label="이메일"
           Icon={EmailFieldIcon}
@@ -801,12 +845,13 @@ function PasswordChangeView({ onBack }: { onBack: () => void }) {
         icon={toastMsg === '비밀번호가 변경됐어요.' ? <ToastPasswordIcon width={18} height={21} /> : undefined}
         iconTone={toastMsg === '비밀번호가 변경됐어요.' ? 'sage' : 'coral'}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
 // ─── ReportPlaceView (장소 제보) ──────────────────────────────────────────────
-function ReportPlaceView({ onBack }: { onBack: () => void }) {
+function ReportPlaceView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
   const [placeName, setPlaceName] = useState('');
   const [address, setAddress] = useState('');
   const [conditionIndices, setConditionIndices] = useState<number[]>([]);
@@ -879,15 +924,17 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <SafeAreaView style={rp.safeArea}>
-      <View style={rp.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={rp.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={rp.headerTitle}>장소 제보</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={rp.safeArea}>
+        <View style={rp.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={rp.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={rp.headerTitle}>장소 제보</Text>
+        </View>
 
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={rp.scrollContent}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={rp.scrollContent}>
         <View style={rp.heroBanner}>
           <ReportHeroLandscape
             width={REPORT_HERO_WIDTH}
@@ -974,6 +1021,7 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
           )}
         </TouchableOpacity>
       </View>
+      </KeyboardAvoidingView>
 
       <Toast
         message={toastMsg}
@@ -1002,31 +1050,100 @@ function ReportPlaceView({ onBack }: { onBack: () => void }) {
           setShowAddressSearch(false);
         }}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
+  );
+}
+
+// 백엔드가 "출발지 -> 도착지" 형태의 문자열로 내려주는 제목(TravelRecordItemResponse.titleOf())을
+// " -> " 기준으로 나눠서, 텍스트 화살표 대신 아이콘으로 표시한다.
+function TravelRecordTitle({ title }: { title: string }) {
+  const parts = title.split(' -> ');
+  if (parts.length !== 2) {
+    return (
+      <Text style={th.cardTitle} numberOfLines={1}>
+        {title}
+      </Text>
+    );
+  }
+  return (
+    <View style={th.cardTitleRow}>
+      <Text style={th.cardTitle} numberOfLines={1}>
+        {parts[0]}
+      </Text>
+      <RecordArrowIcon width={10} height={10} color={Colors.textBody1} style={th.cardTitleArrow} />
+      <Text style={th.cardTitle} numberOfLines={1}>
+        {parts[1]}
+      </Text>
+    </View>
   );
 }
 
 // ─── TravelHistoryView (여행 기록) ────────────────────────────────────────────
-function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => void }) {
+function TravelHistoryView({
+  dog,
+  onBack,
+  underlay,
+}: {
+  dog: DogProfile;
+  onBack: () => void;
+  underlay?: React.ReactNode;
+}) {
   const [travelRecords, setTravelRecords] = useState<TravelRecordsResponse | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [viewingScrap, setViewingScrap] = useState<ScrapData | null>(null);
+  const [viewingScrapSave, setViewingScrapSave] = useState<{ scheduleId: number; accessToken: string } | null>(
+    null
+  );
   const [openingScheduleId, setOpeningScheduleId] = useState<number | null>(null);
+  // 사진을 안 남긴 기록은 photoUrl이 없어서, 그 일정의 실제 출발 지점 사진으로 대신 보여준다.
+  // (황리단길/금리단길 같은 4개 대분류가 아니라 detail.departure.name — 제목의 "OO -> 도착지"에
+  // 쓰이는 바로 그 지점 이름으로 검색해야, 금리단길 권역이라도 실제 출발 지점(예: 경주읍성)
+  // 사진을 찾을 수 있다.)
+  const [fallbackImageByScheduleId, setFallbackImageByScheduleId] = useState<Record<number, string | undefined>>({});
+
+  const fetchTravelRecords = useCallback(async () => {
+    const token = await getAccessToken();
+    if (!token) {
+      setListError('로그인 정보가 없어요.');
+      return;
+    }
+    try {
+      const result = await getTravelRecords(token);
+      setTravelRecords(result);
+
+      const missing = result.records.filter((r) => !r.photoUrl);
+      if (missing.length > 0) {
+        const entries = await Promise.all(
+          missing.map(async (r) => {
+            try {
+              const dateSchedules = await getSchedulesByDate(r.date, token);
+              const detail = dateSchedules.schedules.find((s) => s.scheduleId === r.scheduleId);
+              if (!detail) return [r.scheduleId, undefined] as const;
+              // 제목("첫 방문지 -> 마지막 방문지")과 짝을 맞춰, 첫 방문지 사진을 우선 쓴다.
+              // 출발지(금리단길 등 4개 대분류)는 사진이 아예 등록 안 된 경우가 많아 이게 더 안정적이다.
+              const firstPlaceImage = detail.places[0]?.imageUrl ?? undefined;
+              const imageUri = firstPlaceImage ?? (await searchPlaceByName(detail.departure.name, token))?.imageUri ?? undefined;
+              return [r.scheduleId, imageUri] as const;
+            } catch (e) {
+              return [r.scheduleId, undefined] as const;
+            }
+          })
+        );
+        setFallbackImageByScheduleId((prev) => {
+          const next = { ...prev };
+          for (const [scheduleId, imageUri] of entries) next[scheduleId] = imageUri;
+          return next;
+        });
+      }
+    } catch (e) {
+      setListError(e instanceof ApiError ? e.message : '여행 기록을 불러오지 못했어요.');
+    }
+  }, []);
 
   useEffect(() => {
-    (async () => {
-      const token = await getAccessToken();
-      if (!token) {
-        setListError('로그인 정보가 없어요.');
-        return;
-      }
-      try {
-        setTravelRecords(await getTravelRecords(token));
-      } catch (e) {
-        setListError(e instanceof ApiError ? e.message : '여행 기록을 불러오지 못했어요.');
-      }
-    })();
-  }, []);
+    fetchTravelRecords();
+  }, [fetchTravelRecords]);
 
   const openRecord = async (record: TravelRecordItemResponse) => {
     if (openingScheduleId !== null) return;
@@ -1034,13 +1151,30 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
     if (!token) return;
     setOpeningScheduleId(record.scheduleId);
     try {
-      const album = await getStampAlbum(record.scheduleId, token);
-      // GET /api/schedules(날짜별 목록)는 장소 이름만 주고 좌표를 안 줘서, 지난 일정의 경로 지도는
-      // 지금은 재구성할 방법이 없다. 빈 배열을 두면 RouteSnapshotCard가 "저장된 경로가 없어요"로 처리한다.
-      const stops: RouteStop[] = [];
+      const [album, dateSchedules, arrivedIds] = await Promise.all([
+        getStampAlbum(record.scheduleId, token),
+        getSchedulesByDate(record.date, token),
+        getArrivedPlaceIds(String(record.scheduleId)),
+      ]);
+      const detail = dateSchedules.schedules.find((s) => s.scheduleId === record.scheduleId);
+      // 경로보기(RouteView)와 동일하게 출발지를 첫 지점으로 포함해야 경로/핀 번호가 맞게 표시된다.
+      // 목적지로 저장은 해놨지만 실제로 안 간 곳은 경로에서 뺀다 — 출발지는 항상 예외.
+      const stops: RouteStop[] = detail
+        ? [
+            { id: 'departure', name: detail.departure.name, latitude: detail.departure.latitude, longitude: detail.departure.longitude },
+            ...detail.places
+              .filter((p) => arrivedIds.includes(String(p.placeId)))
+              .map((p) => ({
+                id: String(p.placeId),
+                name: p.name,
+                latitude: p.latitude,
+                longitude: p.longitude,
+              })),
+          ]
+        : [];
       setViewingScrap({
         id: String(record.scheduleId),
-        title: record.title ?? '오늘의 경주',
+        title: '오늘의 경주',
         travelDate: album.date.replace(/-/g, ' · '),
         dogName: dog.name,
         dogProfileImageUri: dog.photoUri,
@@ -1049,6 +1183,7 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
         totalDistanceInMeters: album.totalDistanceMeters,
         stampIndex: stampIndexFromBackendName(album.stampName),
       });
+      setViewingScrapSave({ scheduleId: record.scheduleId, accessToken: token });
     } catch (e) {
       setListError(e instanceof ApiError ? e.message : '기록을 불러오지 못했어요.');
     } finally {
@@ -1056,20 +1191,17 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
     }
   };
 
-  if (viewingScrap) {
-    return <StampAlbumScreen scrap={viewingScrap} onBack={() => setViewingScrap(null)} />;
-  }
+  const listScreen = (
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={th.safeArea}>
+        <View style={th.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={th.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={th.headerTitle}>여행 기록</Text>
+        </View>
 
-  return (
-    <SafeAreaView style={th.safeArea}>
-      <View style={th.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={th.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={th.headerTitle}>여행 기록</Text>
-      </View>
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={th.scrollContent}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={th.scrollContent}>
         <View style={th.statsCard}>
           <View style={th.statItem}>
             <Text style={th.statValue}>
@@ -1121,13 +1253,13 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
                   disabled={openingScheduleId !== null}
                   onPress={() => openRecord(item)}
                 >
-                  {item.photoUrl ? (
-                    <Image source={{ uri: item.photoUrl }} style={th.cardImage} resizeMode="cover" />
-                  ) : (
-                    <View style={th.cardImage} />
-                  )}
+                  {(() => {
+                    const fallbackUri = fallbackImageByScheduleId[item.scheduleId];
+                    const displayUri = item.photoUrl ?? fallbackUri;
+                    return <PlaceThumbnail uri={displayUri} style={th.cardImage} illustrationScale={2.25} />;
+                  })()}
                   <View style={th.cardBody}>
-                    <Text style={th.cardTitle}>{item.title ?? '오늘의 경주'}</Text>
+                    <TravelRecordTitle title={item.title ?? '오늘의 경주'} />
                     <View style={th.cardMetaRow}>
                       <RecordPlaceIcon width={14} height={14} color={Colors.textBody2} />
                       <Text style={th.metaText}>{item.totalPlaceCount}곳 방문</Text>
@@ -1148,8 +1280,25 @@ function TravelHistoryView({ dog, onBack }: { dog: DogProfile; onBack: () => voi
           );
         })}
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
+
+  if (viewingScrap && viewingScrapSave) {
+    return (
+      <StampAlbumScreen
+        scrap={viewingScrap}
+        onBack={() => {
+          setViewingScrap(null);
+          fetchTravelRecords();
+        }}
+        underlay={listScreen}
+        serverSave={{ ...viewingScrapSave, onSaved: fetchTravelRecords }}
+      />
+    );
+  }
+
+  return listScreen;
 }
 
 // ─── EditProfileView (프로필 편집) ────────────────────────────────────────────
@@ -1164,10 +1313,12 @@ function EditProfileView({
   dog,
   onBack,
   onSave,
+  underlay,
 }: {
   dog?: DogProfile;
   onBack: () => void;
   onSave: (saved: DogProfile) => void;
+  underlay?: React.ReactNode;
 }) {
   const isNew = !dog;
   const [name, setName] = useState(dog?.name ?? '');
@@ -1238,15 +1389,16 @@ function EditProfileView({
   };
 
   return (
-    <SafeAreaView style={ep.safeArea}>
-      <View style={ep.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={ep.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={ep.headerTitle}>{isNew ? '프로필 추가' : '프로필 편집'}</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={ep.safeArea}>
+        <View style={ep.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={ep.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={ep.headerTitle}>{isNew ? '프로필 추가' : '프로필 편집'}</Text>
+        </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={ep.scrollContent}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={ep.scrollContent}>
         <View style={ep.avatarRow}>
           <View style={ep.avatarWrap}>
             {displayPhotoUri ? (
@@ -1360,12 +1512,13 @@ function EditProfileView({
           Linking.openSettings();
         }}
       />
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
 // ─── StampGalleryScreen (스탬프 앨범) ──────────────────────────────────────────
-function StampGalleryScreen({ onBack }: { onBack: () => void }) {
+function StampGalleryScreen({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
 
   useEffect(() => {
@@ -1379,15 +1532,16 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
     .filter((h): h is string => !!h);
 
   return (
-    <SafeAreaView style={sg.safeArea}>
-      <View style={sg.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={sg.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={sg.headerTitle}>스탬프 앨범</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={sg.safeArea}>
+        <View style={sg.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={sg.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={sg.headerTitle}>스탬프 앨범</Text>
+        </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={sg.scrollContent}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={sg.scrollContent}>
         <View style={sg.progressCard}>
           <View style={sg.progressCardRow}>
             <View style={sg.progressCardText}>
@@ -1423,7 +1577,8 @@ function StampGalleryScreen({ onBack }: { onBack: () => void }) {
       </ScrollView>
 
       <StampHintCarousel hints={hintTexts} />
-    </SafeAreaView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
@@ -1447,6 +1602,9 @@ export default function MyPageScreen() {
   const [pendingPrimaryDog, setPendingPrimaryDog] = useState<DogProfile | null>(null);
   const [primarySwitchSuccess, setPrimarySwitchSuccess] = useState(false);
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
+  // 스탬프 미리보기 칸(STAMP_SLOTS)에 "0~N번 인덱스가 땄는지"가 아니라 실제로 딴 스탬프부터
+  // 최신순으로 채워 보여준다 — 홈 화면 미리보기와 동일한 방식.
+  const [recentStampIndices, setRecentStampIndices] = useState<number[]>([0]);
   const dog = dogProfiles.find((d) => d.id === selectedDogId) ?? dogProfiles[0];
   const personalityComboLabel = dog
     ? ((dog.personalityTags.length === 2
@@ -1458,6 +1616,7 @@ export default function MyPageScreen() {
   useFocusEffect(
     useCallback(() => {
       getDisplayStampIndices().then(setEarnedStampIndices);
+      getRecentStampIndices(STAMP_SLOTS).then(setRecentStampIndices);
     }, [])
   );
 
@@ -1564,83 +1723,34 @@ export default function MyPageScreen() {
     );
   }
 
-  if (showSettings) {
-    return (
-      <SettingsView
-        onBack={() => setShowSettings(false)}
-        onAccountInfo={() => {
-          setShowSettings(false);
-          setShowAccountInfo(true);
-        }}
-      />
-    );
-  }
-
-  if (showAccountInfo) {
-    return (
-      <AccountInfoView
-        onBack={() => setShowAccountInfo(false)}
-        onChangePassword={() => {
-          setShowAccountInfo(false);
-          setShowPasswordChange(true);
-        }}
-      />
-    );
-  }
-
-  if (showPasswordChange) {
-    return <PasswordChangeView onBack={() => setShowPasswordChange(false)} />;
-  }
-
-  if (showReportPlace) {
-    return <ReportPlaceView onBack={() => setShowReportPlace(false)} />;
-  }
-
-  if (showTravelHistory && dog) {
-    return <TravelHistoryView dog={dog} onBack={() => setShowTravelHistory(false)} />;
-  }
-
-  if (showStampGallery) {
-    return <StampGalleryScreen onBack={() => setShowStampGallery(false)} />;
-  }
-
-  if (profileEditorMode) {
-    return (
-      <EditProfileView
-        dog={profileEditorMode === 'edit' ? dog : undefined}
-        onBack={() => setProfileEditorMode(null)}
-        onSave={(saved) => {
-          setDogProfiles((prev) =>
-            profileEditorMode === 'edit'
-              ? prev.map((d) => (d.id === saved.id ? saved : d))
-              : [...prev, saved]
-          );
-          if (profileEditorMode === 'add') setSelectedDogId(saved.id);
-          setProfileEditorMode(null);
-        }}
-      />
-    );
-  }
-
-  if (!dog) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingCenter}>
-          <Text style={styles.emptyDogTitle}>등록된 반려견이 없어요</Text>
-          <TouchableOpacity
-            style={styles.emptyDogBtn}
-            activeOpacity={0.85}
-            onPress={() => setProfileEditorMode('add')}
-          >
-            <Text style={styles.emptyDogBtnText}>반려견 등록하기</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  return (
+  // 스와이프 뒤로가기 중 뒤에 깔아 보여줄 마이페이지 기본 화면 (강아지 유무에 따라 둘 중 하나).
+  // 아래 여러 early-return 분기(설정, 계정정보, 비밀번호 변경, 신고, 여행기록, 스탬프, 프로필 편집)는
+  // 모두 이 화면에서 곧장 열리고 곧장 이 화면으로 돌아오므로 전부 같은 underlay를 쓴다.
+  const baseScreen = !dog ? (
     <SafeAreaView style={styles.safeArea}>
+      <View style={styles.loadingCenter}>
+        <Text style={styles.emptyDogTitle}>등록된 반려견이 없어요</Text>
+        <TouchableOpacity
+          style={styles.emptyDogBtn}
+          activeOpacity={0.85}
+          onPress={() => setProfileEditorMode('add')}
+        >
+          <Text style={styles.emptyDogBtnText}>반려견 등록하기</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  ) : (
+    <SafeAreaView style={styles.safeArea}>
+      {/* 스크롤 없이 한 화면에 다 보이도록 화면 하단에 고정한다. 아래 ScrollView 콘텐츠보다 먼저
+          그려서 뒤쪽에 깔리게 하고(겹치는 글씨가 안 가려지게), 터치도 이 이미지를 그냥 통과한다. */}
+      <Image
+        source={require('@/assets/mypage/profile-bottom-landscape.png')}
+        style={[
+          styles.profileBottomLandscape,
+          { width: SCREEN_WIDTH, height: PROFILE_BOTTOM_LANDSCAPE_HEIGHT },
+        ]}
+        resizeMode="stretch"
+      />
       <ScrollView
         showsVerticalScrollIndicator={false}
         scrollEnabled={false}
@@ -1759,7 +1869,7 @@ export default function MyPageScreen() {
         </View>
 
         {/* 스탬프 */}
-        <View style={styles.section}>
+        <View style={[styles.section, styles.stampSection]}>
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>{dog.name}의 스탬프</Text>
             <TouchableOpacity onPress={() => setShowStampGallery(true)}>
@@ -1768,8 +1878,8 @@ export default function MyPageScreen() {
           </View>
           <View style={styles.stampRow}>
             {Array.from({ length: STAMP_SLOTS }).map((_, i) => {
-              const earned = earnedStampIndices.has(i);
-              const StampIcon = earned ? STAMP_ICONS[i] : STAMP_LOCKED_ICON;
+              const stampIndex = recentStampIndices[i];
+              const StampIcon = stampIndex !== undefined ? STAMP_ICONS[stampIndex] : STAMP_LOCKED_ICON;
               return (
                 <View key={i} style={styles.stampCircle}>
                   <StampIcon width="100%" height="100%" />
@@ -1801,12 +1911,6 @@ export default function MyPageScreen() {
             isLast
           />
         </View>
-
-        <ProfileBottomLandscape
-          width={SCREEN_WIDTH}
-          height={PROFILE_BOTTOM_LANDSCAPE_HEIGHT}
-          style={styles.profileBottomLandscape}
-        />
       </ScrollView>
 
       <Toast message={petsError} onHide={() => setPetsError(null)} />
@@ -1856,6 +1960,69 @@ export default function MyPageScreen() {
       </Modal>
     </SafeAreaView>
   );
+
+  if (showSettings) {
+    return (
+      <SettingsView
+        onBack={() => setShowSettings(false)}
+        onAccountInfo={() => {
+          setShowSettings(false);
+          setShowAccountInfo(true);
+        }}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  if (showAccountInfo) {
+    return (
+      <AccountInfoView
+        onBack={() => setShowAccountInfo(false)}
+        onChangePassword={() => {
+          setShowAccountInfo(false);
+          setShowPasswordChange(true);
+        }}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  if (showPasswordChange) {
+    return <PasswordChangeView onBack={() => setShowPasswordChange(false)} underlay={baseScreen} />;
+  }
+
+  if (showReportPlace) {
+    return <ReportPlaceView onBack={() => setShowReportPlace(false)} underlay={baseScreen} />;
+  }
+
+  if (showTravelHistory && dog) {
+    return <TravelHistoryView dog={dog} onBack={() => setShowTravelHistory(false)} underlay={baseScreen} />;
+  }
+
+  if (showStampGallery) {
+    return <StampGalleryScreen onBack={() => setShowStampGallery(false)} underlay={baseScreen} />;
+  }
+
+  if (profileEditorMode) {
+    return (
+      <EditProfileView
+        dog={profileEditorMode === 'edit' ? dog : undefined}
+        onBack={() => setProfileEditorMode(null)}
+        onSave={(saved) => {
+          setDogProfiles((prev) =>
+            profileEditorMode === 'edit'
+              ? prev.map((d) => (d.id === saved.id ? saved : d))
+              : [...prev, saved]
+          );
+          if (profileEditorMode === 'add') setSelectedDogId(saved.id);
+          setProfileEditorMode(null);
+        }}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  return baseScreen;
 }
 
 const styles = StyleSheet.create({
@@ -1878,7 +2045,7 @@ const styles = StyleSheet.create({
   pageTitle: { fontSize: 22, fontWeight: '700', color: Colors.textBody1 },
   profileSection: { position: 'relative' },
   profileTopLandscape: { position: 'absolute', left: 0, right: 0, top: 0 },
-  profileBottomLandscape: { marginTop: Spacing.xl },
+  profileBottomLandscape: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   profileCard: {
     flexDirection: 'row',
     marginHorizontal: Spacing.xl,
@@ -1939,6 +2106,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.lg,
     padding: Spacing.lg,
   },
+  stampSection: { marginTop: Spacing.xs },
   sectionBordered: {
     borderWidth: 0.5,
     borderColor: '#EDE8E3',
@@ -1992,9 +2160,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuList: {
-    marginTop: Spacing.xl,
+    marginTop: Spacing.xs,
     marginHorizontal: Spacing.xl,
-    backgroundColor: Colors.background,
+    backgroundColor: 'transparent',
     borderRadius: Radius.lg,
   },
   menuRow: {
@@ -2380,7 +2548,9 @@ const th = StyleSheet.create({
   },
   cardImage: { width: '100%', height: 160, backgroundColor: Colors.bgWarm },
   cardBody: { padding: Spacing.lg, gap: 6 },
-  cardTitle: { fontSize: 16, color: Colors.textBody1 },
+  cardTitle: { fontSize: 16, color: Colors.textBody1, flexShrink: 1 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center' },
+  cardTitleArrow: { marginHorizontal: 6, flexShrink: 0 },
   cardMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { fontSize: 13, color: Colors.textBody2, marginRight: Spacing.xs },
   cardLoadingOverlay: {
