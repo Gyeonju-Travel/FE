@@ -2,20 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, SafeAreaView } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { stampIndexFromBackendName } from '@/constants/stamps';
-import { TodaysScrapSchedule, markScheduleScrapped } from '@/utils/locationTracking';
-import { getStampAlbum } from '@/utils/api';
+import { TodaysScrapSchedule, markScheduleScrapped, getArrivedPlaceIds } from '@/utils/locationTracking';
+import { getStampAlbum, ApiError } from '@/utils/api';
 import { ScrapData } from '@/types/stampAlbum';
 import StampAlbumScreen from '@/components/mypage/StampAlbumView';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 
 function formatTravelDate(isoDate: string): string {
   return isoDate.replace(/-/g, ' · ');
-}
-
-function titleFromPlaces(places: TodaysScrapSchedule['places']): string {
-  if (places.length === 0) return '오늘의 경주';
-  const first = places[0].name;
-  const last = places[places.length - 1].name;
-  return first === last ? first : `${first} → ${last}`;
 }
 
 export default function TodayScrapView({
@@ -24,49 +18,78 @@ export default function TodayScrapView({
   dogProfileImageUri,
   accessToken,
   onBack,
+  underlay,
 }: {
   pending: TodaysScrapSchedule;
   dogName: string;
   dogProfileImageUri?: string;
   accessToken: string;
   onBack: () => void;
+  underlay?: React.ReactNode;
 }) {
   const [scrap, setScrap] = useState<ScrapData | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  // 방문한 곳이 한 곳도 없는 일정(예: 경주 밖에서 시작해 바로 자동 종료된 경우)은 서버에
+  // 스탬프 앨범 자체가 안 만들어져 getStampAlbum이 실패한다. 실패 에러 코드를 추측해서
+  // 매칭하는 대신, 이미 로컬에 있는 방문 기록을 먼저 확인해 0곳이면 서버 호출 자체를
+  // 건너뛰고 바로 "다녀온 곳이 없다"고 안내한다.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getStampAlbum(Number(pending.scheduleId), accessToken)
-      .then((album) => {
+    (async () => {
+      const arrivedIds = await getArrivedPlaceIds(pending.scheduleId);
+      if (cancelled) return;
+      if (arrivedIds.length === 0) {
+        setLoadError('이 일정은 다녀온 곳이 없어서 기록할 내용이 없어요.');
+        return;
+      }
+      try {
+        const album = await getStampAlbum(Number(pending.scheduleId), accessToken);
         if (cancelled) return;
+        // 목적지로 저장은 해놨지만 실제로 안 간 곳은 경로/스크랩에서 뺀다 — 출발지는 항상
+        // 실제로 거쳤으니 예외.
+        const visitedPlaces = pending.places.filter((p) => arrivedIds.includes(p.id));
         setScrap({
           id: pending.scheduleId,
-          title: titleFromPlaces(pending.places),
+          title: '오늘의 경주',
           travelDate: formatTravelDate(album.date),
           dogName,
           dogProfileImageUri,
           selectedPhotoUris: album.photoUrls,
-          stops: pending.places.map((p) => ({ id: p.id, name: p.name, latitude: p.lat, longitude: p.lng })),
+          // 경로보기(RouteView)와 동일하게 출발지를 첫 지점으로 포함해야 경로/핀 번호가 맞게 표시된다.
+          stops: [
+            ...(pending.departure
+              ? [{ id: 'departure', name: pending.departure.name, latitude: pending.departure.lat, longitude: pending.departure.lng }]
+              : []),
+            ...visitedPlaces.map((p) => ({ id: p.id, name: p.name, latitude: p.lat, longitude: p.lng })),
+          ],
           totalDistanceInMeters: album.totalDistanceMeters,
           stampIndex: stampIndexFromBackendName(album.stampName),
         });
-      })
-      .catch(() => {
-        if (!cancelled) setLoadFailed(true);
-      });
+      } catch (e) {
+        if (cancelled) return;
+        setLoadError(
+          e instanceof ApiError && e.code === 'STAMP_400_7'
+            ? '이 일정은 다녀온 곳이 없어서 기록할 내용이 없어요.'
+            : '스크랩 정보를 불러오지 못했어요.'
+        );
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [pending, dogName, dogProfileImageUri, accessToken]);
 
-  if (loadFailed) {
+  if (loadError) {
     return (
-      <SafeAreaView style={s.loading}>
-        <Text style={s.errorText}>스크랩 정보를 불러오지 못했어요.</Text>
-        <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={onBack}>
-          <Text style={s.retryBtnText}>닫기</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
+      <SwipeBackScreen onBack={onBack} underlay={underlay}>
+        <SafeAreaView style={s.loading}>
+          <Text style={s.errorText}>{loadError}</Text>
+          <TouchableOpacity style={s.retryBtn} activeOpacity={0.85} onPress={onBack}>
+            <Text style={s.retryBtnText}>닫기</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      </SwipeBackScreen>
     );
   }
 
@@ -82,6 +105,7 @@ export default function TodayScrapView({
     <StampAlbumScreen
       scrap={scrap}
       onBack={onBack}
+      underlay={underlay}
       serverSave={{
         scheduleId: Number(pending.scheduleId),
         accessToken,

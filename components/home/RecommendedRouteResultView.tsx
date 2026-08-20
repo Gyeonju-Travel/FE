@@ -7,7 +7,7 @@ import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
 import WalkingIcon from '@/assets/icons/walking.svg';
-import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE } from '@/constants/badgeConfig';
+import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
 import {
   RecommendedRouteResultResponse,
   saveRecommendedRouteSchedule,
@@ -18,15 +18,18 @@ import {
   ApiError,
 } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 
 export default function RecommendedRouteResultView({
   result,
   onBack,
   onSaved,
+  underlay,
 }: {
   result: RecommendedRouteResultResponse;
   onBack: () => void;
   onSaved: () => void;
+  underlay?: React.ReactNode;
 }) {
   const [saving, setSaving] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -104,6 +107,7 @@ export default function RecommendedRouteResultView({
   };
 
   return (
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
     <SafeAreaView style={s.safeArea}>
       <View style={s.header}>
         <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -125,25 +129,38 @@ export default function RecommendedRouteResultView({
         {places.map((place, i) => {
           const tags = parseTags(place.petAccessType, place.petRequirements);
           const liked = likedPlaceIds.includes(place.placeId);
+          const catStyle = CATEGORY_BADGE_STYLE[place.categoryLabel];
           return (
             <View key={place.placeId}>
-              {i > 0 && (
-                <View style={s.segmentPillRow}>
-                  <View style={s.segmentPill}>
-                    <WalkingIcon width={12} height={12} color={Colors.textMuted} />
-                    <Text style={s.segmentText}>
-                      도보 {formatWalkDuration(Math.round(place.walkingDurationSeconds / 60))} ·{' '}
-                      {formatDistance(place.walkingDistanceMeters)}
-                    </Text>
-                  </View>
+              {/* i===0인 첫 목적지도 walkingDurationSeconds/walkingDistanceMeters가 출발지 → 이
+                  장소 구간을 그대로 담고 있어서(다른 구간들과 동일한 규칙), 조건 없이 보여준다. */}
+              <View style={s.segmentPillRow}>
+                <View style={s.segmentPill}>
+                  <WalkingIcon width={12} height={12} color={Colors.textMuted} />
+                  <Text style={s.segmentText}>
+                    도보 {formatWalkDuration(Math.round(place.walkingDurationSeconds / 60))} ·{' '}
+                    {formatDistance(place.walkingDistanceMeters)}
+                  </Text>
                 </View>
-              )}
+              </View>
               <View style={s.placeCard}>
                 <PlaceThumbnail uri={place.imageUrl} style={s.placeImg} />
                 <View style={s.placeInfo}>
-                  <Text style={s.placeName} numberOfLines={1}>
-                    {place.name}
-                  </Text>
+                  <View style={s.placeNameRow}>
+                    <Text style={s.placeName} numberOfLines={1}>
+                      {place.name}
+                    </Text>
+                    {catStyle && (
+                      <Badge
+                        label={place.categoryLabel}
+                        variant="filled"
+                        tone={catStyle.tone}
+                        leading={
+                          <catStyle.Icon width={13} height={13} color={BADGE_TONE_COLORS[catStyle.tone].text} />
+                        }
+                      />
+                    )}
+                  </View>
                   {tags.length > 0 && (
                     <View style={s.placeTags}>
                       {tags.map((tag) => {
@@ -188,6 +205,7 @@ export default function RecommendedRouteResultView({
 
       <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={90} />
     </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
@@ -224,10 +242,11 @@ const s = StyleSheet.create({
     borderColor: Colors.border,
     padding: Spacing.md,
   },
-  departureCard: { marginBottom: Spacing.lg },
+  departureCard: {},
   placeImg: { width: 56, height: 56, borderRadius: Radius.sm },
   placeInfo: { flex: 1, gap: 6 },
-  placeName: { fontSize: 14, fontWeight: '600', color: Colors.textBody1 },
+  placeNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  placeName: { fontSize: 14, fontWeight: '600', color: Colors.textBody1, flexShrink: 1 },
   placeTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   heartBtn: { padding: 2 },
   heart: { fontSize: 20, color: Colors.coral, opacity: 0.35 },

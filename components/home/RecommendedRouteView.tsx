@@ -10,6 +10,7 @@ import {
   Easing,
 } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 import WheelPicker from '@/components/schedule/WheelPicker';
 import RecommendedRouteResultView from '@/components/home/RecommendedRouteResultView';
 import RecommendedRouteLoadingView, { MIN_LOADING_MS } from '@/components/home/RecommendedRouteLoadingView';
@@ -53,7 +54,15 @@ const CONDITION_OPTIONS: { id: Condition; label: string; Icon: React.FC<{ width?
 const CONDITION_TO_API: Record<Condition, DogCondition> = { best: 'BEST', normal: 'NORMAL', bad: 'BAD' };
 const STATUS_POLL_INTERVAL_MS = 1500;
 
-export default function RecommendedRouteView({ dogName, onBack }: { dogName: string; onBack: () => void }) {
+export default function RecommendedRouteView({
+  dogName,
+  onBack,
+  underlay,
+}: {
+  dogName: string;
+  onBack: () => void;
+  underlay?: React.ReactNode;
+}) {
   const now = new Date();
   const currentYearIdx = Math.min(Math.max(now.getFullYear() - YEAR_BASE, 0), YEARS.length - 1);
   const currentMonthIdx = now.getMonth();
@@ -230,21 +239,10 @@ export default function RecommendedRouteView({ dogName, onBack }: { dogName: str
     }
   };
 
-  if (creating) {
-    return <RecommendedRouteLoadingView dogName={dogName} />;
-  }
-
-  if (result) {
-    return (
-      <RecommendedRouteResultView
-        result={result}
-        onBack={() => setResult(null)}
-        onSaved={onBack}
-      />
-    );
-  }
-
-  return (
+  // 스와이프 뒤로가기 중 뒤에 깔아 보여줄 이 화면(경로 추천 조건 입력) 자체. 결과 화면의
+  // underlay로 재사용한다.
+  const formScreen = (
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
     <SafeAreaView style={s.safeArea}>
       <View style={s.header}>
         <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -367,7 +365,25 @@ export default function RecommendedRouteView({ dogName, onBack }: { dogName: str
         </>
       )}
     </SafeAreaView>
+    </SwipeBackScreen>
   );
+
+  if (creating) {
+    return <RecommendedRouteLoadingView dogName={dogName} />;
+  }
+
+  if (result) {
+    return (
+      <RecommendedRouteResultView
+        result={result}
+        onBack={() => setResult(null)}
+        onSaved={onBack}
+        underlay={formScreen}
+      />
+    );
+  }
+
+  return formScreen;
 }
 
 const s = StyleSheet.create({

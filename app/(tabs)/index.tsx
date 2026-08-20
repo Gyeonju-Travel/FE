@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -24,18 +24,20 @@ import FilterTourIcon from '@/assets/icons/filter-tour.svg';
 import WalkingDogIcon from '@/assets/home/walking-dog.svg';
 import BellIcon from '@/assets/home/bell.svg';
 import BellActiveIcon from '@/assets/home/bell-active.svg';
+import ToastScheduleEndedIcon from '@/assets/icons/toast/schedule-ended.svg';
 import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
 import {
   STAMP_ICONS,
   STAMP_LOCKED_ICON,
   STAMP_NAMES,
   getDisplayStampIndices,
+  getRecentStampIndices,
   popPendingStampToast,
 } from '@/constants/stamps';
 import { getPendingScrapSchedule, TodaysScrapSchedule } from '@/utils/locationTracking';
 import { hasUnreadUpdateNews } from '@/constants/updateNews';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
-import { getHome } from '@/utils/api';
+import { getHome, getStampAlbum, getTravelRecords } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { onTabReset } from '@/utils/tabReset';
 import { personalityToLabel } from '@/utils/petMappers';
@@ -63,6 +65,7 @@ export default function HomeScreen() {
   const [personalityLabel, setPersonalityLabel] = useState<string | null>(null);
   const [places, setPlaces] = useState<MapPlace[]>([]);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastSubtitle, setToastSubtitle] = useState<string | undefined>(undefined);
   const [celebrationStampIndex, setCelebrationStampIndex] = useState<number | null>(null);
   const [weather, setWeather] = useState<GyeongjuWeather | null>(null);
   const [profileTopHeight, setProfileTopHeight] = useState(0);
@@ -71,9 +74,14 @@ export default function HomeScreen() {
   const [showUpdateNews, setShowUpdateNews] = useState(false);
   const [hasUnreadNotification, setHasUnreadNotification] = useState(false);
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
+  const [recentStampIndices, setRecentStampIndices] = useState<number[]>([0]);
   const [footprintCount, setFootprintCount] = useState(0);
   const [pendingScrap, setPendingScrap] = useState<TodaysScrapSchedule | null>(null);
   const [scrapAccessToken, setScrapAccessToken] = useState<string | null>(null);
+  // 오후 9시~자정 사이, 오늘 시작한 일정 중 아직 스크랩 안 한 게 있으면 토스트로 알려준다.
+  // 탭하면 그때 pendingScrap/scrapAccessToken을 채워서 스크랩 화면을 연다. 세션당 한 번만 띄운다.
+  const scrapToastShownRef = useRef(false);
+  const scrapToastCandidateRef = useRef<{ schedule: TodaysScrapSchedule; token: string } | null>(null);
 
   useEffect(() => {
     fetchGyeongjuWeather().then(setWeather);
@@ -90,6 +98,7 @@ export default function HomeScreen() {
     useCallback(() => {
       (async () => {
         setEarnedStampIndices(await getDisplayStampIndices());
+        setRecentStampIndices(await getRecentStampIndices(HOME_STAMP_PREVIEW_SLOTS));
 
         const token = await getAccessToken();
         if (token) {
@@ -100,7 +109,6 @@ export default function HomeScreen() {
               getPersonalityComboLabel(home.petPersonalities) ??
                 home.petPersonalities.map(personalityToLabel).join(' · ')
             );
-            setFootprintCount(home.footprintCount);
             setPlaces(
               home.places.map((p) => ({
                 id: String(p.placeId),
@@ -118,6 +126,19 @@ export default function HomeScreen() {
           } catch (e) {
             // 인사말/카드는 기본값으로도 자연스럽게 보이므로 조용히 무시
           }
+
+          // 발자국 수는 "오늘까지 모은" 전체 누적치라, home.footprintCount(단일 값) 하나만
+          // 믿지 않고 여행 기록(완료된 일정) 전부의 스탬프 앨범 footprintCount를 직접 더한다.
+          try {
+            const travelRecords = await getTravelRecords(token);
+            const albums = await Promise.all(
+              travelRecords.records.map((r) => getStampAlbum(r.scheduleId, token).catch(() => null))
+            );
+            const total = albums.reduce((sum, album) => sum + (album?.footprintCount ?? 0), 0);
+            setFootprintCount(total);
+          } catch (e) {
+            // 발자국 합계 집계 실패는 조용히 무시 — 이전에 표시된 값을 유지한다.
+          }
         }
 
         if (justOnboarded === '1') {
@@ -128,14 +149,17 @@ export default function HomeScreen() {
         const pendingToast = await popPendingStampToast();
         if (pendingToast !== null) setCelebrationStampIndex(pendingToast);
 
-        // 21시 이후, 오늘 '시작'한 일정 중 아직 스크랩하지 않은 게 있으면 스크랩 화면을 바로 띄운다.
-        if (new Date().getHours() >= 21) {
+        // 오후 9시~자정 사이, 오늘 '시작'한 일정 중 아직 스크랩하지 않은 게 있으면 토스트로
+        // 알려준다(세션당 한 번). 탭하면 그때 스크랩 화면을 연다.
+        if (!scrapToastShownRef.current && new Date().getHours() >= 21) {
           const pendingSchedule = await getPendingScrapSchedule();
           if (pendingSchedule) {
             const token = await getAccessToken();
             if (token) {
-              setScrapAccessToken(token);
-              setPendingScrap(pendingSchedule);
+              scrapToastShownRef.current = true;
+              scrapToastCandidateRef.current = { schedule: pendingSchedule, token };
+              setToastMsg('일정이 종료 됐나요?');
+              setToastSubtitle('스크랩으로 오늘 하루를 기록해보세요');
             }
           }
         }
@@ -148,33 +172,6 @@ export default function HomeScreen() {
 
   const dogName = dog?.name ?? '반려견';
   const daytime = isDaytime(new Date().getHours());
-
-  if (pendingScrap && scrapAccessToken) {
-    return (
-      <TodayScrapView
-        pending={pendingScrap}
-        dogName={dogName}
-        dogProfileImageUri={dog?.photoUri ?? undefined}
-        accessToken={scrapAccessToken}
-        onBack={() => setPendingScrap(null)}
-      />
-    );
-  }
-
-  if (showRecommendedRoute) {
-    return <RecommendedRouteView dogName={dogName} onBack={() => setShowRecommendedRoute(false)} />;
-  }
-
-  if (showUpdateNews) {
-    return (
-      <UpdateNewsView
-        onBack={() => {
-          setShowUpdateNews(false);
-          hasUnreadUpdateNews().then(setHasUnreadNotification);
-        }}
-      />
-    );
-  }
 
   // 구분선이 위/아래 블록 높이 차이와 상관없이 카드 안에서 항상 정중앙에 오도록,
   // 두 블록의 실측 높이 차이만큼 구분선 위/아래 여백을 반대로 보정한다.
@@ -192,7 +189,9 @@ export default function HomeScreen() {
     ? Math.max(0, DIVIDER_MARGIN_TOTAL - dividerMarginTop)
     : Spacing.md;
 
-  return (
+  // 스와이프 뒤로가기 중 뒤에 깔아 보여줄 홈 기본 화면. 아래 세 early-return 분기(오늘의 기록,
+  // 추천 경로, 업데이트 소식)의 underlay로 재사용한다.
+  const baseScreen = (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={styles.scrollContent}>
         <View style={{ height: HERO_HEIGHT }}>
@@ -227,8 +226,10 @@ export default function HomeScreen() {
 
         <View style={styles.body}>
           <View style={styles.profileCard}>
-            <View
+            <TouchableOpacity
               style={styles.profileRow}
+              activeOpacity={0.7}
+              onPress={() => router.push('/mypage')}
               onLayout={(e: LayoutChangeEvent) => setProfileTopHeight(e.nativeEvent.layout.height)}
             >
               {dog?.photoUri ? (
@@ -255,7 +256,7 @@ export default function HomeScreen() {
               <View style={styles.trophyBadge}>
                 <Image source={require('@/assets/home/trophy.png')} style={styles.trophyIcon} resizeMode="contain" />
               </View>
-            </View>
+            </TouchableOpacity>
 
             <View style={{ marginTop: dividerMarginTop, marginBottom: dividerMarginBottom }}>
               <View style={styles.divider} />
@@ -292,8 +293,8 @@ export default function HomeScreen() {
                 </Text>
                 <View style={styles.stampPreviewRow}>
                   {Array.from({ length: HOME_STAMP_PREVIEW_SLOTS }).map((_, i) => {
-                    const earned = earnedStampIndices.has(i);
-                    const StampIcon = earned ? STAMP_ICONS[i] : STAMP_LOCKED_ICON;
+                    const stampIndex = recentStampIndices[i];
+                    const StampIcon = stampIndex !== undefined ? STAMP_ICONS[stampIndex] : STAMP_LOCKED_ICON;
                     return (
                       <View key={i} style={styles.stampPreviewIcon}>
                         <StampIcon width="100%" height="100%" />
@@ -352,7 +353,23 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <Toast message={toastMsg} onHide={() => setToastMsg(null)} bottom={100} />
+      <Toast
+        message={toastMsg}
+        subtitle={toastSubtitle}
+        onHide={() => setToastMsg(null)}
+        onPress={
+          toastMsg === '일정이 종료 됐나요?' && scrapToastCandidateRef.current
+            ? () => {
+                if (!scrapToastCandidateRef.current) return;
+                setScrapAccessToken(scrapToastCandidateRef.current.token);
+                setPendingScrap(scrapToastCandidateRef.current.schedule);
+              }
+            : undefined
+        }
+        duration={toastMsg === '일정이 종료 됐나요?' ? 4000 : 2000}
+        bottom={toastMsg === '일정이 종료 됐나요?' ? 40 : 100}
+        icon={toastMsg === '일정이 종료 됐나요?' ? <ToastScheduleEndedIcon width={21} height={21} /> : undefined}
+      />
 
       <CelebrationToast
         visible={celebrationStampIndex !== null}
@@ -366,7 +383,12 @@ export default function HomeScreen() {
         title="축하해요!"
         subtitle={celebrationStampIndex !== null ? `${STAMP_NAMES[celebrationStampIndex]} 스탬프를 획득했어요.` : ''}
         top={insets.top + 12}
-        onHide={() => setCelebrationStampIndex(null)}
+        onHide={async () => {
+          // 한 번에 스탬프를 여러 개 땄으면(예: 관광지 스탬프 + 경주마스터 동시 지급) 큐에
+          // 남은 다음 스탬프를 이어서 보여준다.
+          const next = await popPendingStampToast();
+          setCelebrationStampIndex(next);
+        }}
         onPress={() => {
           setCelebrationStampIndex(null);
           router.push({ pathname: '/(tabs)/mypage', params: { openStampGallery: '1' } });
@@ -374,6 +396,43 @@ export default function HomeScreen() {
       />
     </View>
   );
+
+  if (pendingScrap && scrapAccessToken) {
+    return (
+      <TodayScrapView
+        pending={pendingScrap}
+        dogName={dogName}
+        dogProfileImageUri={dog?.photoUri ?? undefined}
+        accessToken={scrapAccessToken}
+        onBack={() => setPendingScrap(null)}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  if (showRecommendedRoute) {
+    return (
+      <RecommendedRouteView
+        dogName={dogName}
+        onBack={() => setShowRecommendedRoute(false)}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  if (showUpdateNews) {
+    return (
+      <UpdateNewsView
+        onBack={() => {
+          setShowUpdateNews(false);
+          hasUnreadUpdateNews().then(setHasUnreadNotification);
+        }}
+        underlay={baseScreen}
+      />
+    );
+  }
+
+  return baseScreen;
 }
 
 const styles = StyleSheet.create({

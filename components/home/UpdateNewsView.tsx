@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, SafeAreaView } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 import LoginIllustration from '@/assets/login/login-illustration.svg';
 import TabScheduleIcon from '@/assets/icons/tab-schedule.svg';
 import {
@@ -16,7 +17,13 @@ const CATEGORY_STYLES: Record<UpdateNewsCategory, { bg: string; text: string }> 
   안내: { bg: Colors.infoTint, text: Colors.infoDark },
 };
 
-export default function UpdateNewsView({ onBack }: { onBack: () => void }) {
+export default function UpdateNewsView({
+  onBack,
+  underlay,
+}: {
+  onBack: () => void;
+  underlay?: React.ReactNode;
+}) {
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -30,55 +37,57 @@ export default function UpdateNewsView({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <SafeAreaView style={s.safeArea}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={s.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>업데이트 소식</Text>
-      </View>
+    <SwipeBackScreen onBack={onBack} underlay={underlay}>
+      <SafeAreaView style={s.safeArea}>
+        <View style={s.header}>
+          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={s.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={s.headerTitle}>업데이트 소식</Text>
+        </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
-        <View style={s.heroCard}>
-          <View style={s.heroTextCol}>
-            <Text style={s.heroTitle}>안녕하세요.{'\n'}견주여행입니다!</Text>
-            <Text style={s.heroSubtitle}>사랑하는 반려견과 함께 경주를{'\n'}여행하며 추억을 쌓아가요~</Text>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
+          <View style={s.heroCard}>
+            <View style={s.heroTextCol}>
+              <Text style={s.heroTitle}>안녕하세요.{'\n'}견주여행입니다!</Text>
+              <Text style={s.heroSubtitle}>사랑하는 반려견과 함께 경주를{'\n'}여행하며 추억을 쌓아가요~</Text>
+            </View>
+            <LoginIllustration width={195} height={156} style={s.heroIllustration} />
           </View>
-          <LoginIllustration width={195} height={156} style={s.heroIllustration} />
-        </View>
 
-        {UPDATE_NEWS.map((item) => {
-          const unread = !readIds.has(item.id);
-          const tone = CATEGORY_STYLES[item.category];
-          return (
-            <TouchableOpacity
-              key={item.id}
-              style={s.card}
-              activeOpacity={0.85}
-              onPress={() => handlePress(item.id)}
-            >
-              {unread && <View style={s.unreadDot} />}
-              <View style={[s.categoryBadge, { backgroundColor: tone.bg }]}>
-                <Text style={[s.categoryText, { color: tone.text }]}>{item.category}</Text>
-              </View>
-              <View style={s.cardTextCol}>
-                <Text style={s.cardTitle}>{item.title}</Text>
-                <Text style={s.cardDescription}>{item.description}</Text>
-                <View style={s.dateRow}>
-                  <TabScheduleIcon width={12} height={12} color={Colors.textMuted} />
-                  <Text style={s.dateText}>{item.date}</Text>
+          {UPDATE_NEWS.map((item) => {
+            const unread = !readIds.has(item.id);
+            const tone = CATEGORY_STYLES[item.category];
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={s.card}
+                activeOpacity={0.85}
+                onPress={() => handlePress(item.id)}
+              >
+                {unread && <View style={s.unreadDot} />}
+                <View style={[s.categoryBadge, { backgroundColor: tone.bg }]}>
+                  <Text style={[s.categoryText, { color: tone.text }]}>{item.category}</Text>
                 </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+                <View style={s.cardTextCol}>
+                  <Text style={s.cardTitle}>{item.title}</Text>
+                  <Text style={s.cardDescription}>{item.description}</Text>
+                  <View style={s.dateRow}>
+                    <TabScheduleIcon width={12} height={12} color={Colors.textMuted} />
+                    <Text style={s.dateText}>{item.date}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
 
-        <View style={s.footer}>
-          <Text style={s.footerTitle}>업데이트 소식을 모두 확인했어요</Text>
-          <Text style={s.footerSubtitle}>새로운 업데이트 소식을 기다려 주세요.</Text>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          <View style={s.footer}>
+            <Text style={s.footerTitle}>업데이트 소식을 모두 확인했어요</Text>
+            <Text style={s.footerSubtitle}>새로운 업데이트 소식을 기다려 주세요.</Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
