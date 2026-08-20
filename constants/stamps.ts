@@ -110,6 +110,10 @@ export async function getDisplayStampIndices(): Promise<Set<number>> {
         const index = stampIndexFromBackendName(stamp.stampName);
         if (index !== undefined) indices.add(index);
       }
+      // 서버 기준 획득 현황을 로컬 캐시(EARNED_STAMPS_KEY)에도 반영해둔다 — 안 그러면 재설치나
+      // 기기 변경으로 로컬 캐시가 비어있을 때, awardStamp()가 이미 획득한 관광지 스탬프를 다시
+      // "새로 획득"으로 착각해서 축하 토스트/푸시 알림이 중복으로 뜬다.
+      await mergeEarnedStampIndices(indices);
       return indices;
     } catch {
       // 서버 조회 실패 시 로컬 캐시로 대체
@@ -150,6 +154,23 @@ export async function getEarnedStampIndices(): Promise<Set<number>> {
 export async function getEarnedStampCount(): Promise<number> {
   const indices = await getEarnedStampIndices();
   return indices.size;
+}
+
+/** 서버 기준 획득 스탬프를 로컬 캐시에 합쳐 넣는다(이미 있는 건 건드리지 않음, 축하 알림도 안 띄움).
+ * awardStamp()의 "이미 획득" 판단이 로컬 캐시만 보기 때문에, 재설치/기기변경으로 로컬이 비어있는
+ * 상태에서 이미 서버에 기록된 관광지를 다시 방문했을 때 중복 축하 알림이 뜨는 걸 막기 위함. */
+async function mergeEarnedStampIndices(serverIndices: Set<number>): Promise<void> {
+  const local = await getEarnedStampIndices();
+  let changed = false;
+  for (const index of serverIndices) {
+    if (!local.has(index)) {
+      local.add(index);
+      changed = true;
+    }
+  }
+  if (changed) {
+    await AsyncStorage.setItem(EARNED_STAMPS_KEY, JSON.stringify([...local]));
+  }
 }
 
 async function pushPendingStampToast(stampIndex: number): Promise<void> {

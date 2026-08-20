@@ -68,6 +68,7 @@ const ACTIVE_SCHEDULE_STATE_KEY = 'gyeonjutravel.activeScheduleState';
 const TODAYS_SCRAP_SCHEDULE_KEY = 'gyeonjutravel.todaysScrapSchedule';
 const SCRAPPED_SCHEDULE_IDS_KEY = 'gyeonjutravel.scrappedScheduleIds';
 const AUTO_ENDED_SCHEDULE_KEY = 'gyeonjutravel.autoEndedSchedule';
+const SCRAP_REMINDER_ID_KEY = 'gyeonjutravel.scrapReminderNotificationId';
 export const SCRAP_REMINDER_HOUR = 21;
 
 export interface LatLng {
@@ -262,14 +263,26 @@ function todayIsoDate(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** 오늘 21시에 "일정 종료? 스크랩으로 기록해보세요" 알림을 예약한다. 이미 21시가 지났으면 예약하지 않는다. */
+/** 오늘 21시에 "일정 종료? 스크랩으로 기록해보세요" 알림을 예약한다. 이미 21시가 지났으면 예약하지 않는다.
+ * 같은 날 취소 후 재시작을 반복해도 알림이 중복으로 쌓이지 않도록, 이전에 예약해둔 알림이 있으면
+ * 먼저 취소하고 새로 예약한다. */
 async function scheduleScrapReminder(): Promise<void> {
+  const existingId = await AsyncStorage.getItem(SCRAP_REMINDER_ID_KEY);
+  if (existingId) {
+    try {
+      await Notifications.cancelScheduledNotificationAsync(existingId);
+    } catch {
+      // 이미 취소/발송된 알림이면 실패해도 무시
+    }
+    await AsyncStorage.removeItem(SCRAP_REMINDER_ID_KEY);
+  }
+
   const target = new Date();
   target.setHours(SCRAP_REMINDER_HOUR, 0, 0, 0);
   if (target.getTime() <= Date.now()) return;
   if (!(await isPushEnabled())) return;
   try {
-    await Notifications.scheduleNotificationAsync({
+    const id = await Notifications.scheduleNotificationAsync({
       content: {
         title: '일정이 종료 됐나요?',
         body: '스크랩으로 오늘 하루를 기록해 보세요',
@@ -277,6 +290,7 @@ async function scheduleScrapReminder(): Promise<void> {
       },
       trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: target },
     });
+    await AsyncStorage.setItem(SCRAP_REMINDER_ID_KEY, id);
   } catch {
     // 알림 예약 실패는 무시 — 앱을 열면 홈 화면에서 자동으로 스크랩 화면을 띄워준다.
   }
