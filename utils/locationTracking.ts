@@ -203,6 +203,10 @@ async function markArrived(scheduleId: string, placeId: string): Promise<boolean
   return true;
 }
 
+async function clearArrivedPlaces(scheduleId: string): Promise<void> {
+  await AsyncStorage.removeItem(arrivedPlacesKey(scheduleId));
+}
+
 function breadcrumbKey(scheduleId: string) {
   return `${BREADCRUMB_KEY_PREFIX}${scheduleId}`;
 }
@@ -432,9 +436,22 @@ export async function getActiveScheduleId(): Promise<string | null> {
  * 오늘의 스크랩 대상 정보(TODAYS_SCRAP_SCHEDULE_KEY)는 지우지 않는다 — 21시 자동 종료 때와
  * 마찬가지로 스크랩 화면에서 오늘 하루를 계속 기록할 수 있어야 하기 때문이다. 사용자가 직접
  * 누른 게 아니라 자동으로 끝난 것이므로 별도 알림으로 알려주고, 21시 전이라도 일정 목록에서
- * 바로 "기록보기"로 넘어갈 수 있게 AUTO_ENDED_SCHEDULE_KEY에 기록해둔다. */
+ * 바로 "기록보기"로 넘어갈 수 있게 AUTO_ENDED_SCHEDULE_KEY에 기록해둔다.
+ *
+ * 단, 목적지를 한 곳도 못 가본 채 벗어난 경우(경주 밖에서 실수로 "시작"을 눌렀거나, 도착
+ * 전에 미리 눌러둔 경우 등)엔 남길 기록 자체가 없다. 이땐 "종료"로 취급해 기록보기만 뜨는
+ * 막다른 상태로 두는 대신, 취소된 것으로 되돌려서 실제로 경주에 도착하면 같은 일정을 바로
+ * 다시 시작할 수 있게 한다 — 매번 새 일정을 만들 필요가 없도록. */
 async function endActiveScheduleDueToExit(scheduleId: string): Promise<void> {
   await stopLocationTracking();
+  const arrivedIds = await getArrivedPlaceIds(scheduleId);
+  if (arrivedIds.length === 0) {
+    await notify(
+      '경주 안에서만 일정을 시작할 수 있어요',
+      '경주 밖에 있어서 일정이 취소됐어요. 경주에 도착하면 다시 시작해주세요.'
+    );
+    return;
+  }
   await AsyncStorage.setItem(
     AUTO_ENDED_SCHEDULE_KEY,
     JSON.stringify({ scheduleId, date: todayIsoDate() })
@@ -701,9 +718,10 @@ export async function cancelActiveSchedule(scheduleId: string): Promise<boolean>
   if (!isActive) return false;
 
   await stopLocationTracking();
-  // 취소 후 같은 일정을 다시 시작할 수도 있으니, 이번 시도의 발자취는 여기서 지워서 다음
-  // 시도의 경로에 안 섞이게 한다.
+  // 취소 후 같은 일정을 다시 시작할 수도 있으니, 이번 시도의 발자취와 도착(장소별 체크마크)
+  // 기록도 여기서 지워서 다음 시도가 "이미 다 갔다 왔다"는 상태로 시작하지 않게 한다.
   await clearBreadcrumbPath(scheduleId);
+  await clearArrivedPlaces(scheduleId);
 
   const raw = await AsyncStorage.getItem(TODAYS_SCRAP_SCHEDULE_KEY);
   if (raw) {
