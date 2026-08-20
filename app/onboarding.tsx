@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, LayoutChangeEvent, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import SizeSmallIcon from '@/assets/icons/size-small.svg';
@@ -14,6 +14,7 @@ import { completeOnboarding, ApiError, PetTravelPreference, PetPersonality } fro
 import { getAccessToken } from '@/utils/authStorage';
 import { sizeToApi } from '@/utils/petMappers';
 import { showAlert } from '@/components/ui/AppAlert';
+import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 
 type IconComponent = React.FC<{ width?: number; height?: number; color?: string }>;
 
@@ -32,9 +33,9 @@ const TRAVEL_PREF_OPTIONS: { id: string; label: string; Icon: IconComponent; tra
 ];
 
 const DOG_SIZE_OPTIONS = [
-  { value: '소형견', iconSize: 44, Icon: SizeSmallIcon },
-  { value: '중형견', iconSize: 62, Icon: SizeMediumIcon },
-  { value: '대형견', iconSize: 80, Icon: SizeLargeIcon },
+  { value: '소형견', iconSize: 30, Icon: SizeSmallIcon },
+  { value: '중형견', iconSize: 42, Icon: SizeMediumIcon },
+  { value: '대형견', iconSize: 54, Icon: SizeLargeIcon },
 ];
 
 const MAX_PERSONALITY_SELECT = 2;
@@ -47,7 +48,7 @@ const PERSONALITY_OPTIONS: { id: string; label: string; personality: PetPersonal
   { id: 'active', label: '#활동적', personality: 'ACTIVE' },
 ];
 
-function StepIndicator({ currentStep, onStepPress }: { currentStep: Step; onStepPress: (step: Step) => void }) {
+function StepIndicator({ currentStep }: { currentStep: Step }) {
   return (
     <View style={ob.stepRow}>
       {([1, 2, 3] as Step[]).map((step, idx) => {
@@ -56,18 +57,13 @@ function StepIndicator({ currentStep, onStepPress }: { currentStep: Step; onStep
         return (
           <React.Fragment key={step}>
             {idx > 0 && <View style={ob.stepLine} />}
-            <TouchableOpacity
-              activeOpacity={0.75}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              onPress={() => onStepPress(step)}
-              style={[ob.stepDot, isCurrent && ob.stepDotCurrent, isDone && ob.stepDotDone]}
-            >
+            <View style={[ob.stepDot, isCurrent && ob.stepDotCurrent, isDone && ob.stepDotDone]}>
               {isDone ? (
                 <Text style={ob.stepDotCheck}>✓</Text>
               ) : (
                 <Text style={[ob.stepDotText, isCurrent && ob.stepDotTextCurrent]}>{step}</Text>
               )}
-            </TouchableOpacity>
+            </View>
           </React.Fragment>
         );
       })}
@@ -95,7 +91,7 @@ function OptionListItem({
       <View style={ob.optionAvatar}>
         {Icon && <Icon width={18} height={16} color={Colors.white} />}
       </View>
-      <Text style={[ob.optionLabel, selected && ob.optionLabelSelected]} numberOfLines={1} ellipsizeMode="tail">
+      <Text style={ob.optionLabel} numberOfLines={1} ellipsizeMode="tail">
         {label}
       </Text>
       <View style={[ob.optionCheckbox, selected && ob.optionCheckboxSelected]}>
@@ -125,7 +121,7 @@ function SizeOption({
       onPress={onPress}
     >
       <Icon width={iconSize} height={iconSize} />
-      <Text style={[ob.sizeLabel, selected && ob.sizeLabelSelected]}>{label}</Text>
+      <Text style={ob.sizeLabel}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -143,71 +139,6 @@ function PrimaryButton({
     <TouchableOpacity style={ob.primaryBtn} activeOpacity={0.85} onPress={onPress} disabled={loading}>
       {loading ? <ActivityIndicator color={Colors.white} /> : <Text style={ob.primaryBtnText}>{label}</Text>}
     </TouchableOpacity>
-  );
-}
-
-/**
- * 스텝 인디케이터 → 질문 텍스트 → 선택 박스 세 블록을 배치한다.
- * 선택 박스는 이 컴포넌트의 전체 높이 기준 정중앙에 오고, 질문 텍스트는
- * 스텝 인디케이터와 선택 박스 사이 간격의 정중앙에 오도록 각 블록의
- * 실측 높이를 바탕으로 위/아래 간격(gap)을 계산해 배치한다.
- * (absolute/translateY 대신 margin 값을 계산해 순수 flex 흐름 안에서 배치)
- */
-function CenteredStage({
-  stepIndicator,
-  illustration,
-  question,
-  options,
-}: {
-  stepIndicator: React.ReactNode;
-  illustration?: React.ReactNode;
-  question: React.ReactNode;
-  options: React.ReactNode;
-}) {
-  const [areaHeight, setAreaHeight] = useState(0);
-  const [stepHeight, setStepHeight] = useState(0);
-  const [illustrationHeight, setIllustrationHeight] = useState(0);
-  const [questionHeight, setQuestionHeight] = useState(0);
-  const [optionsHeight, setOptionsHeight] = useState(0);
-
-  const onAreaLayout = (e: LayoutChangeEvent) => setAreaHeight(e.nativeEvent.layout.height);
-  const onStepLayout = (e: LayoutChangeEvent) => setStepHeight(e.nativeEvent.layout.height);
-  const onIllustrationLayout = (e: LayoutChangeEvent) => setIllustrationHeight(e.nativeEvent.layout.height);
-  const onQuestionLayout = (e: LayoutChangeEvent) => setQuestionHeight(e.nativeEvent.layout.height);
-  const onOptionsLayout = (e: LayoutChangeEvent) => setOptionsHeight(e.nativeEvent.layout.height);
-
-  const ready =
-    areaHeight > 0 &&
-    stepHeight > 0 &&
-    questionHeight > 0 &&
-    optionsHeight > 0 &&
-    (!illustration || illustrationHeight > 0);
-  // 선택 박스 중심이 areaHeight/2에 오도록, 질문 텍스트 위/아래 간격을 동일하게(gap) 계산.
-  const gap = ready
-    ? Math.max(
-        0,
-        (areaHeight - optionsHeight - illustrationHeight - 2 * stepHeight - 2 * questionHeight) / 4
-      )
-    : 0;
-
-  return (
-    <View style={ob.stage} onLayout={onAreaLayout}>
-      <View onLayout={onStepLayout}>{stepIndicator}</View>
-      {illustration && (
-        <View
-          onLayout={onIllustrationLayout}
-          style={{ marginTop: gap, opacity: ready ? 1 : 0, alignItems: 'center' }}
-        >
-          {illustration}
-        </View>
-      )}
-      <View onLayout={onQuestionLayout} style={{ marginTop: gap, opacity: ready ? 1 : 0 }}>
-        {question}
-      </View>
-      <View onLayout={onOptionsLayout} style={{ marginTop: gap, opacity: ready ? 1 : 0 }}>
-        {options}
-      </View>
-    </View>
   );
 }
 
@@ -277,98 +208,101 @@ export default function OnboardingScreen() {
   const [titleLine1, titleLine2] = STEP_TITLES[step - 1];
 
   return (
-    <SafeAreaView style={ob.safeArea}>
-      <View style={ob.content}>
-        <TouchableOpacity
-          style={ob.backBtn}
-          onPress={handleBack}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={ob.backArrow}>←</Text>
-        </TouchableOpacity>
+    <SwipeBackScreen onBack={handleBack}>
+      <SafeAreaView style={ob.safeArea}>
+        <View style={ob.content}>
+          <TouchableOpacity
+            style={ob.backBtn}
+            onPress={handleBack}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={ob.backArrow}>←</Text>
+          </TouchableOpacity>
 
-        <CenteredStage
-          stepIndicator={<StepIndicator currentStep={step} onStepPress={setStep} />}
-          illustration={
-            step === 3 ? <OnboardingPersonalityIllustration width={200} height={141} /> : undefined
-          }
-          question={
+          <View style={ob.header}>
+            <StepIndicator currentStep={step} />
+
+            {step === 3 && (
+              <View style={ob.illustrationWrap}>
+                <OnboardingPersonalityIllustration width={200} height={141} />
+              </View>
+            )}
+
             <Text style={ob.title}>
               {titleLine1}
               {'\n'}
               {titleLine2}
             </Text>
-          }
-          options={
-            <>
-              {step === 1 && (
-                <View>
-                  {TRAVEL_PREF_OPTIONS.map((opt) => (
-                    <OptionListItem
-                      key={opt.id}
-                      label={opt.label}
-                      Icon={opt.Icon}
-                      selected={travelPref === opt.id}
-                      onPress={() => setTravelPref(opt.id)}
-                    />
-                  ))}
-                </View>
-              )}
-
-              {step === 2 && (
-                <View style={ob.sizeRow}>
-                  {DOG_SIZE_OPTIONS.map((opt) => (
-                    <SizeOption
-                      key={opt.value}
-                      label={opt.value}
-                      iconSize={opt.iconSize}
-                      Icon={opt.Icon}
-                      selected={dogSize === opt.value}
-                      onPress={() => setDogSize(opt.value)}
-                    />
-                  ))}
-                </View>
-              )}
-
-              {step === 3 && (
-                <View style={ob.personalityGrid}>
-                  {PERSONALITY_OPTIONS.map((opt) => {
-                    const selected = personalities.includes(opt.id);
-                    return (
-                      <TouchableOpacity
-                        key={opt.id}
-                        style={[ob.personalityChip, selected && ob.personalityChipSelected]}
-                        activeOpacity={0.8}
-                        onPress={() => togglePersonality(opt.id)}
-                      >
-                        <Text style={[ob.personalityChipText, selected && ob.personalityChipTextSelected]}>
-                          <Text style={ob.personalityChipHash}>#</Text>
-                          {opt.label.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            </>
-          }
-        />
-      </View>
-
-      <View style={ob.bottomBar}>
-        {step === 3 && (
-          <View style={ob.personalityHintRow}>
-            <InfoIcon width={14} height={14} />
-            <Text style={ob.personalityHint}>강아지의 성향은 필수로 두 가지를 선택해주세요</Text>
           </View>
-        )}
-        <PrimaryButton
-          label={step < 3 ? '다음' : '견주 여행 즐기러 가기'}
-          onPress={handleNext}
-          loading={registering}
-        />
-      </View>
-    </SafeAreaView>
+
+          <View style={ob.optionsArea}>
+            {step === 1 && (
+              <View>
+                {TRAVEL_PREF_OPTIONS.map((opt) => (
+                  <OptionListItem
+                    key={opt.id}
+                    label={opt.label}
+                    Icon={opt.Icon}
+                    selected={travelPref === opt.id}
+                    onPress={() => setTravelPref(opt.id)}
+                  />
+                ))}
+              </View>
+            )}
+
+            {step === 2 && (
+              <View style={ob.sizeRow}>
+                {DOG_SIZE_OPTIONS.map((opt) => (
+                  <SizeOption
+                    key={opt.value}
+                    label={opt.value}
+                    iconSize={opt.iconSize}
+                    Icon={opt.Icon}
+                    selected={dogSize === opt.value}
+                    onPress={() => setDogSize(opt.value)}
+                  />
+                ))}
+              </View>
+            )}
+
+            {step === 3 && (
+              <View style={ob.personalityGrid}>
+                {PERSONALITY_OPTIONS.map((opt) => {
+                  const selected = personalities.includes(opt.id);
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={[ob.personalityChip, selected && ob.personalityChipSelected]}
+                      activeOpacity={0.8}
+                      onPress={() => togglePersonality(opt.id)}
+                    >
+                      <Text style={[ob.personalityChipText, selected && ob.personalityChipTextSelected]}>
+                        <Text style={ob.personalityChipHash}>#</Text>
+                        {opt.label.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        </View>
+
+        <View style={ob.bottomBar}>
+          {step === 3 && (
+            <View style={ob.personalityHintRow}>
+              <InfoIcon width={14} height={14} />
+              <Text style={ob.personalityHint}>강아지의 성향은 필수로 두 가지를 선택해주세요</Text>
+            </View>
+          )}
+          <PrimaryButton
+            label={step < 3 ? '다음' : '견주 여행 즐기러 가기'}
+            onPress={handleNext}
+            loading={registering}
+          />
+        </View>
+      </SafeAreaView>
+    </SwipeBackScreen>
   );
 }
 
@@ -377,11 +311,13 @@ const ob = StyleSheet.create({
   content: { flex: 1, paddingHorizontal: Spacing.xl },
   backBtn: { marginTop: Spacing.xl, marginBottom: Spacing.md },
   backArrow: { fontSize: 22, color: Colors.textBody1 },
-  stage: { flex: 1 },
+  header: { paddingTop: Spacing.md },
+  optionsArea: { flex: 1, justifyContent: 'center' },
   stepRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: Spacing.xxl,
   },
   stepDot: {
     width: 36,
@@ -399,12 +335,14 @@ const ob = StyleSheet.create({
   stepDotTextCurrent: { color: Colors.white },
   stepDotCheck: { fontSize: 16, fontWeight: '700', color: Colors.white },
   stepLine: { width: 40, height: 1.5, backgroundColor: Colors.border, marginHorizontal: 4 },
+  illustrationWrap: { alignItems: 'center', marginBottom: Spacing.xxl },
   title: {
     fontSize: 22,
     fontWeight: '700',
     color: Colors.textBody1,
     textAlign: 'center',
     lineHeight: 30,
+    marginBottom: Spacing.xxl,
   },
   optionRow: {
     flexDirection: 'row',
@@ -421,12 +359,7 @@ const ob = StyleSheet.create({
   optionRowSelected: {
     borderColor: Colors.coral,
     borderWidth: 1.5,
-    backgroundColor: '#F8F5F0',
-    shadowColor: '#8A8580',
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 5,
+    backgroundColor: Colors.primaryTint,
   },
   optionAvatar: {
     width: 48,
@@ -436,8 +369,7 @@ const ob = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  optionLabel: { flex: 1, fontSize: 15, color: Colors.textBody1, textAlign: 'center' },
-  optionLabelSelected: { fontWeight: '700' },
+  optionLabel: { flex: 1, fontSize: 15, color: Colors.textBody1 },
   optionCheckbox: {
     width: 24,
     height: 24,
@@ -447,7 +379,6 @@ const ob = StyleSheet.create({
     backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
   },
   optionCheckboxSelected: { backgroundColor: Colors.coral, borderColor: Colors.coral },
   optionCheckMark: { fontSize: 14, fontWeight: '700', color: Colors.white },
@@ -463,9 +394,8 @@ const ob = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.sm,
   },
-  sizeBoxSelected: { borderColor: Colors.coral, borderWidth: 1.5, backgroundColor: '#F8F5F0' },
+  sizeBoxSelected: { borderColor: Colors.coral, borderWidth: 1.5 },
   sizeLabel: { fontSize: 14, color: Colors.textBody1 },
-  sizeLabelSelected: { fontWeight: '700' },
   personalityGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -482,7 +412,7 @@ const ob = StyleSheet.create({
     borderColor: Colors.border,
     backgroundColor: Colors.background,
   },
-  personalityChipSelected: { borderColor: Colors.coral, borderWidth: 1.5, backgroundColor: '#F8F5F0' },
+  personalityChipSelected: { borderColor: Colors.coral, borderWidth: 1.5, backgroundColor: Colors.primaryTint },
   personalityChipText: { fontSize: 14, fontWeight: '500', color: Colors.textBody1 },
   personalityChipTextSelected: { fontWeight: '700' },
   personalityChipHash: { color: Colors.coral },
