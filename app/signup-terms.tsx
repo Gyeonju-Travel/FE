@@ -92,15 +92,17 @@ export default function SignupTermsScreen() {
                   <Text style={styles.requiredTag}>[필수]</Text> {term.label}
                 </Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.viewBtn}
-                activeOpacity={0.7}
-                onPress={() => setToastMsg('준비 중인 기능이에요.')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Text style={styles.viewBtnText}>보기</Text>
-                <Text style={styles.viewBtnChevron}>›</Text>
-              </TouchableOpacity>
+              {term.key !== 'age' && (
+                <TouchableOpacity
+                  style={styles.viewBtn}
+                  activeOpacity={0.7}
+                  onPress={() => router.push({ pathname: '/terms-detail', params: { type: term.key } })}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.viewBtnText}>보기</Text>
+                  <Text style={styles.viewBtnChevron}>›</Text>
+                </TouchableOpacity>
+              )}
             </View>
           );
         })}
