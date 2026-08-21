@@ -233,8 +233,20 @@ export async function popPendingStampToast(): Promise<number | null> {
   }
 }
 
+// awardStamp()는 홈/마이페이지 등 여러 화면에서 거의 동시에 호출될 수 있는데(예: 관광지 6개를
+// 막 다 모은 시점에 두 화면이 동시에 포커스), 내부에서 "이미 획득했나?"를 AsyncStorage 읽기로
+// 판단하다 보니 두 호출이 서로의 쓰기 완료 전에 동시에 읽으면 둘 다 "아직 없음"으로 착각해서
+// 축하 토스트/푸시 알림이 중복으로 나간다. 호출을 한 줄로 직렬화해서 막는다.
+let awardStampQueue: Promise<unknown> = Promise.resolve();
+
 /** 특정 번호의 스탬프를 지급한다 (지오펜싱 도착 시 사용). 새로 지급됐으면 true. */
-export async function awardStamp(stampIndex: number): Promise<boolean> {
+export function awardStamp(stampIndex: number): Promise<boolean> {
+  const run = awardStampQueue.then(() => awardStampLocked(stampIndex));
+  awardStampQueue = run.catch(() => {});
+  return run;
+}
+
+async function awardStampLocked(stampIndex: number): Promise<boolean> {
   if (stampIndex <= 0 || stampIndex >= TOTAL_STAMP_COUNT) return false;
   const indices = await getEarnedStampIndices();
   if (indices.has(stampIndex)) return false;
