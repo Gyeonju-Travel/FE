@@ -9,12 +9,13 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.anonymous.gyeonju-travel",
+      "bundleIdentifier": "com.gyeonjutravel.project",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "UIBackgroundModes": [
           "location"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -73,6 +74,13 @@
         }
       ],
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9ccb7be3-db26-4051-8716-29978ae3aa0f"
+      }
+    },
+    "owner": "gyeonju-travel"
   }
 }
