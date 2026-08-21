@@ -290,7 +290,7 @@ export default function MapScreen() {
     }
     if (searchCategory === SAVED_FILTER) {
       setSearching(false);
-      setSearchResults(categoryResults.filter((p) => p.name.includes(trimmed) || p.address.includes(trimmed)));
+      setSearchResults(categoryResults.filter((p) => p.name.includes(trimmed)));
       return;
     }
     const timer = setTimeout(() => {

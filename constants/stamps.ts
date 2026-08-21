@@ -129,7 +129,11 @@ export async function getDisplayStampIndices(): Promise<Set<number>> {
   // 모았을 때의 보너스는 로컬에서만 판단하다 보니, 순서·타이밍에 따라(예: 재설치로 로컬
   // 캐시가 초기화된 경우) awardStamp() 안의 완주 체크를 놓칠 수 있다.
   if (NAMED_ATTRACTION_INDICES.every((i) => indices.has(i)) && !indices.has(GYEONGJU_MASTER_STAMP_INDEX)) {
-    await awardStamp(GYEONGJU_MASTER_STAMP_INDEX);
+    // 여기서 걸리는 건 항상 "예전에 이미 달성했는데 로컬 캐시만 없던" 경우다(방금 6번째 관광지를
+    // 막 찍은 경우엔 그 자리에서 awardStamp()가 이미 축하 처리를 끝냈으므로 여기 도달하지 않는다).
+    // 그래서 조용히(토스트/푸시 알림 없이)만 지급한다 — 안 그러면 로컬 캐시가 비워질 때마다
+    // (재설치, 개발 중 재빌드 등) "경주 마스터 획득" 축하가 매번 다시 뜬다.
+    await awardStamp(GYEONGJU_MASTER_STAMP_INDEX, false);
     indices.add(GYEONGJU_MASTER_STAMP_INDEX);
   }
   return indices;
@@ -239,14 +243,16 @@ export async function popPendingStampToast(): Promise<number | null> {
 // 축하 토스트/푸시 알림이 중복으로 나간다. 호출을 한 줄로 직렬화해서 막는다.
 let awardStampQueue: Promise<unknown> = Promise.resolve();
 
-/** 특정 번호의 스탬프를 지급한다 (지오펜싱 도착 시 사용). 새로 지급됐으면 true. */
-export function awardStamp(stampIndex: number): Promise<boolean> {
-  const run = awardStampQueue.then(() => awardStampLocked(stampIndex));
+/** 특정 번호의 스탬프를 지급한다 (지오펜싱 도착 시 사용). 새로 지급됐으면 true.
+ * notify=false면 축하 토스트/푸시 알림 없이 조용히 저장만 한다 — getDisplayStampIndices()의
+ * "보정" 지급처럼 실제로는 예전에 이미 달성한 걸 로컬 캐시에 뒤늦게 반영하는 경우에 쓴다. */
+export function awardStamp(stampIndex: number, shouldNotify: boolean = true): Promise<boolean> {
+  const run = awardStampQueue.then(() => awardStampLocked(stampIndex, shouldNotify));
   awardStampQueue = run.catch(() => {});
   return run;
 }
 
-async function awardStampLocked(stampIndex: number): Promise<boolean> {
+async function awardStampLocked(stampIndex: number, shouldNotify: boolean): Promise<boolean> {
   if (stampIndex <= 0 || stampIndex >= TOTAL_STAMP_COUNT) return false;
   const indices = await getEarnedStampIndices();
   if (indices.has(stampIndex)) return false;
@@ -259,9 +265,13 @@ async function awardStampLocked(stampIndex: number): Promise<boolean> {
     // 관광지 스탬프 알림엔 그 관광지 이름이 붙어서 따로 나가지만, 이걸로 완성되는 "경주마스터"
     // 보너스는 어느 호출 경로로 지급되든(관광지 알림, getDisplayStampIndices 보정 등) 여기
     // 한 곳에서만 판단되므로, 푸시 알림도 여기서 직접 보낸다.
-    await notify('경주 마스터! 🏆', '관광지 스탬프 6개를 모두 모았어요!', STAMP_NOTIFICATION_DATA);
+    if (shouldNotify) {
+      await notify('경주 마스터! 🏆', '관광지 스탬프 6개를 모두 모았어요!', STAMP_NOTIFICATION_DATA);
+    }
   }
   await AsyncStorage.setItem(EARNED_STAMPS_KEY, JSON.stringify([...indices]));
-  for (const idx of newlyEarned) await pushPendingStampToast(idx);
+  if (shouldNotify) {
+    for (const idx of newlyEarned) await pushPendingStampToast(idx);
+  }
   return true;
 }

@@ -8,6 +8,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
@@ -241,118 +243,120 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Text style={styles.backArrow}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>회원 가입</Text>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <FormField
-          label="이메일"
-          Icon={EmailIcon}
-          placeholder="이메일"
-          value={email}
-          onChangeText={(t) => {
-            setEmail(t);
-            setEmailApiError(null);
-          }}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          error={emailError}
-        />
-        <FormField
-          label="비밀번호"
-          Icon={PasswordIcon}
-          placeholder="비밀번호"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          textContentType="oneTimeCode"
-          maxLength={30}
-          trailing={<EyeToggle visible={showPassword} onPress={() => setShowPassword((v) => !v)} Icon={EyeIcon} />}
-          error={passwordError}
-        />
-        <FormField
-          Icon={PasswordIcon}
-          placeholder="비밀번호 재확인"
-          value={passwordConfirm}
-          onChangeText={setPasswordConfirm}
-          secureTextEntry={!showPasswordConfirm}
-          textContentType="oneTimeCode"
-          maxLength={30}
-          trailing={
-            <EyeToggle visible={showPasswordConfirm} onPress={() => setShowPasswordConfirm((v) => !v)} Icon={EyeIcon} />
-          }
-          error={passwordConfirmError}
-        />
-        <FormField
-          label="이름"
-          Icon={NameIcon}
-          placeholder="이름"
-          value={name}
-          onChangeText={setName}
-          error={nameError}
-        />
-
-        <Text style={styles.label}>생년월일</Text>
-        <View style={styles.dateRow}>
-          <DateSelect
-            label={birthDateConfirmed ? `${BIRTH_YEAR_BASE + birthYearIdx}년` : '년도'}
-            filled={birthDateConfirmed}
-            onPress={() => setDatePickerVisible(true)}
-          />
-          <DateSelect
-            label={birthDateConfirmed ? `${birthMonthIdx + 1}월` : '월'}
-            filled={birthDateConfirmed}
-            onPress={() => setDatePickerVisible(true)}
-          />
-          <DateSelect
-            label={birthDateConfirmed ? `${birthDayIdx + 1}일` : '일'}
-            filled={birthDateConfirmed}
-            onPress={() => setDatePickerVisible(true)}
-          />
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={styles.backArrow}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>회원 가입</Text>
         </View>
-        {birthDateError && <Text style={styles.inlineErrorText}>{birthDateError}</Text>}
 
-        <Text style={styles.label}>성별</Text>
-        <View style={styles.genderRow}>
-          {(['여성', '남성'] as Gender[]).map((g) => {
-            const selected = gender === g;
-            const Icon = g === '여성' ? GenderFemaleIcon : GenderMaleIcon;
-            return (
-              <TouchableOpacity
-                key={g}
-                style={[styles.genderBtn, selected && styles.genderBtnSelected]}
-                activeOpacity={0.8}
-                onPress={() => setGender(g)}
-              >
-                <Icon width={9} height={12} color={selected ? Colors.white : Colors.textMuted} />
-                <Text style={[styles.genderBtnText, selected && styles.genderBtnTextSelected]}>{g}</Text>
-              </TouchableOpacity>
-            );
-          })}
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <FormField
+            label="이메일"
+            Icon={EmailIcon}
+            placeholder="이메일"
+            value={email}
+            onChangeText={(t) => {
+              setEmail(t);
+              setEmailApiError(null);
+            }}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            error={emailError}
+          />
+          <FormField
+            label="비밀번호"
+            Icon={PasswordIcon}
+            placeholder="비밀번호"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            textContentType="oneTimeCode"
+            maxLength={30}
+            trailing={<EyeToggle visible={showPassword} onPress={() => setShowPassword((v) => !v)} Icon={EyeIcon} />}
+            error={passwordError}
+          />
+          <FormField
+            Icon={PasswordIcon}
+            placeholder="비밀번호 재확인"
+            value={passwordConfirm}
+            onChangeText={setPasswordConfirm}
+            secureTextEntry={!showPasswordConfirm}
+            textContentType="oneTimeCode"
+            maxLength={30}
+            trailing={
+              <EyeToggle visible={showPasswordConfirm} onPress={() => setShowPasswordConfirm((v) => !v)} Icon={EyeIcon} />
+            }
+            error={passwordConfirmError}
+          />
+          <FormField
+            label="이름"
+            Icon={NameIcon}
+            placeholder="이름"
+            value={name}
+            onChangeText={setName}
+            error={nameError}
+          />
+
+          <Text style={styles.label}>생년월일</Text>
+          <View style={styles.dateRow}>
+            <DateSelect
+              label={birthDateConfirmed ? `${BIRTH_YEAR_BASE + birthYearIdx}년` : '년도'}
+              filled={birthDateConfirmed}
+              onPress={() => setDatePickerVisible(true)}
+            />
+            <DateSelect
+              label={birthDateConfirmed ? `${birthMonthIdx + 1}월` : '월'}
+              filled={birthDateConfirmed}
+              onPress={() => setDatePickerVisible(true)}
+            />
+            <DateSelect
+              label={birthDateConfirmed ? `${birthDayIdx + 1}일` : '일'}
+              filled={birthDateConfirmed}
+              onPress={() => setDatePickerVisible(true)}
+            />
+          </View>
+          {birthDateError && <Text style={styles.inlineErrorText}>{birthDateError}</Text>}
+
+          <Text style={styles.label}>성별</Text>
+          <View style={styles.genderRow}>
+            {(['여성', '남성'] as Gender[]).map((g) => {
+              const selected = gender === g;
+              const Icon = g === '여성' ? GenderFemaleIcon : GenderMaleIcon;
+              return (
+                <TouchableOpacity
+                  key={g}
+                  style={[styles.genderBtn, selected && styles.genderBtnSelected]}
+                  activeOpacity={0.8}
+                  onPress={() => setGender(g)}
+                >
+                  <Icon width={9} height={12} color={selected ? Colors.white : Colors.textMuted} />
+                  <Text style={[styles.genderBtnText, selected && styles.genderBtnTextSelected]}>{g}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {genderError && <Text style={styles.inlineErrorText}>{genderError}</Text>}
+
+          <FormField
+            label="전화번호"
+            Icon={PhoneIcon}
+            placeholder="전화번호"
+            value={phone}
+            onChangeText={(text) => setPhone(formatPhoneNumber(text))}
+            keyboardType="phone-pad"
+            maxLength={13}
+            error={phoneError}
+          />
+        </ScrollView>
+
+        <View style={styles.bottomBar}>
+          <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={handleSignUp} disabled={loading}>
+            {loading ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.primaryBtnText}>가입하기</Text>}
+          </TouchableOpacity>
         </View>
-        {genderError && <Text style={styles.inlineErrorText}>{genderError}</Text>}
-
-        <FormField
-          label="전화번호"
-          Icon={PhoneIcon}
-          placeholder="전화번호"
-          value={phone}
-          onChangeText={(text) => setPhone(formatPhoneNumber(text))}
-          keyboardType="phone-pad"
-          maxLength={13}
-          error={phoneError}
-        />
-      </ScrollView>
-
-      <View style={styles.bottomBar}>
-        <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={handleSignUp} disabled={loading}>
-          {loading ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.primaryBtnText}>가입하기</Text>}
-        </TouchableOpacity>
-      </View>
+      </KeyboardAvoidingView>
 
       <BirthDatePickerModal
         visible={datePickerVisible}
@@ -376,6 +380,7 @@ export default function SignupScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
+  flex: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
