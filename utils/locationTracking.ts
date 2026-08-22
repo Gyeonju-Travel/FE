@@ -267,19 +267,24 @@ function todayIsoDate(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** 예약해둔 21시 스크랩 알림이 있으면 취소한다. 일정을 취소했는데도 이미 예약된 알림이 그대로
+ * 남아있으면, 오늘 일정이 없는데도 21시에 알림이 울리게 된다. */
+async function cancelScrapReminder(): Promise<void> {
+  const existingId = await AsyncStorage.getItem(SCRAP_REMINDER_ID_KEY);
+  if (!existingId) return;
+  try {
+    await Notifications.cancelScheduledNotificationAsync(existingId);
+  } catch {
+    // 이미 취소/발송된 알림이면 실패해도 무시
+  }
+  await AsyncStorage.removeItem(SCRAP_REMINDER_ID_KEY);
+}
+
 /** 오늘 21시에 "일정 종료? 스크랩으로 기록해보세요" 알림을 예약한다. 이미 21시가 지났으면 예약하지 않는다.
  * 같은 날 취소 후 재시작을 반복해도 알림이 중복으로 쌓이지 않도록, 이전에 예약해둔 알림이 있으면
  * 먼저 취소하고 새로 예약한다. */
 async function scheduleScrapReminder(): Promise<void> {
-  const existingId = await AsyncStorage.getItem(SCRAP_REMINDER_ID_KEY);
-  if (existingId) {
-    try {
-      await Notifications.cancelScheduledNotificationAsync(existingId);
-    } catch {
-      // 이미 취소/발송된 알림이면 실패해도 무시
-    }
-    await AsyncStorage.removeItem(SCRAP_REMINDER_ID_KEY);
-  }
+  await cancelScrapReminder();
 
   const target = new Date();
   target.setHours(SCRAP_REMINDER_HOUR, 0, 0, 0);
@@ -452,6 +457,20 @@ async function endActiveScheduleDueToExit(scheduleId: string): Promise<void> {
         await cancelStartSchedule(Number(scheduleId), token);
       } catch {
         // 서버 취소 실패는 무시 — 로컬은 이미 취소된 것으로 정리된다.
+      }
+    }
+    // 완전히 취소된 것으로 되돌리는 경로라, cancelActiveSchedule()과 마찬가지로 스크랩 대상과
+    // 예약된 21시 알림도 같이 지운다 — 안 그러면 취소했는데도 21시에 알림이 울린다.
+    const raw = await AsyncStorage.getItem(TODAYS_SCRAP_SCHEDULE_KEY);
+    if (raw) {
+      try {
+        const state: TodaysScrapSchedule = JSON.parse(raw);
+        if (state.scheduleId === scheduleId) {
+          await AsyncStorage.removeItem(TODAYS_SCRAP_SCHEDULE_KEY);
+          await cancelScrapReminder();
+        }
+      } catch {
+        // 손상된 값이면 그냥 둔다
       }
     }
     await notify(
@@ -749,6 +768,7 @@ export async function cancelActiveSchedule(scheduleId: string): Promise<boolean>
       const state: TodaysScrapSchedule = JSON.parse(raw);
       if (state.scheduleId === scheduleId) {
         await AsyncStorage.removeItem(TODAYS_SCRAP_SCHEDULE_KEY);
+        await cancelScrapReminder();
       }
     } catch {
       // 손상된 값이면 그냥 둔다
