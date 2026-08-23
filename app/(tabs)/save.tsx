@@ -290,6 +290,6 @@ const styles = StyleSheet.create({
   deleteBtnTextActive: {
     fontSize: 15,
     fontWeight: '600',
-    color: Colors.coral,
+    color: '#C84848',
   },
 });

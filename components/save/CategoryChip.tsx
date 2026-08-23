@@ -28,7 +28,7 @@ export default function CategoryChip({ label, active, onPress }: Props) {
       style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
       activeOpacity={0.7}
     >
-      <Icon width={14} height={14} color={active ? Colors.white : '#E8906A'} />
+      <Icon width={14} height={14} color={active ? Colors.white : '#6B6260'} />
       <Text style={[styles.label, active ? styles.labelActive : styles.labelInactive]}>
         {label}
       </Text>
@@ -40,19 +40,20 @@ const styles = StyleSheet.create({
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs + 2,
+    justifyContent: 'center',
+    width: 68,
+    height: 36,
     borderRadius: Radius.full,
     borderWidth: 0,
     gap: 4,
     marginRight: Spacing.sm,
   },
   chipActive: {
-    backgroundColor: '#E8906A',
-    borderColor: '#E8906A',
+    backgroundColor: Colors.coral,
+    borderColor: Colors.coral,
   },
   chipInactive: {
-    backgroundColor: Colors.primaryTint,
+    backgroundColor: '#F4F0E8',
   },
   label: {
     fontSize: 13,
@@ -62,6 +63,6 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   labelInactive: {
-    color: '#E8906A',
+    color: '#6B6260',
   },
 });

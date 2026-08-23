@@ -118,8 +118,8 @@ const styles = StyleSheet.create({
   },
 
   cardSelected: {
-    backgroundColor: Colors.primaryTint,
-    borderColor: Colors.primaryBorder,
+    backgroundColor: '#F8F5F0',
+    borderColor: '#EDE8E3',
   },
 
   checkbox: {

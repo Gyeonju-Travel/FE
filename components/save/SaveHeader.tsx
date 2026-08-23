@@ -39,7 +39,7 @@ export default function SaveHeader({
           <Text style={styles.title}>저장</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={onDeletePress}>
-          <Text style={styles.actionBtn}>삭제</Text>
+          <Text style={[styles.actionBtn, selectedCount > 0 && styles.actionBtnActive]}>삭제</Text>
         </TouchableOpacity>
       </View>
 
@@ -102,6 +102,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: Colors.textBody2,
     fontWeight: '500',
+  },
+  actionBtnActive: {
+    color: '#C84848',
+    fontWeight: '600',
   },
   selectAllRow: {
     flexDirection: 'row',
