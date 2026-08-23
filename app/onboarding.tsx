@@ -33,9 +33,9 @@ const TRAVEL_PREF_OPTIONS: { id: string; label: string; Icon: IconComponent; tra
 ];
 
 const DOG_SIZE_OPTIONS = [
-  { value: '소형견', iconSize: 30, Icon: SizeSmallIcon },
-  { value: '중형견', iconSize: 42, Icon: SizeMediumIcon },
-  { value: '대형견', iconSize: 54, Icon: SizeLargeIcon },
+  { value: '소형견', iconSize: 60, Icon: SizeSmallIcon },
+  { value: '중형견', iconSize: 84, Icon: SizeMediumIcon },
+  { value: '대형견', iconSize: 108, Icon: SizeLargeIcon },
 ];
 
 const MAX_PERSONALITY_SELECT = 2;
@@ -120,8 +120,13 @@ function SizeOption({
       activeOpacity={0.85}
       onPress={onPress}
     >
-      <Icon width={iconSize} height={iconSize} />
-      <Text style={ob.sizeLabel}>{label}</Text>
+      {/* 아이콘 크기가 견종마다 달라도(소/중/대) 라벨 위치는 항상 같아야 하므로, 아이콘을
+          고정 높이 슬롯 안에서 아래쪽(라벨과 맞닿는 쪽)에 맞춰 정렬한다 — 작은 강아지는
+          슬롯 위쪽에 여백이 남고, 큰 강아지는 슬롯을 거의 채우며 위로 자란다. */}
+      <View style={ob.sizeIconSlot}>
+        <Icon width={iconSize} height={iconSize} />
+      </View>
+      <Text style={[ob.sizeLabel, selected && ob.sizeLabelSelected]}>{label}</Text>
     </TouchableOpacity>
   );
 }
@@ -251,7 +256,7 @@ export default function OnboardingScreen() {
             )}
 
             {step === 2 && (
-              <View style={ob.sizeRow}>
+              <View style={[ob.sizeRow, { marginTop: -Spacing.xxl * 4 }]}>
                 {DOG_SIZE_OPTIONS.map((opt) => (
                   <SizeOption
                     key={opt.value}
@@ -391,11 +396,16 @@ const ob = StyleSheet.create({
     borderColor: Colors.border,
     backgroundColor: Colors.background,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: Spacing.xl + Spacing.md,
     gap: Spacing.sm,
   },
-  sizeBoxSelected: { borderColor: Colors.coral, borderWidth: 1.5 },
+  sizeBoxSelected: { borderColor: Colors.coral, borderWidth: 1.5, backgroundColor: Colors.bgWarm },
+  // 가장 큰 아이콘(대형견, 108)을 기준으로 슬롯 높이를 고정해서, 아이콘이 아무리 작아도
+  // 항상 같은 위치(슬롯 아래쪽)에서 라벨과 만나게 한다.
+  sizeIconSlot: { height: 108, justifyContent: 'flex-end', alignItems: 'center' },
   sizeLabel: { fontSize: 14, color: Colors.textBody1 },
+  sizeLabelSelected: { fontWeight: '600' },
   personalityGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
