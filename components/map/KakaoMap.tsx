@@ -129,6 +129,11 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
   // 이후 위치 갱신은 updateMyLocation()으로 오버레이만 이동시켜 리로드 없이 처리한다.
   const initialCurrentLocationRef = useRef(currentLocation);
 
+  // likedPlaceIds도 같은 이유로 최초 1회만 html에 반영한다 — 안 그러면 지도에서 바로 좋아요를
+  // 누를 때마다 WebView가 리로드되면서 panTo로 옮겨둔 위치가 초기 중심으로 되돌아간다.
+  // 이후 좋아요 상태 변경은 아래 effect가 syncLikedPlaceIds로 핀 이미지만 갱신한다.
+  const initialLikedPlaceIdsRef = useRef(likedPlaceIds);
+
   const html = useMemo(
     () =>
       buildKakaoMapHtml({
@@ -139,7 +144,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         markers,
         categoryPinUri,
         categoryPinUriSaved,
-        likedPlaceIds,
+        likedPlaceIds: initialLikedPlaceIdsRef.current,
         currentLocationImageUri: currentLocationUri,
         currentLocationLat: initialCurrentLocationRef.current?.lat,
         currentLocationLng: initialCurrentLocationRef.current?.lng,
@@ -152,8 +157,18 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         routeBoundsPadding,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [centerLat, centerLng, level, markers, likedPlaceIds, routePlaces, routePath, routeLineStyle, routeBoundsPadding]
+    [centerLat, centerLng, level, markers, routePlaces, routePath, routeLineStyle, routeBoundsPadding]
   );
+
+  // 좋아요 상태가 바뀌면(하트 토글) 리로드 없이 해당 마커 핀 이미지만 갱신한다.
+  useEffect(() => {
+    if (mapReady) {
+      webViewRef.current?.injectJavaScript(
+        `if(window.syncLikedPlaceIds){window.syncLikedPlaceIds(${JSON.stringify(likedPlaceIds)});}true;`
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, likedPlaceIds.join(',')]);
 
   // html이 바뀌면 WebView가 통째로 리로드되어 window.kakaoMap이 새로 생성되므로,
   // 다음 'mapReady' 메시지가 올 때까지는 준비 안 된 상태로 취급한다.

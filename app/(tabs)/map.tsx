@@ -127,6 +127,10 @@ export default function MapScreen() {
 
   // 지도 검색 화면 (전체 화면 오버레이) 관련 상태
   const [searchFocused, setSearchFocused] = useState(false);
+  // 검색 오버레이가 떠있는 동안엔 KakaoMap 자체가 안 그려져서(mapRef.current === null),
+  // 검색 결과를 누른 시점엔 바로 moveTo를 호출해도 씹힌다. 오버레이를 닫아서 지도가 다시
+  // 마운트된 뒤에 옮기도록 좌표를 대기시켜둔다.
+  const [pendingMapMove, setPendingMapMove] = useState<{ lat: number; lng: number } | null>(null);
   const [searchCategory, setSearchCategory] = useState<SearchCategory | null>(null);
   const [categoryResults, setCategoryResults] = useState<MapPlace[]>([]);
   const [categoryLoading, setCategoryLoading] = useState(false);
@@ -258,6 +262,16 @@ export default function MapScreen() {
     if (focusLabel) setToastMsg(`${focusLabel} 근처로 이동했어요.`);
   }, [focusLat, focusLng, focusLabel]);
 
+  // KakaoMap은 WebView라 ref가 붙어도 내부 카카오맵(window.kakaoMap)이 아직 안 만들어졌으면
+  // moveTo가 조용히 무시된다. 검색 오버레이를 닫을 때마다 WebView가 통째로 리로드되므로,
+  // 진짜로 지도 초기화가 끝났다는 신호(onMapReady)를 받은 뒤에야 대기 중인 이동을 실행한다.
+  const handleMapReady = () => {
+    if (pendingMapMove) {
+      mapRef.current?.moveTo(pendingMapMove.lat, pendingMapMove.lng);
+      setPendingMapMove(null);
+    }
+  };
+
   const performSearch = async (kw: string) => {
     const token = await getAccessToken();
     if (!token) return;
@@ -314,7 +328,7 @@ export default function MapScreen() {
     setKeyword('');
     setSearchResults([]);
     Keyboard.dismiss();
-    mapRef.current?.moveTo(place.latitude, place.longitude);
+    setPendingMapMove({ lat: place.latitude, lng: place.longitude });
     openPlaceDetail(place);
   };
 
@@ -596,6 +610,7 @@ export default function MapScreen() {
         currentLocation={myLocation}
         onMarkerPress={handleMarkerPress}
         onMapPress={handleMapPress}
+        onMapReady={handleMapReady}
       />
 
       {/* 상단 오버레이 */}

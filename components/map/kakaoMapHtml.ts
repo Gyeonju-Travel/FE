@@ -190,6 +190,20 @@ export function buildKakaoMapHtml({
       var places = ${markersJson};
       var categoryPinUri = ${categoryPinJson};
       var categoryPinUriSaved = ${categoryPinSavedJson};
+      // 좋아요 토글마다 지도 전체를 새로 로드하면 panTo로 옮겨둔 위치가 초기 중심으로
+      // 되돌아가버린다. 그래서 마커 이미지 엘리먼트를 id별로 들고 있다가, 좋아요 상태가
+      // 바뀌면(syncLikedPlaceIds) 리로드 없이 핀 이미지만 그 자리에서 바꾼다.
+      window.placeMarkerImgs = {};
+      window.placeMarkerCategory = {};
+      window.syncLikedPlaceIds = function(likedIds) {
+        var likedSet = {};
+        likedIds.forEach(function(id) { likedSet[id] = true; });
+        Object.keys(window.placeMarkerImgs).forEach(function(id) {
+          var img = window.placeMarkerImgs[id];
+          var category = window.placeMarkerCategory[id];
+          img.src = likedSet[id] ? categoryPinUriSaved[category] : categoryPinUri[category];
+        });
+      };
 
       places.forEach(function(place) {
         var el = document.createElement('div');
@@ -204,6 +218,8 @@ export function buildKakaoMapHtml({
         el.querySelector('.hit-area').addEventListener('click', function() {
           sendMessage({ type: 'markerClick', id: place.id });
         });
+        window.placeMarkerImgs[place.id] = el.querySelector('img');
+        window.placeMarkerCategory[place.id] = place.category;
 
         new kakao.maps.CustomOverlay({
           map: window.kakaoMap,

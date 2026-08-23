@@ -56,6 +56,13 @@ export default function MapPlaceSheet({ place, liked: likedProp = false, onClose
     }
   }, [place]);
 
+  // likedProp은 저장 페이지 등 다른 화면에서 저장/삭제하고 돌아왔을 때도 바뀔 수 있는데,
+  // 위 effect는 place가 바뀔 때만 실행돼서 같은 장소를 계속 보고 있으면 반영이 안 된다.
+  // 그래서 likedProp 변경만 따로 감지해서 내부 상태에 반영한다.
+  useEffect(() => {
+    setLiked(likedProp);
+  }, [likedProp]);
+
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, { dy }) => dy > 3,
