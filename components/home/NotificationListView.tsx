@@ -69,8 +69,12 @@ export default function NotificationListView({
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
           <View style={s.heroCard}>
             <View style={s.heroTextCol}>
-              <Text style={s.heroTitle}>안녕하세요.{'\n'}견주여행입니다!</Text>
-              <Text style={s.heroSubtitle}>사랑하는 반려견과 함께 경주를{'\n'}여행하며 추억을 쌓아가요~</Text>
+              <Text style={s.heroTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>
+                안녕하세요.{'\n'}견주여행입니다!
+              </Text>
+              <Text style={s.heroSubtitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>
+                사랑하는 반려견과 함께 경주를{'\n'}여행하며 추억을 쌓아가요~
+              </Text>
             </View>
             <LoginIllustration width={195} height={156} style={s.heroIllustration} />
           </View>
