@@ -57,6 +57,18 @@ const HERO_HEIGHT = Dimensions.get('window').height * 0.42;
 const CARD_OVERLAP = 76;
 const HOME_STAMP_PREVIEW_SLOTS = 3;
 
+// "관광지 살펴보기"에 노출할 장소 6곳. 이름에 포함만 되면 매칭한다(예: "경주 첨성대"도 "첨성대"로 매칭).
+const MAIN_ATTRACTION_NAMES = ['교촌마을', '황리단길', '계림', '월정교', '경주읍성', '첨성대'];
+function isMainAttraction(name: string): boolean {
+  return MAIN_ATTRACTION_NAMES.some((n) => name.includes(n));
+}
+
+// 그 중에서도 BEST 뱃지를 붙이고 맨 위로 올릴 장소들.
+const BEST_ATTRACTION_NAMES = ['첨성대', '교촌마을', '황리단길'];
+function isBestAttraction(name: string): boolean {
+  return BEST_ATTRACTION_NAMES.some((n) => name.includes(n));
+}
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { justOnboarded } = useLocalSearchParams<{ justOnboarded?: string }>();
@@ -104,11 +116,12 @@ export default function HomeScreen() {
               getPersonalityComboLabel(home.petPersonalities) ??
                 home.petPersonalities.map(personalityToLabel).join(' · ')
             );
-            setPlaces(
-              home.places.map((p) => ({
+            const mappedPlaces = home.places
+              .filter((p) => isMainAttraction(p.placeName))
+              .map((p) => ({
                 id: String(p.placeId),
                 name: p.placeName,
-                category: '관광지',
+                category: '관광지' as const,
                 tags: [],
                 imageUri: p.imageUrl,
                 latitude: p.latitude,
@@ -116,8 +129,10 @@ export default function HomeScreen() {
                 address: '',
                 phone: '',
                 hours: '',
-              }))
-            );
+              }));
+            // BEST 장소(첨성대/핑크뮬리/황리단길)를 맨 위로 올린다 (안정 정렬이라 나머지 순서는 유지됨).
+            mappedPlaces.sort((a, b) => Number(isBestAttraction(b.name)) - Number(isBestAttraction(a.name)));
+            setPlaces(mappedPlaces);
           } catch (e) {
             // 인사말/카드는 기본값으로도 자연스럽게 보이므로 조용히 무시
           }
@@ -337,7 +352,7 @@ export default function HomeScreen() {
                 <PlaceThumbnail uri={place.imageUri} style={styles.placeThumb} />
                 <View style={styles.placeInfo}>
                   <View style={styles.placeBadgeRow}>
-                    <Badge label="BEST" variant="best" />
+                    {isBestAttraction(place.name) && <Badge label="BEST" variant="best" />}
                     <Badge
                       label={place.category}
                       variant="outline"
