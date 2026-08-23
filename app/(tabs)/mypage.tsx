@@ -2060,7 +2060,7 @@ const styles = StyleSheet.create({
   personalityChipIcon: { width: 10, height: 14 },
   personalityChipText: { fontSize: 12, fontWeight: '600', color: Colors.secondaryDark },
   section: {
-    marginTop: Spacing.xl,
+    marginTop: Spacing.xl + Spacing.lg + Spacing.md,
     marginHorizontal: Spacing.xl,
     backgroundColor: Colors.background,
     borderRadius: Radius.lg,
