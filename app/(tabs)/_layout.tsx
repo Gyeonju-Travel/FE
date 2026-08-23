@@ -60,26 +60,28 @@ export default function TabLayout() {
     });
   }, []);
 
+  const tabBarStyle = {
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderWidth: 0.5,
+    borderColor: Colors.border,
+    height: 66 + insets.bottom,
+    paddingBottom: insets.bottom,
+    paddingTop: 14,
+    shadowColor: '#3A3330',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -3 },
+    elevation: 8,
+  };
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarShowLabel: false,
-        tabBarStyle: {
-          backgroundColor: Colors.background,
-          borderTopLeftRadius: 20,
-          borderTopRightRadius: 20,
-          borderWidth: 0.5,
-          borderColor: Colors.border,
-          height: 66 + insets.bottom,
-          paddingBottom: insets.bottom,
-          paddingTop: 14,
-          shadowColor: '#3A3330',
-          shadowOpacity: 0.08,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: -3 },
-          elevation: 8,
-        },
+        tabBarStyle,
       }}
     >
       <Tabs.Screen
@@ -124,6 +126,9 @@ export default function TabLayout() {
           tabBarIcon: ({ focused }) => (
             <TabIcon icons={ICONS.mypage} label="마이" focused={focused} />
           ),
+          // 마이페이지만 탭 바를 화면 위에 띄워서, 하단 배경 일러스트가 탭 바의 둥근 모서리
+          // 틈으로 자연스럽게 비치도록 한다. 다른 탭은 기존처럼 화면과 안 겹치는 방식 그대로 둔다.
+          tabBarStyle: { ...tabBarStyle, position: 'absolute', left: 0, right: 0, bottom: 0 },
         }}
         listeners={resetOnRepeatPress('mypage')}
       />

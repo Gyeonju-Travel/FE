@@ -8,7 +8,6 @@ import {
   TextInput,
   StyleSheet,
   SafeAreaView,
-  Switch,
   ActivityIndicator,
   StyleProp,
   ViewStyle,
@@ -18,7 +17,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView as EdgeSafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Spacing } from '@/constants/theme';
@@ -101,6 +100,8 @@ import {
   personalityToApi,
 } from '@/utils/petMappers';
 import Toast from '@/components/ui/Toast';
+import Toggle from '@/components/ui/Toggle';
+import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
 import AlertCard from '@/components/ui/AlertCard';
 import { showAlert } from '@/components/ui/AppAlert';
 import ModalWarningIcon from '@/assets/icons/modal-warning.svg';
@@ -125,6 +126,10 @@ const PROFILE_TOP_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 350) / 390;
 // 이미지 상단 여백을 당겨서 첨성대 탑 전체(꼭대기~받침대)가 카드에 가리지 않고 보이게 한다.
 const PROFILE_TOP_LANDSCAPE_OFFSET = -PROFILE_TOP_LANDSCAPE_HEIGHT * 0.32;
 const PROFILE_BOTTOM_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 90) / 390;
+// 탭 바(마이페이지에서만 화면 위에 떠있음)의 둥근 위쪽 모서리(반지름 20)만큼만 이미지 아래쪽이
+// 탭 바 뒤로 살짝 들어가게 띄운다. 이미지를 늘리지 않고 원래 비율 그대로 유지하면서, 탭 바
+// 몸통 전체에 가려지지 않고 대부분 그 위로 보이게 하기 위함.
+const TAB_BAR_CORNER_RADIUS = 20;
 const REPORT_HERO_WIDTH = SCREEN_WIDTH - Spacing.xl * 2;
 const REPORT_HERO_LANDSCAPE_HEIGHT = (REPORT_HERO_WIDTH * 71) / 365;
 
@@ -173,7 +178,7 @@ function MenuRow({ icon, title, subtitle, onPress, isLast }: MenuRowProps) {
         <Text style={styles.menuTitle}>{title}</Text>
         <Text style={styles.menuSubtitle}>{subtitle}</Text>
       </View>
-      <Text style={styles.menuChevron}>›</Text>
+      <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />
     </TouchableOpacity>
   );
 }
@@ -225,7 +230,7 @@ function SettingsRow({
         <Text style={[st.rowTitle, danger && st.rowTitleDanger]}>{title}</Text>
         {!!subtitle && <Text style={st.rowSubtitle}>{subtitle}</Text>}
       </View>
-      {right ?? (hideChevron ? null : <Text style={st.rowChevron}>›</Text>)}
+      {right ?? (hideChevron ? null : <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />)}
     </TouchableOpacity>
   );
 }
@@ -418,44 +423,37 @@ function SettingsView({
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={st.scrollContent}>
         <Text style={st.groupLabel}>알림 설정</Text>
         <SettingsRow
-          icon={<SettingAlarmIcon width={20} height={20} color={Colors.coral} />}
+          icon={<SettingAlarmIcon width={20} height={20} color={'#6B6260'} />}
           title="푸시 알림 설정"
           subtitle="여행 알림·스탬프 알림"
-          right={
-            <Switch
-              value={pushEnabled}
-              onValueChange={handleTogglePush}
-              trackColor={{ false: Colors.border, true: Colors.coral }}
-              thumbColor={Colors.white}
-            />
-          }
+          right={<Toggle value={pushEnabled} onValueChange={handleTogglePush} />}
         />
 
         <Text style={st.groupLabel}>서비스</Text>
         <View style={st.groupCard}>
           <SettingsRow
-            icon={<SettingInquiryIcon width={20} height={20} color={Colors.coral} />}
+            icon={<SettingInquiryIcon width={20} height={20} color={'#6B6260'} />}
             title="문의하기"
             subtitle="불편사항·개선 제안"
             grouped
             onPress={() => setShowInquiry(true)}
           />
           <SettingsRow
-            icon={<SettingTermsIcon width={20} height={20} color={Colors.coral} />}
+            icon={<SettingTermsIcon width={20} height={20} color={'#6B6260'} />}
             title="이용약관"
             subtitle=""
             grouped
             onPress={() => router.push({ pathname: '/terms-detail', params: { type: 'service' } })}
           />
           <SettingsRow
-            icon={<SettingPrivacyIcon width={20} height={20} color={Colors.coral} />}
+            icon={<SettingPrivacyIcon width={20} height={20} color={'#6B6260'} />}
             title="개인정보 처리방침"
             subtitle=""
             grouped
             onPress={() => router.push({ pathname: '/terms-detail', params: { type: 'privacy' } })}
           />
           <SettingsRow
-            icon={<SettingLocationTermsIcon width={20} height={20} color={Colors.coral} />}
+            icon={<SettingLocationTermsIcon width={20} height={20} color={'#6B6260'} />}
             title="위치기반 서비스 이용약관"
             subtitle=""
             grouped
@@ -467,14 +465,17 @@ function SettingsView({
         <Text style={st.groupLabel}>계정 관리</Text>
         <View style={st.groupCard}>
           <SettingsRow
-            icon={<EditProfileIcon width={20} height={20} color={Colors.coral} />}
+            icon={<EditProfileIcon width={20} height={20} color={'#6B6260'} />}
             title="정보 수정"
-            subtitle="이메일·비밀번호·회원탈퇴"
+            subtitle=""
             grouped
+            isLast
             onPress={onAccountInfo}
           />
+        </View>
+        <View style={[st.groupCard, { marginTop: Spacing.md }]}>
           <SettingsRow
-            icon={<SettingLogoutIcon width={20} height={20} color={Colors.coral} />}
+            icon={<SettingLogoutIcon width={20} height={20} color={'#6B6260'} />}
             title="로그아웃"
             subtitle=""
             grouped
@@ -1716,14 +1717,22 @@ export default function MyPageScreen() {
       </View>
     </SafeAreaView>
   ) : (
-    <SafeAreaView style={styles.safeArea}>
+    // 마이페이지 탭 바만 화면 위에 떠있는 구조(app/(tabs)/_layout.tsx)라, 아래쪽 배경 일러스트가
+    // 탭 바의 둥근 모서리 뒤까지 자연스럽게 이어지려면 이 화면이 안전영역 하단 여백 없이 진짜
+    // 화면 끝까지 그려져야 한다. 기본 SafeAreaView(react-native)는 하단 인셋을 자동으로 패딩으로
+    // 넣어버려서 이미지가 그 안쪽에서 멈췄었다 — edges로 위쪽만 안전영역을 적용한다.
+    <EdgeSafeAreaView style={styles.safeArea} edges={['top']}>
       {/* 스크롤 없이 한 화면에 다 보이도록 화면 하단에 고정한다. 아래 ScrollView 콘텐츠보다 먼저
           그려서 뒤쪽에 깔리게 하고(겹치는 글씨가 안 가려지게), 터치도 이 이미지를 그냥 통과한다. */}
       <Image
         source={require('@/assets/mypage/profile-bottom-landscape.png')}
         style={[
           styles.profileBottomLandscape,
-          { width: SCREEN_WIDTH, height: PROFILE_BOTTOM_LANDSCAPE_HEIGHT },
+          {
+            width: SCREEN_WIDTH,
+            height: PROFILE_BOTTOM_LANDSCAPE_HEIGHT,
+            bottom: 66 + insets.bottom - TAB_BAR_CORNER_RADIUS,
+          },
         ]}
         resizeMode="stretch"
       />
@@ -1848,8 +1857,9 @@ export default function MyPageScreen() {
         <View style={[styles.section, styles.stampSection]}>
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>{dog.name}의 스탬프</Text>
-            <TouchableOpacity onPress={() => setShowStampGallery(true)}>
-              <Text style={styles.sectionMoreText}>전체보기 ›</Text>
+            <TouchableOpacity style={styles.sectionMoreRow} onPress={() => setShowStampGallery(true)}>
+              <Text style={styles.sectionMoreText}>전체보기</Text>
+              <ChevronRightIcon width={5} height={9} color={Colors.textMuted} />
             </TouchableOpacity>
           </View>
           <View style={styles.stampRow}>
@@ -1934,7 +1944,7 @@ export default function MyPageScreen() {
           />
         </View>
       </Modal>
-    </SafeAreaView>
+    </EdgeSafeAreaView>
   );
 
   if (showSettings) {
@@ -2005,7 +2015,7 @@ export default function MyPageScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
-  loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg, paddingHorizontal: Spacing.xl },
+  loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.lg, paddingHorizontal: Spacing.lg },
   emptyDogTitle: { fontSize: 16, fontWeight: '600', color: Colors.textBody1 },
   emptyDogBtn: {
     backgroundColor: Colors.coral,
@@ -2017,7 +2027,7 @@ const styles = StyleSheet.create({
   },
   emptyDogBtnText: { fontSize: 15, fontWeight: '600', color: Colors.white },
   headerBg: {
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.xl,
   },
   pageTitle: { fontSize: 22, fontWeight: '700', color: Colors.textBody1 },
@@ -2026,7 +2036,7 @@ const styles = StyleSheet.create({
   profileBottomLandscape: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   profileCard: {
     flexDirection: 'row',
-    marginHorizontal: Spacing.xl,
+    marginHorizontal: Spacing.lg,
     marginTop: Spacing.lg,
     gap: Spacing.md,
   },
@@ -2081,7 +2091,7 @@ const styles = StyleSheet.create({
   personalityChipText: { fontSize: 12, fontWeight: '600', color: Colors.secondaryDark },
   section: {
     marginTop: Spacing.xl + Spacing.lg + Spacing.md,
-    marginHorizontal: Spacing.xl,
+    marginHorizontal: Spacing.lg,
     backgroundColor: Colors.background,
     borderRadius: Radius.lg,
     padding: Spacing.lg,
@@ -2103,6 +2113,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.textBody1, marginBottom: Spacing.md },
+  sectionMoreRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   sectionMoreText: { fontSize: 13, color: Colors.textMuted },
   dogListRow: { gap: Spacing.lg },
   dogItem: { alignItems: 'center', gap: 6, width: 64 },
@@ -2141,7 +2152,7 @@ const styles = StyleSheet.create({
   },
   menuList: {
     marginTop: Spacing.xs,
-    marginHorizontal: Spacing.xl,
+    marginHorizontal: Spacing.lg,
     backgroundColor: 'transparent',
     borderRadius: Radius.lg,
   },
@@ -2164,7 +2175,6 @@ const styles = StyleSheet.create({
   menuTextCol: { flex: 1, gap: 2 },
   menuTitle: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
   menuSubtitle: { fontSize: 12, color: Colors.textMuted },
-  menuChevron: { fontSize: 18, color: Colors.textMuted },
 });
 
 // ─── 설정 화면 스타일 (st) ────────────────────────────────────────────────────
@@ -2192,7 +2202,8 @@ const st = StyleSheet.create({
     gap: Spacing.md,
     backgroundColor: Colors.background,
     borderRadius: Radius.md,
-    padding: Spacing.md,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.sm,
   },
   rowDanger: { backgroundColor: DANGER_BG },
@@ -2207,15 +2218,16 @@ const st = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.md,
-    padding: Spacing.md,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
   },
   rowGroupedDivider: {
     borderBottomWidth: 0.5,
     borderBottomColor: '#F0EDE8',
   },
   rowIconBox: {
-    width: 40,
-    height: 40,
+    width: 36,
+    height: 36,
     borderRadius: Radius.sm,
     backgroundColor: Colors.primaryTint,
     alignItems: 'center',
@@ -2226,13 +2238,12 @@ const st = StyleSheet.create({
   rowTextCol: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
   rowTitleDanger: { color: DANGER_COLOR },
-  rowSubtitle: { fontSize: 12, color: Colors.textMuted },
-  rowChevron: { fontSize: 18, color: Colors.textMuted },
+  rowSubtitle: { fontSize: 11, color: Colors.textMuted },
   versionText: {
     textAlign: 'center',
     fontSize: 12,
     color: Colors.textMuted,
-    marginTop: Spacing.xl,
+    marginTop: Spacing.xxl * 2,
   },
 });
 
