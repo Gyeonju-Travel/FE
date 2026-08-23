@@ -75,8 +75,6 @@ import {
   createPlaceReport,
   PetPolicy,
   createInquiry,
-  getMyPageTerms,
-  TermsItemResponse,
   getTravelRecords,
   TravelRecordsResponse,
   TravelRecordItemResponse,
@@ -350,61 +348,6 @@ function InquiryView({ onBack, underlay }: { onBack: () => void; underlay?: Reac
   );
 }
 
-// ─── TermsView (약관 동의 내역) ─────────────────────────────────────────────────
-function TermsView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
-  const [terms, setTerms] = useState<TermsItemResponse[] | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      const token = await getAccessToken();
-      if (!token) {
-        setErrorMsg('로그인 정보가 없어요.');
-        return;
-      }
-      try {
-        const result = await getMyPageTerms(token);
-        setTerms(result.terms);
-      } catch (e) {
-        setErrorMsg(e instanceof ApiError ? e.message : '약관 정보를 불러오지 못했어요.');
-      }
-    })();
-  }, []);
-
-  return (
-    <SwipeBackScreen onBack={onBack} underlay={underlay}>
-      <SafeAreaView style={tv.safeArea}>
-        <View style={tv.header}>
-          <TouchableOpacity onPress={onBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={tv.backArrow}>←</Text>
-          </TouchableOpacity>
-          <Text style={tv.headerTitle}>약관 동의</Text>
-        </View>
-
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={tv.scrollContent}>
-          {!terms && !errorMsg && (
-            <View style={tv.loadingCenter}>
-              <ActivityIndicator color={Colors.coral} />
-            </View>
-          )}
-          {errorMsg && <Text style={tv.errorText}>{errorMsg}</Text>}
-          {terms?.map((term) => (
-            <View key={term.code} style={tv.row}>
-              <ModalCheckIcon width={18} height={18} color={Colors.secondaryDark} />
-              <Text style={tv.rowTitle}>{term.title}</Text>
-              {term.required && (
-                <View style={tv.requiredTag}>
-                  <Text style={tv.requiredTagText}>필수</Text>
-                </View>
-              )}
-            </View>
-          ))}
-        </ScrollView>
-      </SafeAreaView>
-    </SwipeBackScreen>
-  );
-}
-
 // ─── SettingsView (설정 화면) ─────────────────────────────────────────────────
 function SettingsView({
   onBack,
@@ -417,7 +360,6 @@ function SettingsView({
 }) {
   const [pushEnabled, setPushEnabled] = useState(true);
   const [showInquiry, setShowInquiry] = useState(false);
-  const [showTerms, setShowTerms] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
@@ -483,14 +425,14 @@ function SettingsView({
             title="이용약관"
             subtitle=""
             grouped
-            onPress={() => setShowTerms(true)}
+            onPress={() => router.push({ pathname: '/terms-detail', params: { type: 'service' } })}
           />
           <SettingsRow
             icon={<SettingPrivacyIcon width={20} height={20} color={Colors.coral} />}
             title="개인정보 처리방침"
             subtitle=""
             grouped
-            onPress={() => setShowTerms(true)}
+            onPress={() => router.push({ pathname: '/terms-detail', params: { type: 'privacy' } })}
           />
           <SettingsRow
             icon={<SettingLocationTermsIcon width={20} height={20} color={Colors.coral} />}
@@ -498,7 +440,7 @@ function SettingsView({
             subtitle=""
             grouped
             isLast
-            onPress={() => setShowTerms(true)}
+            onPress={() => router.push({ pathname: '/terms-detail', params: { type: 'location' } })}
           />
         </View>
 
@@ -548,10 +490,6 @@ function SettingsView({
 
   if (showInquiry) {
     return <InquiryView onBack={() => setShowInquiry(false)} underlay={settingsMain} />;
-  }
-
-  if (showTerms) {
-    return <TermsView onBack={() => setShowTerms(false)} underlay={settingsMain} />;
   }
 
   return settingsMain;
@@ -2292,38 +2230,6 @@ const ai = StyleSheet.create({
   emailLabel: { fontSize: 13, color: Colors.textMuted },
   emailText: { fontSize: 16, fontWeight: '600', color: Colors.textMuted, marginTop: 2 },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingTop: Spacing.md, paddingBottom: 24 },
-});
-
-const tv = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.lg,
-  },
-  backArrow: { fontSize: 22, color: Colors.textBody1, lineHeight: 28 },
-  headerTitle: { fontSize: 20, fontWeight: '700', color: Colors.textBody1 },
-  scrollContent: { flexGrow: 1, paddingHorizontal: Spacing.xl, paddingBottom: 24 },
-  loadingCenter: { paddingTop: Spacing.xxl * 2, alignItems: 'center' },
-  errorText: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.xxl },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    paddingVertical: Spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Colors.border,
-  },
-  rowTitle: { flex: 1, fontSize: 15, color: Colors.textBody1 },
-  requiredTag: {
-    backgroundColor: Colors.secondaryTint,
-    borderRadius: Radius.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  requiredTagText: { fontSize: 11, fontWeight: '600', color: Colors.secondaryDark },
 });
 
 const iq = StyleSheet.create({
