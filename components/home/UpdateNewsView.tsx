@@ -4,18 +4,8 @@ import { Colors, Radius, Spacing } from '@/constants/theme';
 import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 import LoginIllustration from '@/assets/login/login-illustration.svg';
 import TabScheduleIcon from '@/assets/icons/tab-schedule.svg';
-import {
-  UPDATE_NEWS,
-  UpdateNewsCategory,
-  getReadUpdateNewsIds,
-  markUpdateNewsRead,
-} from '@/constants/updateNews';
-
-const CATEGORY_STYLES: Record<UpdateNewsCategory, { bg: string; text: string }> = {
-  점검: { bg: Colors.primaryTint, text: Colors.coralDark },
-  업데이트: { bg: Colors.secondaryTint, text: Colors.secondaryDark },
-  안내: { bg: Colors.infoTint, text: Colors.infoDark },
-};
+import UpdateNewsCategoryBadge from '@/components/home/UpdateNewsCategoryBadge';
+import { UPDATE_NEWS, getReadUpdateNewsIds, markUpdateNewsRead } from '@/constants/updateNews';
 
 export default function UpdateNewsView({
   onBack,
@@ -52,12 +42,11 @@ export default function UpdateNewsView({
               <Text style={s.heroTitle}>안녕하세요.{'\n'}견주여행입니다!</Text>
               <Text style={s.heroSubtitle}>사랑하는 반려견과 함께 경주를{'\n'}여행하며 추억을 쌓아가요~</Text>
             </View>
-            <LoginIllustration width={195} height={156} style={s.heroIllustration} />
+            <LoginIllustration width={205} height={164} style={s.heroIllustration} />
           </View>
 
           {UPDATE_NEWS.map((item) => {
             const unread = !readIds.has(item.id);
-            const tone = CATEGORY_STYLES[item.category];
             return (
               <TouchableOpacity
                 key={item.id}
@@ -66,9 +55,7 @@ export default function UpdateNewsView({
                 onPress={() => handlePress(item.id)}
               >
                 {unread && <View style={s.unreadDot} />}
-                <View style={[s.categoryBadge, { backgroundColor: tone.bg }]}>
-                  <Text style={[s.categoryText, { color: tone.text }]}>{item.category}</Text>
-                </View>
+                <UpdateNewsCategoryBadge category={item.category} />
                 <View style={s.cardTextCol}>
                   <Text style={s.cardTitle}>{item.title}</Text>
                   <Text style={s.cardDescription}>{item.description}</Text>
@@ -105,17 +92,24 @@ const s = StyleSheet.create({
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xxl },
   heroCard: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     backgroundColor: Colors.bgWarm,
-    borderRadius: Radius.xl,
-    padding: Spacing.xl,
+    height: 181,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    borderColor: Colors.border,
+    opacity: 1,
+    // 화면 콘텐츠 좌우 여백(scrollContent)이 20px라, 여기서 16px만 남도록 4px씩 파고든다.
+    marginHorizontal: -(Spacing.xl - Spacing.lg),
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
     marginTop: Spacing.sm,
     overflow: 'hidden',
   },
   heroTextCol: { flex: 1 },
-  heroTitle: { fontSize: 18, fontWeight: '700', color: Colors.textBody1, lineHeight: 25 },
-  heroSubtitle: { fontSize: 13, color: Colors.textBody2, marginTop: Spacing.sm, lineHeight: 19 },
-  heroIllustration: { marginLeft: Spacing.xs, marginRight: -Spacing.lg, marginVertical: -Spacing.md },
+  heroTitle: { fontSize: 18, fontWeight: '600', color: '#6B6260', lineHeight: 25 },
+  heroSubtitle: { fontSize: 13, fontWeight: '300', color: '#6B6260', marginTop: Spacing.sm, lineHeight: 19 },
+  heroIllustration: { alignSelf: 'center', marginLeft: Spacing.xs, marginRight: -Spacing.lg },
   card: {
     position: 'relative',
     flexDirection: 'row',
@@ -127,6 +121,11 @@ const s = StyleSheet.create({
     padding: Spacing.lg,
     marginTop: Spacing.lg,
     gap: Spacing.md,
+    shadowColor: '#3A3330',
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   unreadDot: {
     position: 'absolute',
@@ -139,21 +138,12 @@ const s = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.background,
   },
-  categoryBadge: {
-    width: 59,
-    height: 28,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  categoryText: { fontSize: 12, fontWeight: '600' },
   cardTextCol: { flex: 1, gap: 6 },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: Colors.textBody1 },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#6B6260' },
   cardDescription: { fontSize: 13, color: Colors.textBody2, lineHeight: 19 },
   dateRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dateText: { fontSize: 12, color: Colors.textMuted },
   footer: { alignItems: 'center', marginTop: Spacing.xxl * 1.5 },
-  footerTitle: { fontSize: 14, fontWeight: '600', color: Colors.textBody2 },
+  footerTitle: { fontSize: 14, fontWeight: '600', color: '#6B6260' },
   footerSubtitle: { fontSize: 12, color: Colors.textMuted, marginTop: 6 },
 });

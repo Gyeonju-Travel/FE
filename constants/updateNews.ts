@@ -11,29 +11,7 @@ export interface UpdateNewsItem {
 }
 
 // TODO: 실제 공지사항 API가 생기면 이 정적 목록을 대체한다.
-export const UPDATE_NEWS: UpdateNewsItem[] = [
-  {
-    id: 'system-check-20260827',
-    category: '점검',
-    title: '시스템 점검 안내 (8/27)',
-    description: '안정적인 서비스를 위한 정기 점검이 진행됩니다.',
-    date: '2026.08.27',
-  },
-  {
-    id: 'schedule-share-20260817',
-    category: '업데이트',
-    title: '여행 일정 공유 기능 추가',
-    description: '함께 하는 여행, 일정 공유 기능을 이용해 보세요.',
-    date: '2026.08.17',
-  },
-  {
-    id: 'privacy-policy-20260811',
-    category: '안내',
-    title: '개인정보 처리방침 개정 안내',
-    description: '개정된 정보 처리 방침을 확인해주세요.',
-    date: '2026.08.11',
-  },
-];
+export const UPDATE_NEWS: UpdateNewsItem[] = [];
 
 const READ_IDS_KEY = 'gyeonjutravel.readUpdateNewsIds';
 

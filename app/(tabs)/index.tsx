@@ -14,7 +14,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import HeroIllustration from '@/components/home/HeroIllustration';
 import RecommendedRouteView from '@/components/home/RecommendedRouteView';
-import NotificationListView from '@/components/home/NotificationListView';
+import UpdateNewsView from '@/components/home/UpdateNewsView';
 import TodayScrapView from '@/components/home/TodayScrapView';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
@@ -36,8 +36,9 @@ import {
   popPendingStampToast,
 } from '@/constants/stamps';
 import { getPendingScrapSchedule, TodaysScrapSchedule } from '@/utils/locationTracking';
+import { hasUnreadUpdateNews } from '@/constants/updateNews';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
-import { getHome, getStampAlbum, getTravelRecords, getNotifications } from '@/utils/api';
+import { getHome, getStampAlbum, getTravelRecords } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
 import { onTabReset } from '@/utils/tabReset';
 import { personalityToLabel } from '@/utils/petMappers';
@@ -152,8 +153,7 @@ export default function HomeScreen() {
           }
 
           try {
-            const { unreadCount } = await getNotifications(token);
-            setHasUnreadNotification(unreadCount > 0);
+            setHasUnreadNotification(await hasUnreadUpdateNews());
           } catch (e) {
             // 알림 미확인 개수 조회 실패는 무시 — 벨 아이콘은 이전 상태로 유지된다.
           }
@@ -440,14 +440,11 @@ export default function HomeScreen() {
 
   if (showNotifications) {
     return (
-      <NotificationListView
+      <UpdateNewsView
         onBack={async () => {
           setShowNotifications(false);
-          const token = await getAccessToken();
-          if (!token) return;
           try {
-            const { unreadCount } = await getNotifications(token);
-            setHasUnreadNotification(unreadCount > 0);
+            setHasUnreadNotification(await hasUnreadUpdateNews());
           } catch (e) {
             // 무시 — 이전 상태 유지
           }
