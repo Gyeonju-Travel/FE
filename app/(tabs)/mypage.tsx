@@ -1268,6 +1268,11 @@ const DOG_SIZE_OPTIONS: { value: string; label: string; iconSize: number }[] = [
   { value: '대형견', label: '대형', iconSize: 50 },
 ];
 const PERSONALITY_OPTIONS = ['낯가림', '느긋함', '친화력 좋음', '예민함', '호기심', '활동적'];
+// 백엔드 PetRegistrationRequest/PetProfileUpdateRequest의 @Min(0)/@Max(50)과 동일한 범위.
+// 범위를 벗어나면 서버가 400으로 거부하는데("잘못된 요청"으로만 보임), 여기서 미리 막아서
+// 인라인으로 바로 알려준다.
+const DOG_AGE_MIN = 0;
+const DOG_AGE_MAX = 50;
 
 function EditProfileView({
   dog,
@@ -1285,6 +1290,7 @@ function EditProfileView({
   const [breed, setBreed] = useState(dog?.breed ?? '');
   const [sizeType, setSizeType] = useState(dog?.sizeType ?? DOG_SIZE_OPTIONS[1].value);
   const [age, setAge] = useState(dog?.age != null ? String(dog.age) : '');
+  const [ageError, setAgeError] = useState<string | null>(null);
   const [gender, setGender] = useState<DogProfile['gender']>(dog?.gender ?? '남아');
   const [personalities, setPersonalities] = useState<string[]>(
     dog?.personalityTags.filter((tag) => PERSONALITY_OPTIONS.includes(tag)) ?? []
@@ -1320,6 +1326,11 @@ function EditProfileView({
       showAlert('반려견 프로필', '이름, 견종, 나이를 입력해주세요.');
       return;
     }
+    const ageNum = Number(age);
+    if (!Number.isInteger(ageNum) || ageNum < DOG_AGE_MIN || ageNum > DOG_AGE_MAX) {
+      setAgeError(`나이는 ${DOG_AGE_MIN}~${DOG_AGE_MAX} 사이로 입력해주세요.`);
+      return;
+    }
     if (personalities.length !== 2) {
       showAlert('반려견 프로필', '강아지의 성향은 두 가지를 선택해주세요.');
       return;
@@ -1332,7 +1343,7 @@ function EditProfileView({
         name: name.trim(),
         breed: breed.trim(),
         size: sizeToApi(sizeType),
-        age: Number(age) || 1,
+        age: ageNum,
         gender: genderToApi(gender),
         personality: personalities.map(personalityToApi),
       };
@@ -1414,13 +1425,18 @@ function EditProfileView({
 
         <Text style={ep.label}>나이</Text>
         <TextInput
-          style={ep.input}
+          style={[ep.input, ageError && ep.inputError]}
           placeholder="나이를 입력해 주세요"
           placeholderTextColor={Colors.textMuted}
           value={age}
-          onChangeText={setAge}
+          onChangeText={(t) => {
+            setAge(t);
+            setAgeError(null);
+          }}
           keyboardType="number-pad"
+          maxLength={2}
         />
+        {ageError && <Text style={ep.errorText}>{ageError}</Text>}
 
         <Text style={ep.label}>성별</Text>
         <View style={ep.genderRow}>
@@ -1974,7 +1990,9 @@ export default function MyPageScreen() {
               ? prev.map((d) => (d.id === saved.id ? saved : d))
               : [...prev, saved]
           );
-          if (profileEditorMode === 'add') setSelectedDogId(saved.id);
+          // 새로 추가한 강아지로 화면 포커스(=상단 프로필 카드에 보여줄 강아지)를 자동으로
+          // 옮기지 않는다 — 대표는 사용자가 직접 "함께 하는 강아지" 목록에서 눌러 바꿀 때만
+          // 바뀌어야 한다.
           setProfileEditorMode(null);
         }}
         underlay={baseScreen}
@@ -2028,6 +2046,8 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: Colors.background,
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   primaryBadge: {
     position: 'absolute',
@@ -2096,7 +2116,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.coral,
   },
-  dogItemAvatarPlaceholder: { overflow: 'hidden' },
+  dogItemAvatarPlaceholder: { overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   dogItemName: { fontSize: 12, color: Colors.textBody2 },
   dogItemNameSelected: { color: Colors.coral, fontWeight: '600' },
   addDogCircle: {
@@ -2545,6 +2565,8 @@ const ep = StyleSheet.create({
     fontSize: 14,
     color: Colors.textBody1,
   },
+  inputError: { borderColor: '#D14343' },
+  errorText: { fontSize: 12, color: '#D14343', marginTop: 6 },
   sizeRow: { flexDirection: 'row', gap: Spacing.sm },
   sizeBox: {
     flex: 1,
