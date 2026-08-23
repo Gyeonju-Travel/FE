@@ -1057,6 +1057,7 @@ function TravelHistoryView({
     null
   );
   const [openingScheduleId, setOpeningScheduleId] = useState<number | null>(null);
+  const insets = useSafeAreaInsets();
   // 사진을 안 남긴 기록은 photoUrl이 없어서, 그 일정의 실제 출발 지점 사진으로 대신 보여준다.
   // (황리단길/금리단길 같은 4개 대분류가 아니라 detail.departure.name — 제목의 "OO -> 도착지"에
   // 쓰이는 바로 그 지점 이름으로 검색해야, 금리단길 권역이라도 실제 출발 지점(예: 경주읍성)
@@ -1255,6 +1256,7 @@ function TravelHistoryView({
         }}
         underlay={listScreen}
         serverSave={{ ...viewingScrapSave, onSaved: fetchTravelRecords }}
+        extraBottomInset={66 + insets.bottom}
       />
     );
   }

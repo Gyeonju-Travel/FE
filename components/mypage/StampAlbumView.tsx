@@ -236,9 +236,21 @@ interface StampAlbumScreenProps {
     accessToken: string;
     onSaved?: () => void;
   };
+  /**
+   * 마이페이지 탭은 탭바가 화면 위에 절대 위치로 떠 있어서(하단 배경 일러스트 노출용),
+   * 이 화면이 마이페이지 탭 안에서 열릴 때는 하단 버튼이 그 탭바에 가려진다. 그 탭바 높이만큼
+   * 호출부에서 넘겨주면 버튼이 가려지지 않게 그만큼 아래쪽에 여유를 둔다.
+   */
+  extraBottomInset?: number;
 }
 
-export default function StampAlbumScreen({ scrap, onBack, underlay, serverSave }: StampAlbumScreenProps) {
+export default function StampAlbumScreen({
+  scrap,
+  onBack,
+  underlay,
+  serverSave,
+  extraBottomInset = 0,
+}: StampAlbumScreenProps) {
   const scrapAreaRef = useRef<View>(null);
   const [photoUris, setPhotoUris] = useState<(string | undefined)[]>([
     scrap.selectedPhotoUris[0],
@@ -398,7 +410,7 @@ export default function StampAlbumScreen({ scrap, onBack, underlay, serverSave }
         </View>
       </ScrollView>
 
-      <View style={s.actionRow}>
+      <View style={[s.actionRow, extraBottomInset > 0 && { paddingBottom: Spacing.md + extraBottomInset }]}>
         <TouchableOpacity
           style={[s.actionBtn, s.actionBtnOutline, actionsDisabled && s.actionBtnDisabled]}
           activeOpacity={0.85}
