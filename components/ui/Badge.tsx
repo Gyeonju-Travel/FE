@@ -43,6 +43,7 @@ export default function Badge({ label, variant = 'outline', tone = 'neutral', do
     <View
       style={[
         styles.base,
+        isBest && styles.bestBase,
         {
           backgroundColor: bg,
           borderColor: colors.border,
@@ -53,9 +54,15 @@ export default function Badge({ label, variant = 'outline', tone = 'neutral', do
     >
       {dot && <View style={[styles.dot, { backgroundColor: colors.text }]} />}
       {!dot && leading}
-      {showStar && <Text style={[styles.star, { color: colors.text }]}>★</Text>}
+      {showStar && (
+        <Text style={[styles.star, isBest && styles.bestStar, { color: colors.text }]}>★</Text>
+      )}
       <Text
-        style={[styles.label, { color: colors.text, fontWeight: isBest ? '700' : '500' }]}
+        style={[
+          styles.label,
+          isBest && styles.bestLabel,
+          { color: colors.text, fontWeight: isBest ? '700' : '500' },
+        ]}
         numberOfLines={1}
       >
         {label}
@@ -74,6 +81,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     gap: 5,
   },
+  bestBase: {
+    width: 54,
+    height: 24,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    gap: 3,
+  },
   dot: {
     width: 6,
     height: 6,
@@ -83,8 +98,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 15,
   },
+  bestStar: {
+    fontSize: 10,
+    lineHeight: 12,
+  },
   label: {
     fontSize: 12,
     lineHeight: 15,
+  },
+  bestLabel: {
+    fontSize: 11,
+    lineHeight: 13,
+    letterSpacing: 0.2,
   },
 });

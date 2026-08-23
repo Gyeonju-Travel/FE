@@ -28,7 +28,7 @@ export default function CategoryChip({ label, active, onPress }: Props) {
       style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
       activeOpacity={0.7}
     >
-      <Icon width={14} height={14} color={active ? Colors.white : Colors.textBody2} />
+      <Icon width={14} height={14} color={active ? Colors.white : '#E8906A'} />
       <Text style={[styles.label, active ? styles.labelActive : styles.labelInactive]}>
         {label}
       </Text>
@@ -48,11 +48,11 @@ const styles = StyleSheet.create({
     marginRight: Spacing.sm,
   },
   chipActive: {
-    backgroundColor: Colors.sage,
-    borderColor: Colors.sage,
+    backgroundColor: '#E8906A',
+    borderColor: '#E8906A',
   },
   chipInactive: {
-    backgroundColor: Colors.bgWarm,
+    backgroundColor: Colors.primaryTint,
   },
   label: {
     fontSize: 13,
@@ -62,6 +62,6 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   labelInactive: {
-    color: Colors.textBody2,
+    color: '#E8906A',
   },
 });

@@ -34,6 +34,6 @@ interface CategoryBadgeStyle {
 
 export const CATEGORY_BADGE_STYLE: Record<string, CategoryBadgeStyle> = {
   카페: { tone: 'coral', Icon: FilterCafeIcon },
-  관광지: { tone: 'sage', Icon: FilterTourIcon },
-  식당: { tone: 'neutral', Icon: FilterFoodIcon },
+  관광지: { tone: 'coral', Icon: FilterTourIcon },
+  식당: { tone: 'coral', Icon: FilterFoodIcon },
 };

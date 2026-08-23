@@ -356,9 +356,9 @@ export default function HomeScreen() {
                     {isBestAttraction(place.name) && <Badge label="BEST" variant="best" />}
                     <Badge
                       label={place.category}
-                      variant="outline"
-                      tone="sage"
-                      leading={<FilterTourIcon width={13} height={13} color={BADGE_TONE_COLORS.sage.text} />}
+                      variant="filled"
+                      tone="coral"
+                      leading={<FilterTourIcon width={13} height={13} color={BADGE_TONE_COLORS.coral.text} />}
                     />
                   </View>
                   <Text style={styles.placeName} numberOfLines={1}>
@@ -525,7 +525,7 @@ const styles = StyleSheet.create({
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   avatar: { width: 64, height: 64, borderRadius: Radius.full },
   profileInfo: { flex: 1, gap: 6 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   dogName: { fontSize: 17, fontWeight: '700', color: Colors.textBody1 },
   tagChip: {
     flexDirection: 'row',
@@ -585,7 +585,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#7F9E8526',
     borderRadius: Radius.lg,
     padding: Spacing.lg,
-    marginTop: Spacing.lg,
+    marginTop: Spacing.xxl,
   },
   ctaTitle: { fontSize: 15, fontWeight: '700', color: Colors.textBody1 },
   ctaSubtitle: { fontSize: 12, color: Colors.textBody2, marginTop: 2 },
@@ -605,10 +605,13 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     backgroundColor: Colors.background,
     borderRadius: Radius.md,
-    borderWidth: 0.5,
-    borderColor: Colors.border,
     padding: Spacing.md,
     marginBottom: Spacing.md,
+    shadowColor: '#9C908E',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   placeThumb: { width: 56, height: 56, borderRadius: Radius.sm },
   placeInfo: { flex: 1, gap: 6 },

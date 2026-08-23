@@ -91,7 +91,7 @@ function PlaceRow({ place, best, onPress }: { place: MapPlace; best?: boolean; o
           {badgeStyle && (
             <Badge
               label={place.category}
-              variant="outline"
+              variant="filled"
               tone={badgeStyle.tone}
               leading={CategoryIcon ? <CategoryIcon width={13} height={13} color={BADGE_TONE_COLORS[badgeStyle.tone].text} /> : undefined}
             />
