@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  SafeAreaView,
+  ActivityIndicator,
+  useWindowDimensions,
+} from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
 import LoginIllustration from '@/assets/login/login-illustration.svg';
@@ -23,6 +32,12 @@ export default function NotificationListView({
 }) {
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<NotificationListItemResponse[]>([]);
+  // 좁은 화면에서는 일러스트가 텍스트 칸을 너무 잡아먹어서 문구가 여러 줄로 밀린다.
+  // 화면 폭에 맞춰 일러스트를 살짝 줄여서 텍스트가 들어갈 공간을 더 준다. 넓은 화면(태블릿 등)에선
+  // 원래 크기(195)를 그대로 유지한다.
+  const { width: screenWidth } = useWindowDimensions();
+  const heroIllustrationWidth = Math.min(195, Math.max(120, screenWidth - 260));
+  const heroIllustrationHeight = heroIllustrationWidth * (156 / 195);
 
   useEffect(() => {
     (async () => {
@@ -69,14 +84,18 @@ export default function NotificationListView({
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
           <View style={s.heroCard}>
             <View style={s.heroTextCol}>
-              <Text style={s.heroTitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>
+              <Text style={s.heroTitle} numberOfLines={2}>
                 안녕하세요.{'\n'}견주여행입니다!
               </Text>
-              <Text style={s.heroSubtitle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>
+              <Text style={s.heroSubtitle} numberOfLines={2}>
                 사랑하는 반려견과 함께 경주를{'\n'}여행하며 추억을 쌓아가요~
               </Text>
             </View>
-            <LoginIllustration width={195} height={156} style={s.heroIllustration} />
+            <LoginIllustration
+              width={heroIllustrationWidth}
+              height={heroIllustrationHeight}
+              style={s.heroIllustration}
+            />
           </View>
 
           {loading ? (
