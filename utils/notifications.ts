@@ -8,6 +8,13 @@ import { registerFcmToken, deleteFcmToken } from '@/utils/api';
 
 const PUSH_ENABLED_KEY = 'gyeonjutravel.pushEnabled';
 
+/** 로그아웃/회원탈퇴 시 호출한다. 알림 켬/꺼짐 설정은 계정이 아니라 기기 기준으로 저장되기
+ * 때문에, 안 지우면 같은 기기에서 재가입하거나 다른 계정으로 로그인했을 때 이전 계정에서
+ * 꺼둔 설정을 그대로 물려받는다. */
+export async function clearLocalPushPreference(): Promise<void> {
+  await AsyncStorage.removeItem(PUSH_ENABLED_KEY);
+}
+
 /** 기본값 true(안 정해진 상태 = 켜짐)로 취급한다. */
 export async function isPushEnabled(): Promise<boolean> {
   const raw = await AsyncStorage.getItem(PUSH_ENABLED_KEY);

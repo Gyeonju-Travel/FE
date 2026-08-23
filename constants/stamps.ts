@@ -161,6 +161,13 @@ const NAMED_ATTRACTION_INDICES = GEOFENCE_ATTRACTIONS.map((a) => a.stampIndex);
 const EARNED_STAMPS_KEY = 'gyeonjutravel.earnedStampIndices';
 const PENDING_STAMP_TOASTS_KEY = 'gyeonjutravel.pendingStampToasts';
 
+/** 로그아웃/회원탈퇴 시 호출한다. 이 스탬프 캐시는 계정이 아니라 기기 기준으로 저장되기
+ * 때문에, 안 지우면 같은 기기에서 재가입하거나 다른 계정으로 로그인했을 때 이전 계정의
+ * 스탬프(특히 서버에 방문 기록이 안 남는 황리단길 같은 로컬 전용 스탬프)가 그대로 보인다. */
+export async function clearLocalStampData(): Promise<void> {
+  await AsyncStorage.multiRemove([EARNED_STAMPS_KEY, PENDING_STAMP_TOASTS_KEY]);
+}
+
 // TODO: 실제 획득 현황을 백엔드에서 내려주는 API가 생기면 이 로컬 저장 값을 대체한다.
 export async function getEarnedStampIndices(): Promise<Set<number>> {
   const indices = new Set<number>([0]); // 1번(웰컴)은 항상 획득한 상태

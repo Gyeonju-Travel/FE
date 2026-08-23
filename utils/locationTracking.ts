@@ -738,6 +738,22 @@ export async function isLocationTrackingActive(): Promise<boolean> {
   return Location.hasStartedLocationUpdatesAsync(LOCATION_TRACKING_TASK_NAME);
 }
 
+/** 로그아웃/회원탈퇴 시 호출한다. 진행 중인 일정 추적 상태, 발자국 거리, 스크랩 대상 등은
+ * 계정이 아니라 기기 기준으로 저장되기 때문에, 안 지우면 같은 기기에서 재가입하거나 다른
+ * 계정으로 로그인했을 때 이전 계정의 진행 상태가 그대로 섞여 보인다. */
+export async function clearLocalTrackingData(): Promise<void> {
+  await stopLocationTracking(); // 백그라운드 추적 중지 + ACTIVE_SCHEDULE_KEY/STATE 정리 + 추적 알림 제거
+  await cancelScrapReminder(); // 예약된 21시 알림 취소
+  await AsyncStorage.multiRemove([
+    TOTAL_DISTANCE_KEY,
+    LAST_POINT_KEY,
+    OUTSIDE_GYEONGJU_STREAK_KEY,
+    TODAYS_SCRAP_SCHEDULE_KEY,
+    SCRAPPED_SCHEDULE_IDS_KEY,
+    AUTO_ENDED_SCHEDULE_KEY,
+  ]);
+}
+
 /** "여행중"인 일정을 잘못 시작했을 때 되돌리는 용도 — 위치 추적을 끄고 활성 일정을 해제한다.
  * 오늘의 스크랩 대상으로도 등록돼 있었다면(21시 알림 대상) 그것도 같이 지운다. */
 export async function cancelActiveSchedule(scheduleId: string): Promise<boolean> {
