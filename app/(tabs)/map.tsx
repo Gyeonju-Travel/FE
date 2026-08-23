@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
@@ -194,10 +194,6 @@ export default function MapScreen() {
     }
   };
 
-  useEffect(() => {
-    fetchLikedPlaceIds();
-  }, []);
-
   // 홈 화면과 동일한 추천 목적지(관광지 6곳)를 검색화면에서도 그대로 보여준다.
   const fetchRecommendedPlaces = async () => {
     const token = await getAccessToken();
@@ -345,6 +341,17 @@ export default function MapScreen() {
       setCategoryLoading(false);
     }
   };
+
+  // 저장 화면(save.tsx)에서 삭제하고 돌아와도 하트 표시(likedPlaceIds)와 "내 저장" 탭 목록이
+  // 화면을 나가기 전 상태 그대로 남아있어 반영이 안 된다. 화면에 포커스될 때마다 다시 불러온다.
+  useFocusEffect(
+    useCallback(() => {
+      fetchLikedPlaceIds();
+      if (searchCategory === SAVED_FILTER) {
+        fetchCategoryResults(SAVED_FILTER);
+      }
+    }, [searchCategory])
+  );
 
   const handleSelectSearchCategory = (category: SearchCategory) => {
     setSearchCategory(category);

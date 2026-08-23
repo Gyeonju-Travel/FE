@@ -104,6 +104,7 @@ export default function SaveScreen() {
       setPlaces((prev) => prev.filter((p) => !selectedIds.has(p.id)));
       setSelectedIds(new Set());
       setIsEditMode(false);
+      setToastMsg(`${ids.length}개 삭제했어요.`);
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '삭제에 실패했어요. 잠시 후 다시 시도해주세요.';
       setToastMsg(message);
