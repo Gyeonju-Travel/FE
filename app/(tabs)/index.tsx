@@ -326,7 +326,7 @@ export default function HomeScreen() {
             <Text style={styles.sectionTitle}>관광지 살펴보기</Text>
           </View>
 
-          {places.map((place, i) => {
+          {places.map((place) => {
             return (
               <TouchableOpacity
                 key={place.id}
@@ -337,7 +337,7 @@ export default function HomeScreen() {
                 <PlaceThumbnail uri={place.imageUri} style={styles.placeThumb} />
                 <View style={styles.placeInfo}>
                   <View style={styles.placeBadgeRow}>
-                    {i === 0 && <Badge label="BEST" variant="best" />}
+                    <Badge label="BEST" variant="best" />
                     <Badge
                       label={place.category}
                       variant="outline"
