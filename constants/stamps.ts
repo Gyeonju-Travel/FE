@@ -136,6 +136,15 @@ export async function getDisplayStampIndices(): Promise<Set<number>> {
     }
   }
 
+  // "완벽한여행"도 서버·로컬 판단 기준이 서로 달라서 같은 문제가 생긴다. 프론트는 일정 장소를
+  // 전부 돌면 그 자리에서 바로 지급하는데, 서버(StampService.completedSchedules)는 그 일정의
+  // 스탬프 앨범에 사진이 있거나 여행 날짜가 지나야만 "완주"로 인정한다 — 그래서 당일에 사진
+  // 없이 다 돌기만 하면 축하 알림은 왔는데 스탬프 앨범엔 다음날까지 안 보이는 불일치가 생긴다.
+  // 로컬에 있으면 여기서도 강제로 합쳐서 보여준다.
+  if (localIndices.has(PERFECT_TRIP_STAMP_INDEX)) {
+    indices.add(PERFECT_TRIP_STAMP_INDEX);
+  }
+
   // 관광지 6개(서버 기준)를 다 모았는데 "경주마스터"(로컬 전용 보너스 배지)가 아직 로컬에
   // 없으면 여기서 보정 지급한다. 관광지 스탬프는 서버에서 하나씩 받아오는 반면 6개를 다
   // 모았을 때의 보너스는 로컬에서만 판단하다 보니, 순서·타이밍에 따라(예: 재설치로 로컬
