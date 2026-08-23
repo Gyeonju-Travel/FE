@@ -2,7 +2,6 @@ import React from 'react';
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import EmptyIllustration from '@/assets/save/empty-illustration.svg';
-import ArrowIcon from '@/assets/save/empty-arrow.svg';
 
 interface Props {
   onFindPlace: () => void;
@@ -26,7 +25,6 @@ export default function EmptyState({ onFindPlace }: Props) {
           <View style={styles.tipTitleRow}>
             <Image source={require('@/assets/save/empty-bell.png')} style={styles.tipBellIcon} resizeMode="contain" />
             <Text style={styles.tipTitle}>저장하는 방법</Text>
-            <ArrowIcon width={5} height={9} />
           </View>
           <Text style={styles.tipDesc}>
             지도에서 ♡ 모양을 눌러 저장하면 장소를 추가할 수 있어요!
@@ -63,15 +61,16 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontWeight: '700',
-    color: Colors.textBody1,
+    fontWeight: '600',
+    color: '#6B6260',
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: Colors.textBody2,
+    color: '#A89E9C',
     textAlign: 'center',
     lineHeight: 22,
+    marginTop: -Spacing.sm,
   },
   bottomSection: {
     paddingHorizontal: Spacing.xl,
@@ -80,6 +79,8 @@ const styles = StyleSheet.create({
   tipBox: {
     backgroundColor: Colors.bgWarm,
     borderRadius: Radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
     padding: Spacing.lg,
     gap: 6,
   },
@@ -89,18 +90,19 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   tipBellIcon: {
-    width: 16,
-    height: 17,
+    width: 22,
+    height: 23,
   },
   tipTitle: {
     fontSize: 14,
-    fontWeight: '700',
-    color: Colors.textBody1,
+    fontWeight: '600',
+    color: '#7F9E85',
   },
   tipDesc: {
     fontSize: 13,
-    color: Colors.textBody2,
+    color: '#6B6260',
     lineHeight: 20,
+    marginTop: -4,
   },
   findBtn: {
     backgroundColor: Colors.primary,
@@ -108,10 +110,15 @@ const styles = StyleSheet.create({
     height: 52,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#3A3330',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   findBtnText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: Colors.white,
   },
 });
