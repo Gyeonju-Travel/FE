@@ -34,6 +34,8 @@ import FilterTourIcon from '@/assets/icons/filter-tour.svg';
 import FilterCafeIcon from '@/assets/icons/filter-cafe.svg';
 import FilterFoodIcon from '@/assets/icons/filter-food.svg';
 import FilterSavedIcon from '@/assets/icons/tab-save-active.svg';
+import MapSearchTourIcon from '@/assets/icons/map-search-tour.svg';
+import MapSearchCafeIcon from '@/assets/icons/map-search-cafe.svg';
 import MapMyLocationIcon from '@/assets/icons/map-mylocation.svg';
 import RecentSearchIcon from '@/assets/icons/schedule-time.svg';
 import ToastPlaceSavedIcon from '@/assets/icons/toast/place-saved.svg';
@@ -58,8 +60,8 @@ const CATEGORIES: { label: Category; Icon: React.FC<{ width?: number; height?: n
 // 검색화면 카테고리 버튼은 '내 저장'을 맨 앞에 두는 순서로 보여준다.
 const SEARCH_CATEGORIES: { label: SearchCategory; Icon: React.FC<{ width?: number; height?: number; color?: string }> }[] = [
   { label: SAVED_FILTER, Icon: FilterSavedIcon },
-  { label: '관광지', Icon: FilterTourIcon },
-  { label: '카페', Icon: FilterCafeIcon },
+  { label: '관광지', Icon: MapSearchTourIcon },
+  { label: '카페', Icon: MapSearchCafeIcon },
   { label: '식당', Icon: FilterFoodIcon },
 ];
 
@@ -73,8 +75,8 @@ const NEUTRAL_ICON_DARK = '#7C6F63';
 
 const SEARCH_CATEGORY_STYLE: Record<SearchCategory, { iconColor: string }> = {
   [SAVED_FILTER]: { iconColor: Colors.primary },
-  관광지: { iconColor: NEUTRAL_ICON_DARK },
-  카페: { iconColor: NEUTRAL_ICON_DARK },
+  관광지: { iconColor: '#6B6260' },
+  카페: { iconColor: '#6B6260' },
   식당: { iconColor: NEUTRAL_ICON_DARK },
 };
 

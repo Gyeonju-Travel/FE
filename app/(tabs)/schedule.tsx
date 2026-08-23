@@ -1773,10 +1773,12 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <>
-          <View style={ss.startHint}>
-            <InfoCircleIcon width={14} height={14} />
-            <Text style={ss.startHintText}>시작 버튼을 누르면 일정이 시작됩니다</Text>
-          </View>
+          {!daySchedules.some((s) => s.id === expandedId) && (
+            <View style={ss.startHintBar}>
+              <InfoCircleIcon width={14} height={14} />
+              <Text style={ss.startHintText}>시작 버튼을 누르면 일정이 시작됩니다</Text>
+            </View>
+          )}
           <TouchableOpacity
             style={[ss.fab, isSelectedDatePast && ss.fabDisabled]}
             activeOpacity={isSelectedDatePast ? 1 : 0.85}
@@ -2275,16 +2277,15 @@ const ss = StyleSheet.create({
     elevation: 0,
   },
   fabIcon: { width: 24, height: 24, tintColor: Colors.white },
-  startHint: {
-    position: 'absolute',
-    bottom: 30,
-    left: 60,
-    right: 78,
-    height: 14,
+  startHintBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.sm,
+    backgroundColor: Colors.background,
   },
   startHintText: { fontSize: 12, color: Colors.textMuted, lineHeight: 14, includeFontPadding: false },
   deleteBar: {
