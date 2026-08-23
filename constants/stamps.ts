@@ -124,6 +124,18 @@ export async function getDisplayStampIndices(): Promise<Set<number>> {
     indices = await getEarnedStampIndices();
   }
 
+  // isProxyLocation 관광지(예: 황리단길)는 서버에 방문 기록을 절대 안 남긴다
+  // (awardAttractionStamp 참고 — 대역 좌표라 실제 자기 장소가 아니어서, 엉뚱한 장소에 방문
+  // 기록이 남는 걸 막으려고 일부러 뺐다). 그래서 서버 기준 목록엔 영영 안 뜨는데, 로컬엔 이미
+  // 지급되고 토스트까지 뜬 상태라 "토스트는 왔는데 스탬프 앨범엔 안 보이는" 불일치가 생긴다.
+  // 로컬에 있으면 여기서 강제로 합쳐서 화면에라도 보이게 한다.
+  const localIndices = await getEarnedStampIndices();
+  for (const attraction of GEOFENCE_ATTRACTIONS) {
+    if (attraction.isProxyLocation && localIndices.has(attraction.stampIndex)) {
+      indices.add(attraction.stampIndex);
+    }
+  }
+
   // 관광지 6개(서버 기준)를 다 모았는데 "경주마스터"(로컬 전용 보너스 배지)가 아직 로컬에
   // 없으면 여기서 보정 지급한다. 관광지 스탬프는 서버에서 하나씩 받아오는 반면 6개를 다
   // 모았을 때의 보너스는 로컬에서만 판단하다 보니, 순서·타이밍에 따라(예: 재설치로 로컬
