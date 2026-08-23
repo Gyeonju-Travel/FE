@@ -7,6 +7,8 @@ import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
 import WalkingIcon from '@/assets/icons/walking.svg';
+import HeartIcon from '@/assets/icons/heart.svg';
+import HeartFilledIcon from '@/assets/icons/heart-filled.svg';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '@/constants/badgeConfig';
 import {
   RecommendedRouteResultResponse,
@@ -189,7 +191,11 @@ export default function RecommendedRouteResultView({
                   onPress={() => toggleLike(place.placeId)}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={[s.heart, liked && s.heartActive]}>{liked ? '♥' : '♡'}</Text>
+                  {liked ? (
+                    <HeartFilledIcon width={20} height={18} color={Colors.coral} />
+                  ) : (
+                    <HeartIcon width={20} height={18} color={Colors.border} />
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -249,8 +255,6 @@ const s = StyleSheet.create({
   placeName: { fontSize: 14, fontWeight: '600', color: Colors.textBody1, flexShrink: 1 },
   placeTags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   heartBtn: { padding: 2 },
-  heart: { fontSize: 20, color: Colors.coral, opacity: 0.35 },
-  heartActive: { opacity: 1 },
   bottomBar: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md },
   saveBtn: {
     backgroundColor: Colors.coral,

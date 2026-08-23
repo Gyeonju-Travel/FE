@@ -15,6 +15,8 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import MapPlaceIcon from '@/assets/icons/map-place.svg';
 import TelephoneIcon from '@/assets/icons/telephone.svg';
 import MapHoursIcon from '@/assets/icons/map-hours.svg';
+import HeartIcon from '@/assets/icons/heart.svg';
+import HeartFilledIcon from '@/assets/icons/heart-filled.svg';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 
 export const SHEET_HEIGHT = 295;
@@ -166,44 +168,52 @@ export default function MapPlaceSheet({ place, liked: likedProp = false, onClose
                   onToggleLike?.(place, next);
                 }}
               >
-                <Text style={[styles.heart, liked && styles.heartActive]}>
-                  {liked ? '♥' : '♡'}
-                </Text>
+                {liked ? (
+                  <HeartFilledIcon width={20} height={18} color={Colors.coral} />
+                ) : (
+                  <HeartIcon width={20} height={18} color={Colors.border} />
+                )}
               </TouchableOpacity>
             </View>
 
-            {/* 구분선 */}
-            <View style={styles.separator} />
-
             {/* 정보 rows */}
-            <View style={styles.infoRows}>
-              <View style={styles.infoRow}>
-                <MapPlaceIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
-                <Text style={styles.infoText}>{place.address}</Text>
-              </View>
-              {!!place.phone && (
-                <View style={styles.infoRow}>
-                  <TelephoneIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
-                  <Text style={styles.infoText}>{place.phone}</Text>
-                </View>
-              )}
-              {(!!place.hours || !!place.breakTime || !!place.closedDays) && (
-                <View style={styles.infoRow}>
-                  <MapHoursIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
-                  <View style={styles.infoTextCol}>
-                    {!!place.hours && (
-                      <Text style={styles.infoText}>
-                        {place.hours}
-                        {!!place.closedDays && ` (${place.closedDays} 휴무)`}
-                      </Text>
-                    )}
-                    {!place.hours && !!place.closedDays && (
-                      <Text style={styles.infoText}>{place.closedDays} 휴무</Text>
-                    )}
-                    {!!place.breakTime && <Text style={styles.infoSubText}>브레이크타임 {place.breakTime}</Text>}
+            <View style={styles.infoCard}>
+              {[
+                <View key="address" style={styles.infoRow}>
+                  <MapPlaceIcon width={15} height={15} color={Colors.textBody2} />
+                  <Text style={styles.infoText}>{place.address}</Text>
+                </View>,
+                !!place.phone && (
+                  <View key="phone" style={styles.infoRow}>
+                    <TelephoneIcon width={15} height={15} color={Colors.textBody2} />
+                    <Text style={styles.infoText}>{place.phone}</Text>
                   </View>
-                </View>
-              )}
+                ),
+                (!!place.hours || !!place.breakTime || !!place.closedDays) && (
+                  <View key="hours" style={styles.infoRow}>
+                    <MapHoursIcon width={15} height={15} color={Colors.textBody2} />
+                    <View style={styles.infoTextCol}>
+                      {!!place.hours && (
+                        <Text style={styles.infoText}>
+                          {place.hours}
+                          {!!place.closedDays && ` ${place.closedDays} 휴무`}
+                        </Text>
+                      )}
+                      {!place.hours && !!place.closedDays && (
+                        <Text style={styles.infoText}>{place.closedDays} 휴무</Text>
+                      )}
+                      {!!place.breakTime && <Text style={styles.infoSubText}>브레이크타임 {place.breakTime}</Text>}
+                    </View>
+                  </View>
+                ),
+              ]
+                .filter(Boolean)
+                .map((row, i, arr) => (
+                  <React.Fragment key={i}>
+                    {row}
+                    {i < arr.length - 1 && <View style={styles.infoDivider} />}
+                  </React.Fragment>
+                ))}
             </View>
           </>
         )}
@@ -274,29 +284,25 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   heartBtn: {
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     padding: 4,
   },
-  heart: {
-    fontSize: 22,
-    color: Colors.coral,
-    opacity: 0.35,
+  infoCard: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
   },
-  heartActive: {
-    opacity: 1,
-  },
-  separator: {
+  infoDivider: {
     height: 1,
-    backgroundColor: '#F0EDE8',
-    marginBottom: 14,
-  },
-  infoRows: {
-    gap: 10,
+    backgroundColor: Colors.border,
   },
   infoRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 10,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 10,
   },
   infoText: {
     flex: 1,

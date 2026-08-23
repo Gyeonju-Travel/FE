@@ -627,6 +627,7 @@ export default function MapScreen() {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={styles.chipsScroll}
           contentContainerStyle={styles.chips}
         >
           {CATEGORIES.map(({ label, Icon }) => {
@@ -638,7 +639,7 @@ export default function MapScreen() {
                 style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
                 activeOpacity={0.8}
               >
-                <Icon width={14} height={14} color={active ? Colors.white : Colors.navActive} />
+                <Icon width={14} height={14} color={active ? Colors.white : '#6B6260'} />
                 <Text style={[styles.chipLabel, active ? styles.chipLabelActive : styles.chipLabelInactive]}>
                   {label}
                 </Text>
@@ -749,9 +750,16 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     paddingHorizontal: 2,
   },
+  // 가로 ScrollView는 기본적으로 세로 방향을 칩 높이에 딱 맞게 잘라버려서 칩 그림자의
+  // 아래쪽이 잘려 보인다. contentContainerStyle에 여유 패딩을 주고, 그만큼을 ScrollView
+  // 자체의 음수 마진으로 상쇄해서 레이아웃은 그대로 두고 그림자만 잘리지 않게 한다.
+  chipsScroll: {
+    marginVertical: -10,
+  },
   chips: {
     gap: 8,
     paddingRight: Spacing.xl,
+    paddingVertical: 10,
   },
   chip: {
     flexDirection: 'row',
@@ -770,7 +778,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.coral,
   },
   chipInactive: {
-    backgroundColor: Colors.background,
+    backgroundColor: '#F4F0E8',
   },
   chipLabel: {
     fontSize: 13,
@@ -780,7 +788,7 @@ const styles = StyleSheet.create({
     color: Colors.white,
   },
   chipLabelInactive: {
-    color: Colors.textBody2,
+    color: '#6B6260',
   },
   // 줌 버튼 — 직사각형 컨테이너
   zoomContainer: {
