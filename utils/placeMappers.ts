@@ -28,6 +28,8 @@ export function toMapPlaceDetail(res: PlaceDetailResponse): MapPlace {
     ...toMapPlace(res),
     phone: res.phone ?? '',
     hours: res.businessHours ?? '',
+    breakTime: res.breakTime ?? '',
+    closedDays: res.closedDays ?? '',
   };
 }
 

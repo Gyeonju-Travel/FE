@@ -9,4 +9,6 @@ export interface MapPlace {
   address: string;
   phone: string;
   hours: string;
+  breakTime?: string;
+  closedDays?: string;
 }

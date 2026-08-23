@@ -174,14 +174,29 @@ export default function MapPlaceSheet({ place, liked: likedProp = false, onClose
                 <MapPlaceIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
                 <Text style={styles.infoText}>{place.address}</Text>
               </View>
-              <View style={styles.infoRow}>
-                <TelephoneIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
-                <Text style={styles.infoText}>{place.phone}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <MapHoursIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
-                <Text style={styles.infoText}>{place.hours}</Text>
-              </View>
+              {!!place.phone && (
+                <View style={styles.infoRow}>
+                  <TelephoneIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
+                  <Text style={styles.infoText}>{place.phone}</Text>
+                </View>
+              )}
+              {(!!place.hours || !!place.breakTime || !!place.closedDays) && (
+                <View style={styles.infoRow}>
+                  <MapHoursIcon width={15} height={15} color={Colors.textBody2} style={{ marginTop: 2 }} />
+                  <View style={styles.infoTextCol}>
+                    {!!place.hours && (
+                      <Text style={styles.infoText}>
+                        {place.hours}
+                        {!!place.closedDays && ` (${place.closedDays} 휴무)`}
+                      </Text>
+                    )}
+                    {!place.hours && !!place.closedDays && (
+                      <Text style={styles.infoText}>{place.closedDays} 휴무</Text>
+                    )}
+                    {!!place.breakTime && <Text style={styles.infoSubText}>브레이크타임 {place.breakTime}</Text>}
+                  </View>
+                </View>
+              )}
             </View>
           </>
         )}
@@ -281,5 +296,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textBody2,
     lineHeight: 18,
+  },
+  infoTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  infoSubText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    lineHeight: 17,
   },
 });
