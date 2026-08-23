@@ -28,6 +28,7 @@ import Toast from '@/components/ui/Toast';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import PlaceBlankIllustration from '@/assets/place/place-blank.svg';
+import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
 import FilterAllIcon from '@/assets/icons/filter-all.svg';
 import FilterTourIcon from '@/assets/icons/filter-tour.svg';
 import FilterCafeIcon from '@/assets/icons/filter-cafe.svg';
@@ -100,7 +101,7 @@ function PlaceRow({ place, best, onPress }: { place: MapPlace; best?: boolean; o
           {place.name}
         </Text>
       </View>
-      <Text style={ss.placeChevron}>›</Text>
+      <ChevronRightIcon width={8} height={14} color={Colors.textMuted} />
     </TouchableOpacity>
   );
 }
@@ -591,9 +592,10 @@ export default function MapScreen() {
         {showKeywordResults && !searching && searchResults.length === 0 && (
           <TouchableOpacity style={ss.reportFooter} activeOpacity={0.7} onPress={handleGoReportPlace}>
             <Text style={ss.reportFooterText}>찾으시는 장소가 없나요?</Text>
-            <Text style={ss.reportFooterTextBold}>
-              장소 제보하러 가기<Text style={ss.reportFooterArrow}> ›</Text>
-            </Text>
+            <View style={ss.reportFooterRow}>
+              <Text style={ss.reportFooterTextBold}>장소 제보하러 가기</Text>
+              <ChevronRightIcon width={5} height={9} color={Colors.textBody2} />
+            </View>
           </TouchableOpacity>
         )}
       </View>
@@ -889,8 +891,8 @@ const ss = StyleSheet.create({
     paddingVertical: 16,
   },
   reportFooterText: { fontSize: 13, color: Colors.textBody2 },
+  reportFooterRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   reportFooterTextBold: { fontSize: 13, fontWeight: '700', color: Colors.textBody2 },
-  reportFooterArrow: { fontWeight: '700', color: Colors.textBody2 },
   recentGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -931,5 +933,4 @@ const ss = StyleSheet.create({
   placeInfo: { flex: 1, gap: 6 },
   placeBadgeRow: { flexDirection: 'row', gap: 6 },
   placeName: { fontSize: 14, fontWeight: '600', color: Colors.textBody1 },
-  placeChevron: { fontSize: 20, color: Colors.textMuted },
 });

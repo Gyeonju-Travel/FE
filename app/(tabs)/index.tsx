@@ -21,6 +21,7 @@ import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
 import CelebrationToast from '@/components/ui/CelebrationToast';
 import FilterTourIcon from '@/assets/icons/filter-tour.svg';
+import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
 import WalkingDogIcon from '@/assets/home/walking-dog.svg';
 import BellIcon from '@/assets/home/bell.svg';
 import BellActiveIcon from '@/assets/home/bell-active.svg';
@@ -257,7 +258,7 @@ export default function HomeScreen() {
               <View style={styles.profileInfo}>
                 <View style={styles.nameRow}>
                   <Text style={styles.dogName}>{dogName}</Text>
-                  <Text style={styles.chevron}>›</Text>
+                  <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />
                 </View>
                 {personalityLabel && (
                   <View style={styles.tagChip}>
@@ -529,7 +530,6 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1, gap: 6 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   dogName: { fontSize: 17, fontWeight: '700', color: Colors.textBody1 },
-  chevron: { fontSize: 18, color: Colors.textMuted },
   tagChip: {
     flexDirection: 'row',
     alignItems: 'center',

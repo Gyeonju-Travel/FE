@@ -60,6 +60,7 @@ import {
 import WheelPicker, { PICKER_H } from '@/components/schedule/WheelPicker';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import Toast from '@/components/ui/Toast';
+import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
 import AlertCard from '@/components/ui/AlertCard';
 import ModalWarningIcon from '@/assets/icons/modal-warning.svg';
 import SwipeBackScreen from '@/components/ui/SwipeBackScreen';
@@ -691,7 +692,7 @@ function CreateScheduleView({
             ) : (
               <Text style={cs.selectorPlaceholder}>출발지를 선택해주세요.</Text>
             )}
-            <Text style={cs.chevron}>›</Text>
+            <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />
           </TouchableOpacity>
 
           {/* 날짜 선택 */}
@@ -703,7 +704,7 @@ function CreateScheduleView({
             ) : (
               <Text style={cs.selectorPlaceholder}>날짜를 선택해주세요.</Text>
             )}
-            <Text style={cs.chevron}>›</Text>
+            <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />
           </TouchableOpacity>
 
           {/* 저장 장소 선택 */}
@@ -1678,11 +1679,11 @@ export default function ScheduleScreen() {
         <View style={ss.calendarCard}>
           <View style={ss.monthNav}>
             <TouchableOpacity onPress={prevMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={ss.navArrow}>‹</Text>
+              <ChevronRightIcon width={8} height={15} color={Colors.textBody2} style={{ transform: [{ scaleX: -1 }] }} />
             </TouchableOpacity>
             <Text style={ss.monthLabel}>{year}년 {month + 1}월</Text>
             <TouchableOpacity onPress={nextMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={ss.navArrow}>›</Text>
+              <ChevronRightIcon width={8} height={15} color={Colors.textBody2} />
             </TouchableOpacity>
           </View>
           <View style={ss.weekRow}>
@@ -1964,7 +1965,6 @@ const cs = StyleSheet.create({
   },
   selectorText: { flex: 1, fontSize: 14, color: Colors.textBody1 },
   selectorPlaceholder: { flex: 1, fontSize: 14, color: Colors.textMuted },
-  chevron: { fontSize: 18, color: Colors.textMuted, lineHeight: 22 },
   placeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2123,7 +2123,6 @@ const ss = StyleSheet.create({
     marginBottom: Spacing.md,
     paddingHorizontal: Spacing.sm,
   },
-  navArrow: { fontSize: 22, color: Colors.textBody2, lineHeight: 26 },
   monthLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
   weekRow: { flexDirection: 'row', marginBottom: 2 },
   weekDay: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '500', color: Colors.textBody2, paddingVertical: 6 },

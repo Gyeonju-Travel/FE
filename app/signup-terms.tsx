@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ActivityIndicat
 import { router } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import Toast from '@/components/ui/Toast';
+import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
 import { agreeToTerms, ApiError } from '@/utils/api';
 
 interface TermItem {
@@ -100,7 +101,7 @@ export default function SignupTermsScreen() {
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Text style={styles.viewBtnText}>보기</Text>
-                  <Text style={styles.viewBtnChevron}>›</Text>
+                  <ChevronRightIcon width={6} height={11} color={Colors.textMuted} />
                 </TouchableOpacity>
               )}
             </View>
@@ -158,7 +159,6 @@ const styles = StyleSheet.create({
   requiredTag: { color: Colors.secondary, fontWeight: '600' },
   viewBtn: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   viewBtnText: { fontSize: 13, color: Colors.textMuted },
-  viewBtnChevron: { fontSize: 15, color: Colors.textMuted },
   checkbox: {
     width: 22,
     height: 22,

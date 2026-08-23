@@ -15,6 +15,7 @@ import WheelPicker from '@/components/schedule/WheelPicker';
 import RecommendedRouteResultView from '@/components/home/RecommendedRouteResultView';
 import RecommendedRouteLoadingView, { MIN_LOADING_MS } from '@/components/home/RecommendedRouteLoadingView';
 import ScheduleDepartureIcon from '@/assets/icons/schedule-departure.svg';
+import ChevronRightIcon from '@/assets/icons/chevron-right.svg';
 import ScheduleDateIcon from '@/assets/icons/schedule-date.svg';
 import ConditionBestIcon from '@/assets/home/condition-best.svg';
 import ConditionNormalIcon from '@/assets/home/condition-normal.svg';
@@ -260,7 +261,7 @@ export default function RecommendedRouteView({
           ) : (
             <Text style={s.selectorPlaceholder}>출발지를 선택해주세요.</Text>
           )}
-          <Text style={s.chevron}>›</Text>
+          <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />
         </TouchableOpacity>
 
         <Text style={[s.sectionLabel, { marginTop: Spacing.xl }]}>날짜 선택</Text>
@@ -271,7 +272,7 @@ export default function RecommendedRouteView({
           ) : (
             <Text style={s.selectorPlaceholder}>날짜를 선택해주세요.</Text>
           )}
-          <Text style={s.chevron}>›</Text>
+          <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />
         </TouchableOpacity>
 
         <Text style={[s.sectionLabel, { marginTop: Spacing.xl }]}>{dogName}의 오늘 컨디션은?</Text>
@@ -410,7 +411,6 @@ const s = StyleSheet.create({
   },
   selectorText: { flex: 1, fontSize: 14, color: Colors.textBody1 },
   selectorPlaceholder: { flex: 1, fontSize: 14, color: Colors.textMuted },
-  chevron: { fontSize: 18, color: Colors.textMuted, lineHeight: 22 },
   conditionRow: { flexDirection: 'row', gap: Spacing.sm },
   conditionCard: {
     flex: 1,
