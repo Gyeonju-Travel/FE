@@ -82,7 +82,6 @@ import {
   SCRAP_REMINDER_HOUR,
   ACTIVE_SCHEDULE_AUTO_ENDED_EVENT,
   simulateArrivalAtNextPlace,
-  simulateArrivalAtCoordinate,
 } from '@/utils/locationTracking';
 import TodayScrapView from '@/components/home/TodayScrapView';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
@@ -93,7 +92,8 @@ import ScheduleDepartureIcon from '@/assets/icons/schedule-departure.svg';
 import ScheduleDateIcon from '@/assets/icons/schedule-date.svg';
 import WalkingIcon from '@/assets/icons/walking.svg';
 import MapMyLocationIcon from '@/assets/icons/map-mylocation.svg';
-import TabScheduleIcon from '@/assets/icons/tab-schedule.svg';
+import ScheduleCalendarIcon from '@/assets/icons/schedule-calendar.svg';
+import InfoCircleIcon from '@/assets/icons/info-circle.svg';
 import BinIcon from '@/assets/icons/bin.svg';
 import ScheduleEmptyIllustration from '@/assets/schedule/empty-illustration.svg';
 import ToastDepartureIcon from '@/assets/icons/toast/departure.svg';
@@ -1454,23 +1454,6 @@ export default function ScheduleScreen() {
     setToastSubtitle(undefined);
   };
 
-  // 개발용: 경주 밖이라 실제 GPS로 테스트를 못 할 때, 위도/경도를 직접 입력해서 그 지점에
-  // 있는 것처럼 관광지 스탬프·일정 도착 판정을 한 번 돌려본다.
-  const [devLat, setDevLat] = useState('');
-  const [devLng, setDevLng] = useState('');
-  const handleSimulateCoordinate = async () => {
-    const lat = Number(devLat);
-    const lng = Number(devLng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setToastMsg('위도/경도를 숫자로 입력해주세요.');
-      setToastSubtitle(undefined);
-      return;
-    }
-    const results = await simulateArrivalAtCoordinate({ lat, lng });
-    setToastMsg(results.length > 0 ? results.join(', ') : '이 좌표 근처엔 아무것도 없어요.');
-    setToastSubtitle(undefined);
-  };
-
   const handleViewRecord = async (schedule: Schedule) => {
     const token = await getAccessToken();
     if (!token) {
@@ -1653,29 +1636,6 @@ export default function ScheduleScreen() {
         <Text style={ss.pageTitle}>나의 일정</Text>
 
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-        {/* 개발용: 경주 밖에 있을 때 좌표를 직접 입력해서 GPS 판정을 테스트한다. */}
-        <View style={ss.devCoordRow}>
-          <TextInput
-            style={ss.devCoordInput}
-            placeholder="위도 (예: 35.8343745)"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="numbers-and-punctuation"
-            value={devLat}
-            onChangeText={setDevLat}
-          />
-          <TextInput
-            style={ss.devCoordInput}
-            placeholder="경도 (예: 129.2185645)"
-            placeholderTextColor={Colors.textMuted}
-            keyboardType="numbers-and-punctuation"
-            value={devLng}
-            onChangeText={setDevLng}
-          />
-          <TouchableOpacity style={ss.devCoordBtn} activeOpacity={0.7} onPress={handleSimulateCoordinate}>
-            <Text style={ss.devCoordBtnText}>테스트</Text>
-          </TouchableOpacity>
-        </View>
-
         <View style={ss.calendarCard}>
           <View style={ss.monthNav}>
             <TouchableOpacity onPress={prevMonth} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -1726,7 +1686,7 @@ export default function ScheduleScreen() {
         {daySchedules.length > 0 ? (
           <>
             <View style={ss.dayHeaderRow}>
-              <TabScheduleIcon width={16} height={16} color={Colors.textBody1} />
+              <ScheduleCalendarIcon width={16} height={17} />
               <Text style={ss.dayHeaderText}>
                 {selectedDate.month + 1}월 {selectedDate.day}일 (
                 {DOW_KR[new Date(selectedDate.year, selectedDate.month, selectedDate.day).getDay()]})
@@ -1812,14 +1772,20 @@ export default function ScheduleScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <TouchableOpacity
-          style={[ss.fab, isSelectedDatePast && ss.fabDisabled]}
-          activeOpacity={isSelectedDatePast ? 1 : 0.85}
-          disabled={isSelectedDatePast}
-          onPress={() => setShowCreate(true)}
-        >
-          <Image source={require('@/assets/icons/add.png')} style={ss.fabIcon} resizeMode="contain" />
-        </TouchableOpacity>
+        <>
+          <View style={ss.startHint}>
+            <InfoCircleIcon width={14} height={14} />
+            <Text style={ss.startHintText}>시작 버튼을 누르면 일정이 시작됩니다</Text>
+          </View>
+          <TouchableOpacity
+            style={[ss.fab, isSelectedDatePast && ss.fabDisabled]}
+            activeOpacity={isSelectedDatePast ? 1 : 0.85}
+            disabled={isSelectedDatePast}
+            onPress={() => setShowCreate(true)}
+          >
+            <Image source={require('@/assets/icons/add.png')} style={ss.fabIcon} resizeMode="contain" />
+          </TouchableOpacity>
+        </>
       )}
 
       <Toast
@@ -2123,17 +2089,17 @@ const ss = StyleSheet.create({
     marginBottom: Spacing.md,
     paddingHorizontal: Spacing.sm,
   },
-  monthLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
+  monthLabel: { fontSize: 15, fontWeight: '500', color: Colors.textPrimary },
   weekRow: { flexDirection: 'row', marginBottom: 2 },
-  weekDay: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '500', color: Colors.textBody2, paddingVertical: 6 },
+  weekDay: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '400', color: Colors.textBody2, paddingVertical: 6 },
   sundayLabel: { color: Colors.coral },
-  dayCell: { flex: 1, alignItems: 'center', paddingVertical: 3 },
-  dayInner: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.full },
+  dayCell: { flex: 1, alignItems: 'center', paddingVertical: 2 },
+  dayInner: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: Radius.full },
   todayCircle: { backgroundColor: Colors.coral },
-  dayText: { fontSize: 14, color: Colors.textPrimary },
+  dayText: { fontSize: 14, fontWeight: '400', color: Colors.textPrimary },
   sundayText: { color: Colors.coral },
-  todayText: { color: Colors.white, fontWeight: '600' },
-  scheduleDot: { width: 4, height: 4, borderRadius: 2, marginTop: 3, backgroundColor: 'transparent' },
+  todayText: { color: Colors.white, fontWeight: '500' },
+  scheduleDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2, backgroundColor: 'transparent' },
   scheduleDotVisible: { backgroundColor: Colors.coral },
   emptyCard: { paddingTop: Spacing.xxl, paddingVertical: 40, alignItems: 'center', gap: 6 },
   emptyTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary },
@@ -2146,7 +2112,7 @@ const ss = StyleSheet.create({
     paddingRight: 6,
     gap: 6,
   },
-  dayHeaderText: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
+  dayHeaderText: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
   dayHeaderCount: { fontSize: 13, color: Colors.textMuted },
   dayHeaderEditBtn: { fontSize: 14, fontWeight: '500', color: Colors.textBody2 },
   selectAllRow: {
@@ -2195,7 +2161,7 @@ const ss = StyleSheet.create({
   scheduleCheckmark: { color: Colors.white, fontSize: 12, fontWeight: '700' },
   scheduleCardImg: { width: 64, height: 64, borderRadius: Radius.sm },
   scheduleCardInfo: { flex: 1, gap: 6 },
-  scheduleCardTitle: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary },
+  scheduleCardTitle: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
   scheduleCardMetaRow: { flexDirection: 'row', alignItems: 'center' },
   scheduleCardMetaIcon: { width: 13, height: 13, marginRight: 4 },
   scheduleCardMetaText: { fontSize: 12, color: Colors.textBody2 },
@@ -2226,31 +2192,6 @@ const ss = StyleSheet.create({
     paddingBottom: Spacing.sm,
   },
   cardTestBtnText: { fontSize: 11, color: Colors.secondaryDark, textDecorationLine: 'underline' },
-  devCoordRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-    alignItems: 'center',
-  },
-  devCoordInput: {
-    flex: 1,
-    height: 36,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: Spacing.sm,
-    fontSize: 12,
-    color: Colors.textBody1,
-  },
-  devCoordBtn: {
-    height: 36,
-    paddingHorizontal: Spacing.md,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.bgWarm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  devCoordBtnText: { fontSize: 12, fontWeight: '600', color: Colors.textBody1 },
   scheduleDetail: {
     borderTopWidth: 0.5,
     borderTopColor: '#EDE8E3',
@@ -2334,6 +2275,18 @@ const ss = StyleSheet.create({
     elevation: 0,
   },
   fabIcon: { width: 24, height: 24, tintColor: Colors.white },
+  startHint: {
+    position: 'absolute',
+    bottom: 30,
+    left: 60,
+    right: 78,
+    height: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  startHintText: { fontSize: 12, color: Colors.textMuted, lineHeight: 14, includeFontPadding: false },
   deleteBar: {
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,

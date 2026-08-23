@@ -14,6 +14,7 @@ import {
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { SavedPlace } from '@/types/save';
 import WalkingIcon from '@/assets/icons/walking.svg';
+import CloseSmallIcon from '@/assets/icons/close-small.svg';
 import Badge, { BADGE_TONE_COLORS } from '@/components/ui/Badge';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE } from '@/constants/badgeConfig';
@@ -341,7 +342,7 @@ export default function EditScheduleView({
                     onPress={() => removePlace(item.id)}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Text style={es.removeX}>×</Text>
+                    <CloseSmallIcon width={14} height={14} color={Colors.textMuted} />
                   </TouchableOpacity>
                 )}
               </Animated.View>
@@ -386,15 +387,17 @@ export default function EditScheduleView({
 const styles = StyleSheet.create({
   gripSpacer: {
     width: 16,
+    marginLeft: 6,
     marginRight: 12,
   },
   grip: {
     width: 16,
     height: 16,
-    flexDirection: 'row',
+    flexDirection: 'column',
     flexWrap: 'wrap',
     alignContent: 'center',
     gap: 2,
+    marginLeft: 6,
     marginRight: 12,
   },
   gripDot: {
@@ -456,7 +459,6 @@ const es = StyleSheet.create({
   rowBody: { flex: 1, gap: 6 },
   rowLabel: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  removeX: { fontSize: 20, color: Colors.textMuted, paddingHorizontal: 4 },
   walkPillWrap: {
     position: 'absolute',
     left: 0,
