@@ -1,3 +1,4 @@
+import { DeviceEventEmitter } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import * as Notifications from 'expo-notifications';
@@ -71,6 +72,12 @@ const AUTO_ENDED_SCHEDULE_KEY = 'gyeonjutravel.autoEndedSchedule';
 const SCRAP_REMINDER_ID_KEY = 'gyeonjutravel.scrapReminderNotificationId';
 export const SCRAP_REMINDER_HOUR = 21;
 
+// 백그라운드 위치 추적 태스크가 일정을 자동으로 취소/종료시켰을 때 쏘는 이벤트. 그 태스크는
+// 화면(React 컴포넌트) 밖에서 돌기 때문에, 일정 화면이 계속 켜져 있어도(다른 화면에 갔다
+// 안 와도) activeScheduleId 등 화면 상태가 저절로 안 바뀐다 — 화면에서 이 이벤트를 구독해서
+// getActiveScheduleId() 등을 다시 읽어야 "여행중" 표시가 바로 "시작"으로 되돌아간다.
+export const ACTIVE_SCHEDULE_AUTO_ENDED_EVENT = 'gyeonjutravel.activeScheduleAutoEnded';
+
 export interface LatLng {
   lat: number;
   lng: number;
@@ -117,7 +124,11 @@ async function ensureNotificationPermission(): Promise<void> {
  * attraction.placeId로 서버 방문 기록(visitPlace)도 같이 남겨야 한다 — 안 그러면 로컬에는
  * "받음"으로 뜨고 축하 알림까지 오는데, 마이페이지 스탬프 앨범(서버 기준)에는 안 뜨는
  * 불일치가 생긴다. isProxyLocation(예: 황리단길 대역 좌표)은 실제 이 관광지의 placeId가
- * 아니므로 방문 기록을 안 남긴다. */
+ * 아니므로 방문 기록을 안 남긴다.
+ *
+ * 서버 방문 기록을 알림보다 먼저 남긴다 — 순서가 반대면, 사용자가 알림을 뜨자마자 눌러
+ * 스탬프 앨범(서버 기준)으로 들어갔을 때 visitPlace 네트워크 요청이 아직 안 끝나있어서
+ * "알림은 왔는데 앨범엔 한참 있다가 뜨는" 것처럼 보일 수 있다. */
 async function awardAttractionStamp(
   attraction: GeofenceAttraction,
   scheduleId: string | null,
@@ -125,7 +136,6 @@ async function awardAttractionStamp(
 ): Promise<boolean> {
   const awarded = await awardStamp(attraction.stampIndex);
   if (!awarded) return false;
-  await notify('축하해요! 🎉', `${attraction.name} 스탬프를 획득했어요!`, STAMP_NOTIFICATION_DATA);
   if (accessToken && scheduleId && attraction.placeId != null && !attraction.isProxyLocation) {
     try {
       await visitPlace(
@@ -134,9 +144,10 @@ async function awardAttractionStamp(
         accessToken
       );
     } catch {
-      // 서버 방문 기록 실패는 무시 — 로컬 지급/알림은 이미 반영됐다.
+      // 서버 방문 기록 실패는 무시 — 로컬 지급/알림은 그대로 진행한다.
     }
   }
+  await notify('축하해요! 🎉', `${attraction.name} 스탬프를 획득했어요!`, STAMP_NOTIFICATION_DATA);
   return true;
 }
 
@@ -449,6 +460,7 @@ export async function getActiveScheduleId(): Promise<string | null> {
  * 다시 시작할 수 있게 한다 — 매번 새 일정을 만들 필요가 없도록. */
 async function endActiveScheduleDueToExit(scheduleId: string): Promise<void> {
   await stopLocationTracking();
+  DeviceEventEmitter.emit(ACTIVE_SCHEDULE_AUTO_ENDED_EVENT);
   const arrivedIds = await getArrivedPlaceIds(scheduleId);
   if (arrivedIds.length === 0) {
     const token = await getAccessToken();

@@ -17,6 +17,7 @@ import {
   ActivityIndicator,
   TextInput,
   Modal,
+  DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -78,6 +79,7 @@ import {
   TodaysScrapSchedule,
   StartTrackingResult,
   SCRAP_REMINDER_HOUR,
+  ACTIVE_SCHEDULE_AUTO_ENDED_EVENT,
   simulateArrivalAtNextPlace,
   simulateArrivalAtCoordinate,
 } from '@/utils/locationTracking';
@@ -1296,6 +1298,17 @@ export default function ScheduleScreen() {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [year, month])
   );
+
+  // 백그라운드 위치 추적이 경주 이탈로 일정을 자동 취소/종료시키는 건 이 화면을 벗어나지
+  // 않아도 일어날 수 있어서(포커스 효과가 안 도와줌), 그 이벤트를 직접 구독해서 "여행중" 표시가
+  // 다른 화면에 갔다 오지 않아도 바로 "시작"으로 돌아오게 한다.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(ACTIVE_SCHEDULE_AUTO_ENDED_EVENT, () => {
+      getActiveScheduleId().then(setActiveScheduleId);
+      getAutoEndedScheduleId().then(setAutoEndedScheduleId);
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     fetchMonthSchedules(year, month);
