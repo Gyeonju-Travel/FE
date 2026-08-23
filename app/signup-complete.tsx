@@ -126,6 +126,8 @@ export default function SignupCompleteScreen() {
         title="환영해요!"
         subtitle="가입해 주셔서 감사합니다."
         top={80}
+        duration={0}
+        showClose={false}
         onHide={() => setShowWelcomeCelebration(false)}
       />
 

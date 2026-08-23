@@ -16,8 +16,11 @@ interface Props {
   onHide: () => void;
   /** 닫기(×) 버튼이 아닌 카드 본문을 탭했을 때 실행된다 (예: 스탬프 페이지로 이동). */
   onPress?: () => void;
+  /** 자동으로 사라지기까지의 시간(ms). 0이면 자동으로 안 사라지고, ×를 눌러야만 닫힌다. */
   duration?: number;
   top?: number;
+  /** 닫기(×) 버튼을 보여줄지. 기본 true. false면 폭죽 아이콘이 그 자리까지 오른쪽으로 옮겨온다. */
+  showClose?: boolean;
 }
 
 /** 회원가입 환영/스탬프 획득 등 축하 이벤트용 상단 토스트. */
@@ -30,6 +33,7 @@ export default function CelebrationToast({
   onPress,
   duration = 3600,
   top = 12,
+  showClose = true,
 }: Props) {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(-12)).current;
@@ -46,6 +50,7 @@ export default function CelebrationToast({
       Animated.timing(opacity, { toValue: 1, duration: 220, useNativeDriver: true }),
       Animated.timing(translateY, { toValue: 0, duration: 220, useNativeDriver: true }),
     ]).start();
+    if (!duration) return;
     const timer = setTimeout(hide, duration);
     return () => clearTimeout(timer);
   }, [visible]);
@@ -73,10 +78,16 @@ export default function CelebrationToast({
             {subtitle}
           </Text>
         </View>
-        <Image source={require('@/assets/toast/celebration-sparkle.png')} style={styles.sparkle} resizeMode="contain" />
-        <TouchableOpacity onPress={hide} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <CloseIcon width={14} height={14} />
-        </TouchableOpacity>
+        <Image
+          source={require('@/assets/toast/celebration-sparkle.png')}
+          style={[styles.sparkle, !showClose && styles.sparkleShift]}
+          resizeMode="contain"
+        />
+        {showClose && (
+          <TouchableOpacity onPress={hide} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <CloseIcon width={14} height={14} />
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -115,4 +126,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 15, fontWeight: '500', color: Colors.textBody1 },
   subtitle: { fontSize: 12, color: Colors.textBody2 },
   sparkle: { width: 60, height: 60, flexShrink: 0 },
+  sparkleShift: { marginLeft: 8, marginRight: -6 },
 });
