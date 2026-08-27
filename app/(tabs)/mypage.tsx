@@ -283,6 +283,9 @@ function WithdrawSuccessModal({ visible, onConfirm }: { visible: boolean; onConf
 
 // ─── InquiryView (문의하기) ───────────────────────────────────────────────────
 function InquiryView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
+  // 마이페이지 탭은 탭바가 화면 위에 절대 위치로 떠 있어서(하단 배경 일러스트 노출용),
+  // 이 화면의 하단 버튼도 그 탭바에 가려진다. 탭바 높이만큼 보정한다.
+  const insets = useSafeAreaInsets();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -353,7 +356,7 @@ function InquiryView({ onBack, underlay }: { onBack: () => void; underlay?: Reac
           />
         </ScrollView>
 
-        <View style={iq.bottomBar}>
+        <View style={[iq.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
           <TouchableOpacity style={iq.submitBtn} activeOpacity={0.85} onPress={handleSubmit} disabled={submitting}>
             {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={iq.submitBtnText}>제출하기</Text>}
           </TouchableOpacity>
@@ -619,6 +622,9 @@ function AccountInfoView({
 
 // ─── PasswordChangeView (비밀번호 변경 화면) ──────────────────────────────────
 function PasswordChangeView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
+  // 마이페이지 탭은 탭바가 화면 위에 절대 위치로 떠 있어서(하단 배경 일러스트 노출용),
+  // 이 화면의 하단 버튼도 그 탭바에 가려진다. 탭바 높이만큼 보정한다.
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
@@ -789,7 +795,7 @@ function PasswordChangeView({ onBack, underlay }: { onBack: () => void; underlay
         />
       </ScrollView>
 
-      <View style={iq.bottomBar}>
+      <View style={[iq.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
         <TouchableOpacity
           style={iq.submitBtn}
           activeOpacity={0.85}
@@ -813,6 +819,9 @@ function PasswordChangeView({ onBack, underlay }: { onBack: () => void; underlay
 
 // ─── ReportPlaceView (장소 제보) ──────────────────────────────────────────────
 function ReportPlaceView({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
+  // 마이페이지 탭은 탭바가 화면 위에 절대 위치로 떠 있어서(하단 배경 일러스트 노출용),
+  // 이 화면의 하단 버튼도 그 탭바에 가려진다. 탭바 높이만큼 보정한다.
+  const insets = useSafeAreaInsets();
   const [placeName, setPlaceName] = useState('');
   const [address, setAddress] = useState('');
   const [conditionIndices, setConditionIndices] = useState<number[]>([]);
@@ -968,7 +977,7 @@ function ReportPlaceView({ onBack, underlay }: { onBack: () => void; underlay?: 
         />
       </ScrollView>
 
-      <View style={rp.bottomBar}>
+      <View style={[rp.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
         <TouchableOpacity
           style={rp.submitBtn}
           activeOpacity={0.85}
@@ -1288,6 +1297,9 @@ function EditProfileView({
   onSave: (saved: DogProfile) => void;
   underlay?: React.ReactNode;
 }) {
+  // 마이페이지 탭은 탭바가 화면 위에 절대 위치로 떠 있어서(하단 배경 일러스트 노출용),
+  // 이 화면의 하단 버튼도 그 탭바에 가려진다. 탭바 높이만큼 보정한다.
+  const insets = useSafeAreaInsets();
   const isNew = !dog;
   const [name, setName] = useState(dog?.name ?? '');
   const [breed, setBreed] = useState(dog?.breed ?? '');
@@ -1477,7 +1489,7 @@ function EditProfileView({
         </View>
       </ScrollView>
 
-      <View style={ep.bottomBar}>
+      <View style={[ep.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
         <TouchableOpacity style={ep.saveBtn} activeOpacity={0.85} onPress={handleSave} disabled={saving}>
           {saving ? <ActivityIndicator color={Colors.white} /> : <Text style={ep.saveBtnText}>저장하기</Text>}
         </TouchableOpacity>
