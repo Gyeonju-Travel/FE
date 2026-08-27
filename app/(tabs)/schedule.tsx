@@ -1776,7 +1776,7 @@ export default function ScheduleScreen() {
         </View>
       ) : (
         <>
-          {!daySchedules.some((s) => s.id === expandedId) && (
+          {daySchedules.length > 0 && !daySchedules.some((s) => s.id === expandedId) && (
             <View style={ss.startHintBar}>
               <InfoCircleIcon width={14} height={14} />
               <Text style={ss.startHintText}>시작 버튼을 누르면 일정이 시작됩니다</Text>
