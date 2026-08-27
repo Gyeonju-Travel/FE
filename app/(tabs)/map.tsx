@@ -10,6 +10,7 @@ import {
   Animated,
   Easing,
   Keyboard,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -129,6 +130,7 @@ export default function MapScreen() {
   const [searching, setSearching] = useState(false);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [toastSubtitle, setToastSubtitle] = useState<string | undefined>(undefined);
   const [likedPlaceIds, setLikedPlaceIds] = useState<string[]>([]);
   const locationBtnY = useRef(new Animated.Value(0)).current;
 
@@ -147,7 +149,8 @@ export default function MapScreen() {
   const fetchMyLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
-      setToastMsg('위치 접근 권한이 필요해요.');
+      setToastMsg('위치 접근 권한이 필요해요');
+      setToastSubtitle('설정 > 개인정보 보호에서 허용해주세요');
       return null;
     }
     try {
@@ -156,6 +159,7 @@ export default function MapScreen() {
       setMyLocation(loc);
       return loc;
     } catch (e) {
+      setToastSubtitle(undefined);
       setToastMsg('현재 위치를 가져오지 못했어요.');
       return null;
     }
@@ -186,6 +190,7 @@ export default function MapScreen() {
       setPlaces(result.places.map(toMapPlace));
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '장소 정보를 불러오지 못했어요.';
+      setToastSubtitle(undefined);
       setToastMsg(message);
     }
   };
@@ -234,6 +239,7 @@ export default function MapScreen() {
       setSelectedPlace((prev) => (prev?.id === place.id ? toMapPlaceDetail(detail) : prev));
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '장소 상세 정보를 불러오지 못했어요.';
+      setToastSubtitle(undefined);
       setToastMsg(message);
     }
   };
@@ -257,6 +263,7 @@ export default function MapScreen() {
         mapRef.current?.moveTo(place.latitude, place.longitude);
       } catch (e) {
         const message = e instanceof ApiError ? e.message : '장소 정보를 불러오지 못했어요.';
+        setToastSubtitle(undefined);
         setToastMsg(message);
       }
     })();
@@ -270,7 +277,10 @@ export default function MapScreen() {
     const lng = Number(focusLng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     mapRef.current?.moveTo(lat, lng);
-    if (focusLabel) setToastMsg(`${focusLabel} 근처로 이동했어요.`);
+    if (focusLabel) {
+      setToastSubtitle(undefined);
+      setToastMsg(`${focusLabel} 근처로 이동했어요.`);
+    }
   }, [focusLat, focusLng, focusLabel]);
 
   // KakaoMap은 WebView라 ref가 붙어도 내부 카카오맵(window.kakaoMap)이 아직 안 만들어졌으면
@@ -294,6 +304,7 @@ export default function MapScreen() {
       setSearchResults(result.places.map(toMapPlace));
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '검색에 실패했어요.';
+      setToastSubtitle(undefined);
       setToastMsg(message);
     } finally {
       setSearching(false);
@@ -360,6 +371,7 @@ export default function MapScreen() {
       }
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '장소 목록을 불러오지 못했어요.';
+      setToastSubtitle(undefined);
       setToastMsg(message);
       setCategoryResults([]);
     } finally {
@@ -417,6 +429,7 @@ export default function MapScreen() {
     const token = await getAccessToken();
     if (!token) return;
     try {
+      setToastSubtitle(undefined);
       if (liked) {
         await saveBookmark(Number(place.id), token);
         setLikedPlaceIds((prev) => (prev.includes(place.id) ? prev : [...prev, place.id]));
@@ -428,6 +441,7 @@ export default function MapScreen() {
       }
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '요청에 실패했어요. 잠시 후 다시 시도해주세요.';
+      setToastSubtitle(undefined);
       setToastMsg(message);
     }
   };
@@ -675,7 +689,12 @@ export default function MapScreen() {
 
       <Toast
         message={toastMsg}
-        onHide={() => setToastMsg(null)}
+        subtitle={toastSubtitle}
+        onHide={() => {
+          setToastMsg(null);
+          setToastSubtitle(undefined);
+        }}
+        onPress={toastMsg?.startsWith('위치 접근 권한') ? () => Linking.openSettings() : undefined}
         bottom={20}
         icon={toastMsg === '장소가 저장됐어요!' ? <ToastPlaceSavedIcon width={22} height={19} /> : undefined}
       />

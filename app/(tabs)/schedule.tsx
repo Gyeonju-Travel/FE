@@ -18,6 +18,7 @@ import {
   TextInput,
   Modal,
   DeviceEventEmitter,
+  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomSheet, { BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -1398,13 +1399,15 @@ export default function ScheduleScreen() {
     if (result === 'started') {
       setActiveScheduleId(schedule.id);
       setToastMsg('일정을 시작했어요! 도착하면 알려드릴게요.');
+      setToastSubtitle(undefined);
     } else if (result === 'no-places') {
       setActiveScheduleId(schedule.id);
       setToastMsg('이미 모든 장소에 도착했어요!');
+      setToastSubtitle(undefined);
     } else {
-      setToastMsg('위치 접근 권한(항상 허용)이 필요해요. 설정에서 허용해주세요.');
+      setToastMsg('위치 접근 권한(항상 허용)이 필요해요');
+      setToastSubtitle('설정 > 개인정보 보호에서 허용해주세요');
     }
-    setToastSubtitle(undefined);
   };
 
   // 이미 다른 일정이 진행 중일 때 "시작"을 누르면 그 일정이 조용히 초기화되므로, 먼저 확인
@@ -1797,6 +1800,7 @@ export default function ScheduleScreen() {
           setToastMsg(null);
           setToastSubtitle(undefined);
         }}
+        onPress={toastMsg?.startsWith('위치 접근 권한') ? () => Linking.openSettings() : undefined}
         bottom={20}
         icon={
           toastMsg === '일정이 저장됐어요!' ? (
