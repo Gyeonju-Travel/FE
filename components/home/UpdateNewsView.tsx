@@ -42,7 +42,7 @@ export default function UpdateNewsView({
               <Text style={s.heroTitle}>안녕하세요.{'\n'}견주여행입니다!</Text>
               <Text style={s.heroSubtitle}>사랑하는 반려견과 함께 경주를{'\n'}여행하며 추억을 쌓아가요~</Text>
             </View>
-            <LoginIllustration width={205} height={164} style={s.heroIllustration} />
+            <LoginIllustration width={178} height={139} style={s.heroIllustration} />
           </View>
 
           {UPDATE_NEWS.map((item) => {

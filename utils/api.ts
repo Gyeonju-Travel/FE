@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { clearTokens } from './authStorage';
+import { clearTokens, getRefreshToken, saveTokens } from './authStorage';
 
 // 백엔드(EXPO_PUBLIC_API_BASE_URL)와 통신하는 코드는 반드시 이 파일의 request()/requestMultipart()를
 // 통해서만 fetch를 호출한다. 새 API 함수를 추가할 때도 이 두 헬퍼를 거치면 [API →]/[API ←]/[API ✕]
@@ -49,9 +49,49 @@ function buildQueryString(params?: QueryParams): string {
   return qs ? `?${qs}` : '';
 }
 
+// accessToken은 60분, refreshToken은 14일짜리다. accessToken이 만료돼 401이 나면 여기서
+// refreshToken으로 자동 재발급받아 원래 요청을 한 번 재시도한다 — 사용자가 자동로그인처럼
+// 느끼도록, 60분마다 로그인 화면으로 튕기지 않게 하는 게 목적. refreshToken마저 무효/만료면
+// (블랙리스트 등록됐거나 14일 지남) 그때는 기존대로 로그아웃 처리하고 로그인 화면으로 보낸다.
+// 동시에 여러 요청이 401을 맞아도 재발급 API는 한 번만 타도록(동시 refresh 방지) 진행 중인
+// Promise를 공유한다.
+let refreshInFlight: Promise<string> | null = null;
+
+async function refreshAccessTokenOrThrow(): Promise<string> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    const refreshToken = await getRefreshToken();
+    if (!refreshToken) throw new Error('저장된 refreshToken이 없어요.');
+    if (!API_BASE_URL) throw new Error('서버 주소가 설정되지 않았어요.');
+
+    console.log('[API →] POST /api/auth/token/refresh');
+    const response = await fetch(`${API_BASE_URL}/api/auth/token/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    const text = await response.text();
+    const json: ApiEnvelope<{ accessToken: string; refreshToken: string }> | null = text ? JSON.parse(text) : null;
+    console.log(`[API ←] ${response.status} POST /api/auth/token/refresh`, json ?? text);
+
+    if (!response.ok || !json || !json.isSuccess) {
+      throw new Error(json?.message ?? `토큰 재발급에 실패했어요. (${response.status})`);
+    }
+    await saveTokens(json.result.accessToken, json.result.refreshToken);
+    return json.result.accessToken;
+  })();
+
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
+}
+
 async function request<T>(
   path: string,
-  options: { method?: string; body?: unknown; accessToken?: string; params?: QueryParams } = {}
+  options: { method?: string; body?: unknown; accessToken?: string; params?: QueryParams; _isRetry?: boolean } = {}
 ): Promise<T> {
   const method = options.method ?? 'GET';
 
@@ -91,9 +131,19 @@ async function request<T>(
       code: json?.code,
       message: json?.message,
     });
-    // 인증이 필요한 요청에서 토큰이 만료/무효 처리된 경우 로그인 화면으로 되돌린다.
-    // (로그인/회원가입 자체의 401은 accessToken을 안 실었으니 여기 해당 안 됨)
-    if (response.status === 401 && options.accessToken) {
+    // accessToken이 만료/무효라 401이 난 요청은, 재시도가 아닌 경우에 한해 refreshToken으로
+    // 재발급 받아 한 번만 재시도한다. (로그인/회원가입 자체의 401은 accessToken을 안 실었으니
+    // 여기 해당 안 됨) refreshToken마저 안 통하면 그때 로그인 화면으로 되돌린다.
+    if (response.status === 401 && options.accessToken && !options._isRetry) {
+      try {
+        const newAccessToken = await refreshAccessTokenOrThrow();
+        return request<T>(path, { ...options, accessToken: newAccessToken, _isRetry: true });
+      } catch (refreshError) {
+        console.error(`[API ✕ 토큰 재발급 실패] ${method} ${path}`, refreshError);
+        await clearTokens();
+        router.replace('/login');
+      }
+    } else if (response.status === 401 && options.accessToken) {
       await clearTokens();
       router.replace('/login');
     }
@@ -126,7 +176,8 @@ async function requestMultipart<T>(
   method: string,
   requestPart: unknown,
   accessToken: string,
-  imageUri?: string | null
+  imageUri?: string | null,
+  _isRetry = false
 ): Promise<T> {
   if (!API_BASE_URL) {
     console.error('[API] EXPO_PUBLIC_API_BASE_URL이 설정되지 않았습니다. .env를 확인하세요.');
@@ -170,7 +221,16 @@ async function requestMultipart<T>(
       code: json?.code,
       message: json?.message,
     });
-    if (response.status === 401) {
+    if (response.status === 401 && !_isRetry) {
+      try {
+        const newAccessToken = await refreshAccessTokenOrThrow();
+        return requestMultipart<T>(path, method, requestPart, newAccessToken, imageUri, true);
+      } catch (refreshError) {
+        console.error(`[API ✕ 토큰 재발급 실패] ${method} ${path}`, refreshError);
+        await clearTokens();
+        router.replace('/login');
+      }
+    } else if (response.status === 401) {
       await clearTokens();
       router.replace('/login');
     }
@@ -184,7 +244,8 @@ async function requestMultipart<T>(
 async function requestPhotosMultipart<T>(
   path: string,
   photoUris: string[],
-  accessToken: string
+  accessToken: string,
+  _isRetry = false
 ): Promise<T> {
   if (!API_BASE_URL) {
     console.error('[API] EXPO_PUBLIC_API_BASE_URL이 설정되지 않았습니다. .env를 확인하세요.');
@@ -225,7 +286,16 @@ async function requestPhotosMultipart<T>(
       code: json?.code,
       message: json?.message,
     });
-    if (response.status === 401) {
+    if (response.status === 401 && !_isRetry) {
+      try {
+        const newAccessToken = await refreshAccessTokenOrThrow();
+        return requestPhotosMultipart<T>(path, photoUris, newAccessToken, true);
+      } catch (refreshError) {
+        console.error(`[API ✕ 토큰 재발급 실패] POST ${path}`, refreshError);
+        await clearTokens();
+        router.replace('/login');
+      }
+    } else if (response.status === 401) {
       await clearTokens();
       router.replace('/login');
     }
