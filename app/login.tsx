@@ -3,6 +3,8 @@ import {
   View,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
+  Keyboard,
   StyleSheet,
   SafeAreaView,
   KeyboardAvoidingView,
@@ -65,6 +67,7 @@ export default function LoginScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <View style={styles.content}>
           <View style={styles.hero}>
             <LoginIllustration width={200} height={160} />
@@ -125,6 +128,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
           )}
         </View>
+        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

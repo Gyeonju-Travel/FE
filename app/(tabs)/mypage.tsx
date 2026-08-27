@@ -1510,6 +1510,9 @@ function EditProfileView({
 
 // ─── StampGalleryScreen (스탬프 앨범) ──────────────────────────────────────────
 function StampGalleryScreen({ onBack, underlay }: { onBack: () => void; underlay?: React.ReactNode }) {
+  // 마이페이지 탭은 탭바가 화면 위에 절대 위치로 떠 있어서(하단 배경 일러스트 노출용),
+  // 화면 맨 아래 붙는 힌트 카드도 그 탭바에 가려진다. 탭바 높이만큼 보정한다.
+  const insets = useSafeAreaInsets();
   const [earnedStampIndices, setEarnedStampIndices] = useState<Set<number>>(new Set([0]));
 
   useEffect(() => {
@@ -1532,7 +1535,7 @@ function StampGalleryScreen({ onBack, underlay }: { onBack: () => void; underlay
           <Text style={sg.headerTitle}>스탬프 앨범</Text>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={sg.scrollContent}>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={sg.scrollContent}>
         <View style={sg.progressCard}>
           <View style={sg.progressCardRow}>
             <View style={sg.progressCardText}>
@@ -1567,7 +1570,9 @@ function StampGalleryScreen({ onBack, underlay }: { onBack: () => void; underlay
         </View>
       </ScrollView>
 
-      <StampHintCarousel hints={hintTexts} />
+      <View style={{ marginBottom: 34 + insets.bottom }}>
+        <StampHintCarousel hints={hintTexts} />
+      </View>
       </SafeAreaView>
     </SwipeBackScreen>
   );

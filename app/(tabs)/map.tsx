@@ -119,6 +119,10 @@ export default function MapScreen() {
   const mapRef = useRef<KakaoMapHandle>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category>('전체');
   const [selectedPlace, setSelectedPlace] = useState<MapPlace | null>(null);
+  // 저장 탭 등 다른 화면에서 특정 장소(placeId)로 넘어온 경우, 그 장소 핀만 보이고 나머지
+  // 카테고리 핀은 숨긴다. 바텀시트를 닫거나 카테고리를 바꾸는 등 사용자가 지도를 다시
+  // 탐색하려는 순간 원래대로(카테고리 전체 핀) 복원한다.
+  const [soloPlace, setSoloPlace] = useState<MapPlace | null>(null);
   const [places, setPlaces] = useState<MapPlace[]>([]);
   const [keyword, setKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<MapPlace[]>([]);
@@ -219,6 +223,9 @@ export default function MapScreen() {
   }, []);
 
   const openPlaceDetail = async (place: MapPlace) => {
+    // 지도 위 마커를 직접 누르거나 검색 결과를 고른 경우엔 원래대로 카테고리 핀을 전부 보여준다.
+    // (저장 탭에서 넘어올 때만 이 장소 핀 하나만 남기는 soloPlace가 적용됨)
+    setSoloPlace(null);
     setSelectedPlace(place);
     const token = await getAccessToken();
     if (!token) return;
@@ -246,6 +253,7 @@ export default function MapScreen() {
         const detail = await getPlaceDetail(Number(placeId), token);
         const place = toMapPlaceDetail(detail);
         setSelectedPlace(place);
+        setSoloPlace(place);
         mapRef.current?.moveTo(place.latitude, place.longitude);
       } catch (e) {
         const message = e instanceof ApiError ? e.message : '장소 정보를 불러오지 못했어요.';
@@ -426,6 +434,7 @@ export default function MapScreen() {
 
   const handleMapPress = () => {
     setSelectedPlace(null);
+    setSoloPlace(null);
   };
 
   // 지도 탭 아이콘을 다시 누르면 첫 화면(장소 상세/검색 닫힌 상태)으로 되돌아간다.
@@ -433,6 +442,7 @@ export default function MapScreen() {
     () =>
       onTabReset('map', () => {
         setSelectedPlace(null);
+        setSoloPlace(null);
         exitSearchMode();
       }),
     []
@@ -448,8 +458,9 @@ export default function MapScreen() {
     }).start();
   }, [selectedPlace]);
 
-  const visiblePlaces =
-    selectedCategory === SAVED_FILTER
+  const visiblePlaces = soloPlace
+    ? [soloPlace]
+    : selectedCategory === SAVED_FILTER
       ? places.filter((p) => likedPlaceIds.includes(p.id))
       : places;
 
@@ -637,7 +648,10 @@ export default function MapScreen() {
             return (
               <TouchableOpacity
                 key={label}
-                onPress={() => setSelectedCategory(label)}
+                onPress={() => {
+                  setSelectedCategory(label);
+                  setSoloPlace(null);
+                }}
                 style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
                 activeOpacity={0.8}
               >
