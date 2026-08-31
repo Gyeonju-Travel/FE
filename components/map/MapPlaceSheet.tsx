@@ -180,29 +180,29 @@ export default function MapPlaceSheet({ place, liked: likedProp = false, onClose
             <View style={styles.infoCard}>
               {[
                 <View key="address" style={styles.infoRow}>
-                  <MapPlaceIcon width={15} height={15} color={Colors.textBody2} />
+                  <MapPlaceIcon width={15} height={15} color={Colors.textBody2} style={styles.infoRowIcon} />
                   <Text style={styles.infoText}>{place.address}</Text>
                 </View>,
                 !!place.phone && (
                   <View key="phone" style={styles.infoRow}>
-                    <TelephoneIcon width={15} height={15} color={Colors.textBody2} />
+                    <TelephoneIcon width={15} height={15} color={Colors.textBody2} style={styles.infoRowIcon} />
                     <Text style={styles.infoText}>{place.phone}</Text>
                   </View>
                 ),
                 (!!place.hours || !!place.breakTime || !!place.closedDays) && (
                   <View key="hours" style={styles.infoRow}>
-                    <MapHoursIcon width={15} height={15} color={Colors.textBody2} />
+                    <MapHoursIcon width={15} height={15} color={Colors.textBody2} style={styles.infoRowIcon} />
                     <View style={styles.infoTextCol}>
                       {!!place.hours && (
-                        <Text style={styles.infoText}>
+                        <Text style={styles.infoTextLine}>
                           {place.hours}
                           {!!place.closedDays && ` ${place.closedDays} 휴무`}
                         </Text>
                       )}
                       {!place.hours && !!place.closedDays && (
-                        <Text style={styles.infoText}>{place.closedDays} 휴무</Text>
+                        <Text style={styles.infoTextLine}>{place.closedDays} 휴무</Text>
                       )}
-                      {!!place.breakTime && <Text style={styles.infoSubText}>브레이크타임 {place.breakTime}</Text>}
+                      {!!place.breakTime && <Text style={styles.infoTextLine}>{place.breakTime} 브레이크 타임</Text>}
                     </View>
                   </View>
                 ),
@@ -299,11 +299,14 @@ const styles = StyleSheet.create({
   },
   infoRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 10,
     paddingHorizontal: Spacing.lg,
     paddingVertical: 10,
   },
+  // 텍스트 줄이 여러 줄이어도(영업시간+브레이크타임) 아이콘이 전체 블록 가운데가 아니라
+  // 첫 줄 옆에 오도록, 첫 줄의 lineHeight(18)와 아이콘 높이(15)의 차이만큼만 살짝 내린다.
+  infoRowIcon: { marginTop: 1.5 },
   infoText: {
     flex: 1,
     fontSize: 13,
@@ -314,9 +317,12 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
-  infoSubText: {
-    fontSize: 12,
-    color: Colors.textMuted,
-    lineHeight: 17,
+  // infoTextCol처럼 세로로 여러 줄을 쌓는 자리에서는 infoText의 flex: 1을 그대로 쓰면 안 된다 —
+  // infoRow(가로 배치)에서는 아이콘 옆 남은 가로 공간을 차지하라는 의미지만, 세로로 쌓인 형제
+  // Text들에 flex: 1을 주면 높이가 정해지지 않은 부모 안에서 서로 공간을 다투다 겹쳐 보인다.
+  infoTextLine: {
+    fontSize: 13,
+    color: Colors.textBody2,
+    lineHeight: 18,
   },
 });
