@@ -114,19 +114,6 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          {__DEV__ && (
-            <TouchableOpacity
-              style={styles.devBtn}
-              activeOpacity={0.85}
-              onPress={async () => {
-                await saveTokens('dev-fake-token');
-                await saveAccountEmail('dev@test.local');
-                router.replace('/(tabs)');
-              }}
-            >
-              <Text style={styles.devBtnText}>[개발용] 테스트 계정으로 바로 진입</Text>
-            </TouchableOpacity>
-          )}
         </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -163,6 +150,4 @@ const styles = StyleSheet.create({
   },
   linkText: { fontSize: 13, color: Colors.textBody2 },
   linkDivider: { fontSize: 13, color: Colors.border },
-  devBtn: { marginTop: Spacing.xl, alignItems: 'center' },
-  devBtnText: { fontSize: 12, color: Colors.textBody2, textDecorationLine: 'underline' },
 });

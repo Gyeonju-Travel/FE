@@ -38,9 +38,6 @@ import {
   deleteSchedules,
   SchedulePreviewResponse,
   getHome,
-  startSchedule,
-  visitPlace,
-  addScheduleFootprints,
   getStampAlbum,
   getPlaceDetail,
 } from '@/utils/api';
@@ -53,7 +50,6 @@ import { toSavedPlace } from '@/utils/placeMappers';
 import {
   DEPARTURE_OPTIONS,
   labelToDepartureArea,
-  departureAreaToLabel,
   toIsoDate,
   toSchedule,
   fetchDeparturePlaces,
@@ -82,7 +78,6 @@ import {
   StartTrackingResult,
   SCRAP_REMINDER_HOUR,
   ACTIVE_SCHEDULE_AUTO_ENDED_EVENT,
-  simulateArrivalAtNextPlace,
 } from '@/utils/locationTracking';
 import TodayScrapView from '@/components/home/TodayScrapView';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
@@ -181,12 +176,9 @@ function ScheduleCard({
   onStart,
   onViewRoute,
   onViewRecord,
-  onTestComplete,
-  onSimulateArrival,
   onCancel,
   isTraveling,
   isEnded,
-  isPast,
   isEditMode,
   isSelected,
   onToggleSelect,
@@ -199,12 +191,9 @@ function ScheduleCard({
   onStart: () => void;
   onViewRoute: () => void;
   onViewRecord: () => void;
-  onTestComplete: () => void;
-  onSimulateArrival: () => void;
   onCancel: () => void;
   isTraveling: boolean;
   isEnded: boolean;
-  isPast: boolean;
   isEditMode: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
@@ -362,18 +351,6 @@ function ScheduleCard({
           </TouchableOpacity>
         )}
       </TouchableOpacity>
-
-      {isPast && !isTraveling && !isEnded && (
-        <TouchableOpacity style={ss.cardTestBtn} activeOpacity={0.7} onPress={onTestComplete}>
-          <Text style={ss.cardTestBtnText}>테스트: 이 일정 완료 처리 (기록에 반영)</Text>
-        </TouchableOpacity>
-      )}
-
-      {isTraveling && !isEnded && (
-        <TouchableOpacity style={ss.cardTestBtn} activeOpacity={0.7} onPress={onSimulateArrival}>
-          <Text style={ss.cardTestBtnText}>테스트: 다음 목적지 도착 처리</Text>
-        </TouchableOpacity>
-      )}
 
       {!isEditMode && (
         <>
@@ -1450,13 +1427,6 @@ export default function ScheduleScreen() {
     }
   };
 
-  // 개발용: 실제로 이동하지 않고도 다음 목적지에 도착한 것으로 처리해 스탬프/방문 기록을 테스트한다.
-  const handleSimulateArrival = async () => {
-    const placeName = await simulateArrivalAtNextPlace();
-    setToastMsg(placeName ? `${placeName} 도착 처리했어요.` : '진행 중인 목적지가 없어요.');
-    setToastSubtitle(undefined);
-  };
-
   const handleViewRecord = async (schedule: Schedule) => {
     const token = await getAccessToken();
     if (!token) {
@@ -1543,76 +1513,6 @@ export default function ScheduleScreen() {
           : e instanceof ApiError
             ? e.message
             : '기록을 불러오지 못했어요. 잠시 후 다시 시도해주세요.';
-      setToastMsg(message);
-      setToastSubtitle(undefined);
-    }
-  };
-
-  // 개발용: 지난 일정을 실제로 여행하지 않고도 "완료" 상태로 만들어 마이페이지 여행기록에서 확인할 수 있게 한다.
-  // 백엔드는 시작된(started) 일정 중 날짜가 지난 것을 자동으로 완료 처리하므로(StampService.completedSchedules),
-  // 시작 + 각 장소 방문 기록만 실제 API로 남기면 된다 — 로컬 데이터 조작이 아니라 실제 서버 데이터다.
-  const handleTestComplete = async (schedule: Schedule) => {
-    const token = await getAccessToken();
-    if (!token) {
-      setToastMsg('로그인 정보가 없어요. 다시 로그인해주세요.');
-      setToastSubtitle(undefined);
-      return;
-    }
-    try {
-      const started = await startSchedule(Number(schedule.id), token);
-      // 방문 기록(visits)은 스탬프 대상 관광지(GEOFENCE_ATTRACTIONS)에만 의미가 있다 — 식당/카페 등
-      // 스탬프 대상이 아닌 장소로 호출하면 백엔드가 STAMP_400_6("스탬프를 받을 수 있는 관광지가
-      // 아닙니다")로 거부한다(정상 동작). 여행기록에 남기는 데는 시작 처리만으로 충분하니 여기선
-      // 스탬프 대상 장소만 골라서 호출한다.
-      const stampPlaceIds = new Set(
-        GEOFENCE_ATTRACTIONS.filter((a) => !a.isProxyLocation).map((a) => a.placeId)
-      );
-      const visitCalls = started.places
-        .filter((p) => stampPlaceIds.has(p.placeId))
-        .map((p) => ({ placeId: p.placeId, latitude: p.latitude, longitude: p.longitude }));
-
-      // 출발지도 관광지 중 하나일 수 있다(예: 교촌마을에서 출발). departure 응답엔 placeId가 없어서
-      // 이름으로 GEOFENCE_ATTRACTIONS에서 매칭하고, 방문 좌표는 그 관광지의 등록된 좌표를 그대로 쓴다.
-      const departureLabel = departureAreaToLabel(started.departure.code);
-      const departureAttraction = GEOFENCE_ATTRACTIONS.find((a) => a.name === departureLabel);
-      if (departureAttraction?.placeId != null) {
-        visitCalls.push({
-          placeId: departureAttraction.placeId,
-          latitude: departureAttraction.latitude,
-          longitude: departureAttraction.longitude,
-        });
-      }
-
-      await Promise.all(
-        visitCalls.map((v) =>
-          visitPlace(v.placeId, { scheduleId: started.scheduleId, latitude: v.latitude, longitude: v.longitude }, token).catch(
-            () => {}
-          )
-        )
-      );
-
-      // 실제로 걷지 않아서 서버 누적 거리가 0으로 남으면 발자국 개수도 0으로 떠서, 출발지→각
-      // 장소를 잇는 직선거리 합계만큼 발자국 기록도 같이 남긴다.
-      const footprintStops = [
-        { lat: started.departure.latitude, lng: started.departure.longitude },
-        ...started.places.map((p) => ({ lat: p.latitude, lng: p.longitude })),
-      ];
-      const totalDistanceMeters = footprintStops
-        .slice(0, -1)
-        .reduce(
-          (sum, from, i) => sum + haversineMeters(from.lat, from.lng, footprintStops[i + 1].lat, footprintStops[i + 1].lng),
-          0
-        );
-      if (totalDistanceMeters > 0) {
-        await addScheduleFootprints(started.scheduleId, Math.round(totalDistanceMeters), token).catch(() => {});
-      }
-
-      // started 값을 반영해서 카드가 "시작" 대신 "기록보기"로 바로 바뀌게 이 날짜만 다시 불러온다.
-      await fetchDateSchedules(toIsoDate(schedule.year, schedule.month, schedule.day));
-      setToastMsg('테스트 완료 처리했어요. 마이페이지 여행기록에서도 확인해보세요.');
-      setToastSubtitle(undefined);
-    } catch (e) {
-      const message = e instanceof ApiError ? e.message : '완료 처리에 실패했어요.';
       setToastMsg(message);
       setToastSubtitle(undefined);
     }
@@ -1728,8 +1628,6 @@ export default function ScheduleScreen() {
                 onStart={() => handleStartPress(schedule)}
                 onViewRoute={() => setViewingRouteSchedule(schedule)}
                 onViewRecord={() => handleViewRecord(schedule)}
-                onTestComplete={() => handleTestComplete(schedule)}
-                onSimulateArrival={handleSimulateArrival}
                 onCancel={() => handleCancelSchedule(schedule)}
                 isTraveling={schedule.id === activeScheduleId}
                 // "기록보기"로 바뀌는 조건: (오늘 일정이면) 시작한 채로 21시(스크랩 알림 시각)를
@@ -1744,7 +1642,6 @@ export default function ScheduleScreen() {
                       schedule.day === today.getDate() &&
                       (today.getHours() >= SCRAP_REMINDER_HOUR || schedule.id === autoEndedScheduleId)))
                 }
-                isPast={new Date(schedule.year, schedule.month, schedule.day) < new Date(today.getFullYear(), today.getMonth(), today.getDate())}
                 isEditMode={isEditMode}
                 isSelected={selectedScheduleIds.has(schedule.id)}
                 onToggleSelect={() => toggleScheduleSelect(schedule.id)}
@@ -2193,11 +2090,6 @@ const ss = StyleSheet.create({
   cardStartBtnText: { fontSize: 13, fontWeight: '700', color: Colors.coral },
   cardTravelingIconWrap: { backgroundColor: Colors.textMuted },
   cardTravelingBtnText: { fontSize: 13, fontWeight: '700', color: Colors.textMuted },
-  cardTestBtn: {
-    paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
-  },
-  cardTestBtnText: { fontSize: 11, color: Colors.secondaryDark, textDecorationLine: 'underline' },
   scheduleDetail: {
     borderTopWidth: 0.5,
     borderTopColor: '#EDE8E3',

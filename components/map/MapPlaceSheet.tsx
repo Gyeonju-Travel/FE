@@ -15,9 +15,11 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import MapPlaceIcon from '@/assets/icons/map-place.svg';
 import TelephoneIcon from '@/assets/icons/telephone.svg';
 import MapHoursIcon from '@/assets/icons/map-hours.svg';
+import InfoCircleIcon from '@/assets/icons/info-circle.svg';
 import HeartIcon from '@/assets/icons/heart.svg';
 import HeartFilledIcon from '@/assets/icons/heart-filled.svg';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
+import { parsePetInfoBullets } from '@/utils/placeMappers';
 
 export const SHEET_HEIGHT = 295;
 const DISMISS_THRESHOLD = 80;
@@ -183,6 +185,17 @@ export default function MapPlaceSheet({ place, liked: likedProp = false, onClose
                   <MapPlaceIcon width={15} height={15} color={Colors.textBody2} style={styles.infoRowIcon} />
                   <Text style={styles.infoText}>{place.address}</Text>
                 </View>,
+                !!place.petInfo && (
+                  <View key="petInfo" style={styles.infoRow}>
+                    <InfoCircleIcon width={15} height={15} color={Colors.textBody2} style={styles.infoRowIcon} />
+                    <View style={styles.infoTextCol}>
+                      <Text style={styles.noticeTitle}>관광지 입장 전 안내 사항</Text>
+                      {parsePetInfoBullets(place.petInfo).map((line, i) => (
+                        <Text key={i} style={styles.noticeBulletText}>{'•'} {line}</Text>
+                      ))}
+                    </View>
+                  </View>
+                ),
                 !!place.phone && (
                   <View key="phone" style={styles.infoRow}>
                     <TelephoneIcon width={15} height={15} color={Colors.textBody2} style={styles.infoRowIcon} />
@@ -228,7 +241,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: SHEET_HEIGHT,
+    // 관광지 입장 전 안내 사항처럼 항목이 많으면 고정 높이(SHEET_HEIGHT)를 넘어서는 곳이
+    // 있어서, 그 이상 필요하면 늘어나도록 최소 높이로 둔다(내용이 짧은 평소엔 기존과 동일).
+    minHeight: SHEET_HEIGHT,
     backgroundColor: Colors.background,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -238,6 +253,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: -2 },
     elevation: 12,
     paddingHorizontal: Spacing.xl,
+    paddingBottom: Spacing.xl,
   },
   handleArea: {
     alignItems: 'center',
@@ -324,5 +340,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textBody2,
     lineHeight: 18,
+  },
+  noticeTitle: {
+    fontSize: 13,
+    color: Colors.textBody2,
+    lineHeight: 18,
+  },
+  noticeBulletText: {
+    fontSize: 13,
+    color: Colors.textBody2,
+    lineHeight: 19,
+    marginTop: 1,
   },
 });

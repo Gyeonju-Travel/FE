@@ -11,4 +11,6 @@ export interface MapPlace {
   hours: string;
   breakTime?: string;
   closedDays?: string;
+  /** 관광지 입장 전 안내 사항 (백엔드 petInfo 원문 — "- 항목1\n- 항목2" 형태). */
+  petInfo?: string;
 }
