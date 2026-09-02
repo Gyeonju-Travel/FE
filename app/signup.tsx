@@ -22,7 +22,7 @@ import NameIcon from '@/assets/login/field-name.svg';
 import PhoneIcon from '@/assets/login/field-phone.svg';
 import GenderMaleIcon from '@/assets/login/field-gender-male.svg';
 import GenderFemaleIcon from '@/assets/login/field-gender-female.svg';
-import { signUp, ApiError } from '@/utils/api';
+import { signUp, login, ApiError } from '@/utils/api';
 import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
 import { registerPushToken } from '@/utils/notifications';
 import { showAlert } from '@/components/ui/AppAlert';
@@ -226,7 +226,16 @@ export default function SignupScreen() {
         phoneNumber: phone,
         termsAgreementToken,
       });
-      await saveTokens(result.accessToken);
+      // 회원가입 응답엔 accessToken만 있고 refreshToken이 없어서(백엔드 스펙), 그대로 저장하면
+      // 이 세션은 자동로그인(accessToken 만료 시 재발급)이 끝까지 동작 안 한다. 가입 직후
+      // 같은 비밀번호로 한 번 더 로그인해서 refreshToken까지 받아 저장한다. 이 로그인이 실패해도
+      // 가입 자체는 이미 끝난 상태라 accessToken만으로라도 계속 진행한다.
+      try {
+        const loginResult = await login({ email, password });
+        await saveTokens(loginResult.accessToken, loginResult.refreshToken);
+      } catch {
+        await saveTokens(result.accessToken);
+      }
       await saveAccountEmail(result.email);
       registerPushToken(result.accessToken);
       router.replace('/signup-complete');

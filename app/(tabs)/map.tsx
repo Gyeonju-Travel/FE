@@ -50,6 +50,9 @@ const SAVED_FILTER = '내 저장' as const;
 type Category = '전체' | '관광지' | '카페' | '식당' | typeof SAVED_FILTER;
 type SearchCategory = Exclude<Category, '전체'>;
 
+// 지도 검색 화면 "추천 목적지"에 고정으로 노출할 장소 목록 (기획 지정).
+const RECOMMENDED_PLACE_NAMES = ['황남양옥', '범외양간', '황남거북이', '리커피하우스', '키도트', '오버랩'];
+
 const CATEGORIES: { label: Category; Icon: React.FC<{ width?: number; height?: number; color?: string }> }[] = [
   { label: '전체', Icon: FilterAllIcon },
   { label: '관광지', Icon: FilterTourIcon },
@@ -82,7 +85,7 @@ const SEARCH_CATEGORY_STYLE: Record<SearchCategory, { iconColor: string }> = {
 };
 
 /** 검색화면(추천 목적지/최근 검색/카테고리 목록)에서 공통으로 쓰는 장소 카드. */
-function PlaceRow({ place, best, onPress }: { place: MapPlace; best?: boolean; onPress: () => void }) {
+function PlaceRow({ place, onPress }: { place: MapPlace; onPress: () => void }) {
   const badgeStyle = CATEGORY_BADGE_STYLE[place.category];
   const CategoryIcon = badgeStyle?.Icon;
   return (
@@ -90,7 +93,6 @@ function PlaceRow({ place, best, onPress }: { place: MapPlace; best?: boolean; o
       <PlaceThumbnail uri={place.imageUri} style={ss.placeThumb} />
       <View style={ss.placeInfo}>
         <View style={ss.placeBadgeRow}>
-          {best && <Badge label="BEST" variant="best" />}
           {badgeStyle && (
             <Badge
               label={place.category}
@@ -210,13 +212,27 @@ export default function MapScreen() {
     }
   };
 
-  // 홈 화면과 동일한 추천 목적지(관광지 6곳)를 검색화면에서도 그대로 보여준다.
+  // 지도 검색 화면 "추천 목적지"는 지정된 장소(RECOMMENDED_PLACE_NAMES) 이름으로 하나씩
+  // 검색해서 채운다. 이름 검색이라 유사한 이름이 여러 개 걸릴 수 있어(예: "범외양간"→
+  // "범외양간 황리단길본점"), 정확히 일치하는 이름을 우선하고 없으면 첫 검색 결과를 쓴다.
   const fetchRecommendedPlaces = async () => {
     const token = await getAccessToken();
     if (!token) return;
     try {
-      const result = await searchPlaces({ categories: ['ATTRACTION'], size: 6 }, token);
-      setRecommendedPlaces(result.places.map(toMapPlace));
+      const results = await Promise.all(
+        RECOMMENDED_PLACE_NAMES.map((name) =>
+          searchPlaces({ keyword: name, size: 5 }, token).catch(() => null)
+        )
+      );
+      const places = results
+        .map((result, i) => {
+          if (!result || result.places.length === 0) return null;
+          const name = RECOMMENDED_PLACE_NAMES[i];
+          const exact = result.places.find((p) => p.name === name);
+          return toMapPlace(exact ?? result.places[0]);
+        })
+        .filter((p): p is MapPlace => p !== null);
+      setRecommendedPlaces(places);
     } catch (e) {
       // 추천 목적지 로드 실패는 조용히 무시 — 검색화면 자체는 그대로 쓸 수 있음
     }
@@ -227,10 +243,11 @@ export default function MapScreen() {
     getRecentSearches().then(setRecentSearches);
   }, []);
 
-  const openPlaceDetail = async (place: MapPlace) => {
-    // 지도 위 마커를 직접 누르거나 검색 결과를 고른 경우엔 원래대로 카테고리 핀을 전부 보여준다.
-    // (저장 탭에서 넘어올 때만 이 장소 핀 하나만 남기는 soloPlace가 적용됨)
-    setSoloPlace(null);
+  // solo: true면 검색화면에서 장소를 골랐을 때처럼 그 장소 핀만 남기고 나머지 카테고리
+  // 핀은 숨긴다(저장 탭에서 넘어올 때의 soloPlace와 동일). 지도 위 마커를 직접 누른
+  // 경우(solo 생략)엔 원래대로 카테고리 핀을 전부 보여준 채로 상세만 연다.
+  const openPlaceDetail = async (place: MapPlace, options?: { solo?: boolean }) => {
+    setSoloPlace(options?.solo ? place : null);
     setSelectedPlace(place);
     const token = await getAccessToken();
     if (!token) return;
@@ -351,7 +368,7 @@ export default function MapScreen() {
     setSearchResults([]);
     Keyboard.dismiss();
     setPendingMapMove({ lat: place.latitude, lng: place.longitude });
-    openPlaceDetail(place);
+    openPlaceDetail(place, { solo: true });
   };
 
   const fetchCategoryResults = async (category: SearchCategory) => {
@@ -608,8 +625,8 @@ export default function MapScreen() {
 
               <Text style={ss.sectionTitle}>추천 목적지</Text>
               <View style={{ marginTop: 14 }}>
-                {recommendedPlaces.map((place, i) => (
-                  <PlaceRow key={place.id} place={place} best={i === 0} onPress={() => handleSearchResultPress(place)} />
+                {recommendedPlaces.map((place) => (
+                  <PlaceRow key={place.id} place={place} onPress={() => handleSearchResultPress(place)} />
                 ))}
               </View>
             </>

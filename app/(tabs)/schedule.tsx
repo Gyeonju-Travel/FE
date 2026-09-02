@@ -1289,6 +1289,24 @@ export default function ScheduleScreen() {
     return () => sub.remove();
   }, []);
 
+  // 백그라운드 위치 추적 태스크는 앱과 다른 JS 컨텍스트에서 실행될 수 있어(특히 iOS),
+  // 위 DeviceEventEmitter 구독이 못 미치는 경우가 있다 — 그럴 때도 "여행중"이 화면 이동 없이
+  // 바로 "시작"으로 돌아오도록, 이 탭이 보이는 동안엔 로컬 저장값을 주기적으로 확인해
+  // activeScheduleId가 바뀌었으면(자동 취소/종료) 즉시 반영한다.
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setInterval(() => {
+        getActiveScheduleId().then((id) => {
+          setActiveScheduleId((prev) => (prev === id ? prev : id));
+        });
+        getAutoEndedScheduleId().then((id) => {
+          setAutoEndedScheduleId((prev) => (prev === id ? prev : id));
+        });
+      }, 4000);
+      return () => clearInterval(timer);
+    }, [])
+  );
+
   useEffect(() => {
     fetchMonthSchedules(year, month);
     // eslint-disable-next-line react-hooks/exhaustive-deps

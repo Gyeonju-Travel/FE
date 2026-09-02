@@ -338,7 +338,7 @@ function InquiryView({ onBack, underlay }: { onBack: () => void; underlay?: Reac
           <Text style={iq.label}>제목</Text>
           <TextInput
             style={iq.input}
-            placeholder="장소 이름 입력"
+            placeholder="제목을 입력해주세요"
             placeholderTextColor={Colors.textMuted}
             value={title}
             onChangeText={setTitle}
@@ -917,7 +917,7 @@ function ReportPlaceView({ onBack, underlay }: { onBack: () => void; underlay?: 
         <Text style={rp.label}>장소명</Text>
         <TextInput
           style={rp.input}
-          placeholder="장소 이름 입력"
+          placeholder="장소 이름을 입력해주세요"
           placeholderTextColor={Colors.textMuted}
           value={placeName}
           onChangeText={setPlaceName}
@@ -927,7 +927,7 @@ function ReportPlaceView({ onBack, underlay }: { onBack: () => void; underlay?: 
         <TouchableOpacity style={rp.searchInputRow} activeOpacity={0.8} onPress={() => setShowAddressSearch(true)}>
           <ReportSearchIcon width={16} height={16} color={Colors.textMuted} />
           <Text style={[rp.searchInputText, !address && rp.searchInputPlaceholder]} numberOfLines={1}>
-            {address || '주소 검색'}
+            {address || '주소를 검색해주세요'}
           </Text>
         </TouchableOpacity>
 

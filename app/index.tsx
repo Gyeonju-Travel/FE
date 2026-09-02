@@ -6,6 +6,7 @@ import { Colors, Spacing } from '@/constants/theme';
 import SplashLandscape from '@/assets/splash/splash-landscape.svg';
 import AlertCard from '@/components/ui/AlertCard';
 import ModalPawIcon from '@/assets/icons/modal-paw.svg';
+import { getAccessToken } from '@/utils/authStorage';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const LANDSCAPE_ASPECT = 390 / 218;
@@ -13,24 +14,31 @@ const LANDSCAPE_ASPECT = 390 / 218;
 export default function SplashScreen() {
   const [showLocationModal, setShowLocationModal] = useState(false);
 
+  // 저장된 로그인 세션이 있으면(자동로그인) 로그인 화면을 건너뛰고 바로 앱으로 들어간다.
+  // 세션이 없을 때만 로그인 화면으로 보낸다.
+  const proceedAfterSplash = async () => {
+    const token = await getAccessToken();
+    router.replace(token ? '/(tabs)' : '/login');
+  };
+
   useEffect(() => {
     let navigated = false;
-    const goToLogin = () => {
+    const goNext = () => {
       if (navigated) return;
       navigated = true;
-      router.replace('/login');
+      proceedAfterSplash();
     };
 
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
-          setTimeout(goToLogin, 1800);
+          setTimeout(goNext, 1800);
         } else {
           setShowLocationModal(true);
         }
       } catch (e) {
-        setTimeout(goToLogin, 1800);
+        setTimeout(goNext, 1800);
       }
     })();
 
@@ -41,13 +49,13 @@ export default function SplashScreen() {
 
   const handleClose = () => {
     setShowLocationModal(false);
-    router.replace('/login');
+    proceedAfterSplash();
   };
 
   const handleOpenSettings = () => {
     setShowLocationModal(false);
     Linking.openSettings();
-    router.replace('/login');
+    proceedAfterSplash();
   };
 
   return (

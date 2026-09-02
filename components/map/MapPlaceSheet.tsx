@@ -15,7 +15,7 @@ import { PLACE_TAG_STYLE, DEFAULT_PLACE_TAG_STYLE, CATEGORY_BADGE_STYLE } from '
 import MapPlaceIcon from '@/assets/icons/map-place.svg';
 import TelephoneIcon from '@/assets/icons/telephone.svg';
 import MapHoursIcon from '@/assets/icons/map-hours.svg';
-import InfoCircleIcon from '@/assets/icons/info-circle.svg';
+import NoticeCircleIcon from '@/assets/icons/notice-circle.svg';
 import HeartIcon from '@/assets/icons/heart.svg';
 import HeartFilledIcon from '@/assets/icons/heart-filled.svg';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
@@ -186,10 +186,12 @@ export default function MapPlaceSheet({ place, liked: likedProp = false, onClose
                   <Text style={styles.infoText}>{place.address}</Text>
                 </View>,
                 !!place.petInfo && (
-                  <View key="petInfo" style={styles.infoRow}>
-                    <InfoCircleIcon width={15} height={15} color={Colors.textBody2} style={styles.infoRowIcon} />
-                    <View style={styles.infoTextCol}>
+                  <View key="petInfo" style={styles.noticeBlock}>
+                    <View style={styles.noticeHeaderRow}>
+                      <NoticeCircleIcon width={15} height={15} color={Colors.textBody2} />
                       <Text style={styles.noticeTitle}>관광지 입장 전 안내 사항</Text>
+                    </View>
+                    <View style={styles.noticeBulletCol}>
                       {parsePetInfoBullets(place.petInfo).map((line, i) => (
                         <Text key={i} style={styles.noticeBulletText}>{'•'} {line}</Text>
                       ))}
@@ -341,10 +343,25 @@ const styles = StyleSheet.create({
     color: Colors.textBody2,
     lineHeight: 18,
   },
+  // 안내 사항 항목은 아이콘 옆(제목과 같은 줄)이 아니라 카드 맨 왼쪽부터 시작해야 해서
+  // infoRow/infoTextCol(아이콘만큼 오른쪽으로 밀린 칸)를 안 쓰고 따로 둔다.
+  noticeBlock: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: 10,
+  },
+  noticeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   noticeTitle: {
     fontSize: 13,
     color: Colors.textBody2,
     lineHeight: 18,
+  },
+  noticeBulletCol: {
+    marginTop: 4,
+    marginLeft: 6,
   },
   noticeBulletText: {
     fontSize: 13,
