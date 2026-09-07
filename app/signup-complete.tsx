@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Image, StyleSheet, SafeAreaView, LayoutChangeEvent, Linking } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Image,
+  StyleSheet,
+  SafeAreaView,
+  LayoutChangeEvent,
+  Linking,
+} from 'react-native';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Colors, Radius, Spacing } from '@/constants/theme';
@@ -53,6 +65,7 @@ export default function SignupCompleteScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <View style={styles.content}>
         <Text style={styles.title}>가입이 완료되었어요!</Text>
 
@@ -87,6 +100,7 @@ export default function SignupCompleteScreen() {
           </View>
         </View>
       </View>
+      </TouchableWithoutFeedback>
 
       <View style={styles.bottomBar}>
         <TouchableOpacity

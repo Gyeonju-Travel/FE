@@ -16,6 +16,8 @@ import {
   Linking,
   KeyboardAvoidingView,
   Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView as EdgeSafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -334,6 +336,7 @@ function InquiryView({ onBack, underlay }: { onBack: () => void; underlay?: Reac
           <Text style={iq.headerTitle}>문의하기</Text>
         </View>
 
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={iq.scrollContent}>
           <Text style={iq.label}>제목</Text>
           <TextInput
@@ -355,6 +358,7 @@ function InquiryView({ onBack, underlay }: { onBack: () => void; underlay?: Reac
             textAlignVertical="top"
           />
         </ScrollView>
+        </TouchableWithoutFeedback>
 
         <View style={[iq.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
           <TouchableOpacity style={iq.submitBtn} activeOpacity={0.85} onPress={handleSubmit} disabled={submitting}>
@@ -724,7 +728,8 @@ function PasswordChangeView({ onBack, underlay }: { onBack: () => void; underlay
           <Text style={st.headerTitle}>비밀번호 변경</Text>
         </View>
 
-        <ScrollView contentContainerStyle={ai.scrollContent} showsVerticalScrollIndicator={false}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={ai.scrollContent} showsVerticalScrollIndicator={false}>
         <FormField
           label="이메일"
           Icon={EmailFieldIcon}
@@ -794,6 +799,7 @@ function PasswordChangeView({ onBack, underlay }: { onBack: () => void; underlay
           }
         />
       </ScrollView>
+      </TouchableWithoutFeedback>
 
       <View style={[iq.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
         <TouchableOpacity
@@ -904,6 +910,7 @@ function ReportPlaceView({ onBack, underlay }: { onBack: () => void; underlay?: 
         </View>
 
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={rp.scrollContent}>
         <View style={rp.heroBanner}>
           <ReportHeroLandscape
@@ -976,6 +983,7 @@ function ReportPlaceView({ onBack, underlay }: { onBack: () => void; underlay?: 
           multiline
         />
       </ScrollView>
+      </TouchableWithoutFeedback>
 
       <View style={[rp.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
         <TouchableOpacity
@@ -1384,7 +1392,8 @@ function EditProfileView({
           <Text style={ep.headerTitle}>{isNew ? '프로필 추가' : '프로필 편집'}</Text>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={ep.scrollContent}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={ep.scrollContent}>
         <View style={ep.avatarRow}>
           <View style={ep.avatarWrap}>
             {displayPhotoUri ? (
@@ -1488,6 +1497,7 @@ function EditProfileView({
           })}
         </View>
       </ScrollView>
+      </TouchableWithoutFeedback>
 
       <View style={[ep.bottomBar, { paddingBottom: Spacing.md + 34 + insets.bottom}]}>
         <TouchableOpacity style={ep.saveBtn} activeOpacity={0.85} onPress={handleSave} disabled={saving}>

@@ -3,6 +3,8 @@ import {
   View,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
+  Keyboard,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -260,7 +262,8 @@ export default function SignupScreen() {
           <Text style={styles.headerTitle}>회원 가입</Text>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView style={styles.flex} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <FormField
             label="이메일"
             Icon={EmailIcon}
@@ -359,6 +362,7 @@ export default function SignupScreen() {
             error={phoneError}
           />
         </ScrollView>
+        </TouchableWithoutFeedback>
 
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.primaryBtn} activeOpacity={0.85} onPress={handleSignUp} disabled={loading}>
@@ -399,7 +403,7 @@ const styles = StyleSheet.create({
   },
   backArrow: { fontSize: 22, color: Colors.textBody1 },
   headerTitle: { fontSize: 18, fontWeight: '700', color: Colors.textBody1 },
-  scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl },
+  scrollContent: { flexGrow: 1, paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl },
   label: { fontSize: 14, fontWeight: '600', color: Colors.textBody1, marginBottom: 8 },
   inlineErrorText: { fontSize: 12, color: '#D14343', marginTop: -8, marginBottom: Spacing.sm },
   dateRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },

@@ -1,5 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Keyboard,
+  StyleSheet,
+  SafeAreaView,
+  ScrollView,
+  ActivityIndicator,
+} from 'react-native';
 import { router } from 'expo-router';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import FormField, { EyeToggle, InlineActionButton } from '@/components/auth/FormField';
@@ -111,7 +121,8 @@ export default function ForgotPasswordScreen() {
         <Text style={styles.headerTitle}>비밀번호 찾기</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <ScrollView style={styles.flex} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <FormField
           label="이메일"
           Icon={EmailIcon}
@@ -185,6 +196,7 @@ export default function ForgotPasswordScreen() {
           }
         />
       </ScrollView>
+      </TouchableWithoutFeedback>
 
       <View style={styles.bottomBar}>
         <TouchableOpacity
@@ -210,6 +222,7 @@ export default function ForgotPasswordScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Colors.background },
+  flex: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -219,7 +232,7 @@ const styles = StyleSheet.create({
   },
   backArrow: { fontSize: 22, color: Colors.textBody1 },
   headerTitle: { fontSize: 18, fontWeight: '700', color: Colors.textBody1 },
-  scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl },
+  scrollContent: { flexGrow: 1, paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xl },
   bottomBar: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md },
   primaryBtn: {
     backgroundColor: Colors.coral,
