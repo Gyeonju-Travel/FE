@@ -194,7 +194,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     <WebView
       ref={webViewRef}
       style={styles.map}
-      source={{ html, baseUrl: 'https://gyeonju-travel.vercel.app' }}
+      source={{ html, baseUrl: 'https://peakly.co.kr' }}
       originWhitelist={['*']}
       javaScriptEnabled
       domStorageEnabled
