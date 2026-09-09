@@ -112,7 +112,7 @@ import ToastInquiryIcon from '@/assets/icons/toast/inquiry-received.svg';
 import ToastPlaceReportIcon from '@/assets/icons/toast/place-report.svg';
 import PhotoPermissionModal from '@/components/ui/PhotoPermissionModal';
 import AddressSearchModal from '@/components/ui/AddressSearchModal';
-import DogPhotoBlank from '@/assets/mypage/dog-photo-blank.svg';
+import DogAvatar from '@/components/ui/DogAvatar';
 import PlaceThumbnail from '@/components/ui/PlaceThumbnail';
 import {
   isPushEnabled,
@@ -1381,11 +1381,7 @@ function EditProfileView({
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={ep.scrollContent}>
         <View style={ep.avatarRow}>
           <View style={ep.avatarWrap}>
-            {displayPhotoUri ? (
-              <Image source={{ uri: displayPhotoUri }} style={ep.avatar} resizeMode="cover" />
-            ) : (
-              <DogPhotoBlank width={116} height={116} />
-            )}
+            <DogAvatar uri={displayPhotoUri} style={ep.avatar} size={116} />
             <TouchableOpacity style={ep.cameraBtn} activeOpacity={0.8} onPress={pickPhoto}>
               <EditCameraIcon width={16} height={14} color={Colors.textBody2} />
             </TouchableOpacity>
@@ -1774,13 +1770,12 @@ export default function MyPageScreen() {
           {/* 프로필 카드 */}
           <View style={styles.profileCard}>
             <View style={styles.avatarWrap}>
-              {dog.photoUri ? (
-                <Image source={{ uri: dog.photoUri }} style={styles.avatar} resizeMode="cover" />
-              ) : (
-                <View style={styles.avatarPlaceholderRing}>
-                  <DogPhotoBlank width={88} height={88} />
-                </View>
-              )}
+              <DogAvatar
+                uri={dog.photoUri}
+                style={styles.avatar}
+                placeholderStyle={styles.avatarPlaceholderRing}
+                size={88}
+              />
               {dog.isPrimary && (
                 <View style={styles.primaryBadge}>
                   <Text style={styles.primaryBadgeText}>대표</Text>
@@ -1832,23 +1827,16 @@ export default function MyPageScreen() {
                     activeOpacity={0.8}
                     onPress={() => (d.isPrimary ? setSelectedDogId(d.id) : setPendingPrimaryDog(d))}
                   >
-                    {d.photoUri ? (
-                      <Image
-                        source={{ uri: d.photoUri }}
-                        style={[styles.dogItemAvatar, selected && styles.dogItemAvatarSelected]}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View
-                        style={[
-                          styles.dogItemAvatar,
-                          styles.dogItemAvatarPlaceholder,
-                          selected && styles.dogItemAvatarSelected,
-                        ]}
-                      >
-                        <DogPhotoBlank width={60} height={60} />
-                      </View>
-                    )}
+                    <DogAvatar
+                      uri={d.photoUri}
+                      style={[styles.dogItemAvatar, selected && styles.dogItemAvatarSelected]}
+                      placeholderStyle={[
+                        styles.dogItemAvatar,
+                        styles.dogItemAvatarPlaceholder,
+                        selected && styles.dogItemAvatarSelected,
+                      ]}
+                      size={60}
+                    />
                     <Text style={[styles.dogItemName, selected && styles.dogItemNameSelected]}>{d.name}</Text>
                   </TouchableOpacity>
                 );
