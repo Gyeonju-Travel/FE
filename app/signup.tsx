@@ -27,6 +27,7 @@ import GenderFemaleIcon from '@/assets/login/field-gender-female.svg';
 import { signUp, login, ApiError } from '@/utils/api';
 import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
 import { registerPushToken } from '@/utils/notifications';
+import { clearAccountLocalData } from '@/utils/accountLifecycle';
 import { showAlert } from '@/components/ui/AppAlert';
 
 type Gender = '여성' | '남성';
@@ -228,6 +229,10 @@ export default function SignupScreen() {
         phoneNumber: phone,
         termsAgreementToken,
       });
+      // 이 기기에 이전 계정(로그아웃/탈퇴 없이 세션만 끊긴 경우 등)의 로컬 캐시(스탬프, 진행
+      // 중이던 일정, 최근 검색어 등)가 남아있을 수 있다 — 새 계정 세션을 얹기 전에 지워서
+      // 방금 가입한 계정에 이전 계정의 스탬프 같은 게 섞여 보이지 않게 한다.
+      await clearAccountLocalData();
       // 회원가입 응답엔 accessToken만 있고 refreshToken이 없어서(백엔드 스펙), 그대로 저장하면
       // 이 세션은 자동로그인(accessToken 만료 시 재발급)이 끝까지 동작 안 한다. 가입 직후
       // 같은 비밀번호로 한 번 더 로그인해서 refreshToken까지 받아 저장한다. 이 로그인이 실패해도

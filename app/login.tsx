@@ -19,8 +19,9 @@ import EmailIcon from '@/assets/login/field-email.svg';
 import PasswordIcon from '@/assets/login/field-password.svg';
 import EyeIcon from '@/assets/login/field-password-eye.svg';
 import { login } from '@/utils/api';
-import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
+import { saveTokens, saveAccountEmail, getAccountEmail } from '@/utils/authStorage';
 import { registerPushToken } from '@/utils/notifications';
+import { clearAccountLocalData } from '@/utils/accountLifecycle';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -49,6 +50,13 @@ export default function LoginScreen() {
     try {
       const result = await login({ email, password });
       console.log('[로그인] 성공. memberId:', result.memberId, 'onboardingCompleted:', result.onboardingCompleted);
+      // 이 기기에 다른 계정의 세션이 남아있던 상태(로그아웃/탈퇴 없이 세션만 끊긴 경우 등)로
+      // 로그인하면, 그 계정의 로컬 캐시(스탬프 등)가 지금 로그인한 계정에 섞여 보일 수 있다 —
+      // 저장된 이전 계정과 이메일이 다를 때만 지운다(같은 계정 재로그인은 로컬 진행 상황 보존).
+      const previousEmail = await getAccountEmail();
+      if (previousEmail && previousEmail !== email.trim()) {
+        await clearAccountLocalData();
+      }
       await saveTokens(result.accessToken, result.refreshToken);
       await saveAccountEmail(email.trim());
       registerPushToken(result.accessToken);
