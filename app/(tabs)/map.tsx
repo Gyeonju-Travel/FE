@@ -716,8 +716,8 @@ export default function MapScreen() {
         icon={toastMsg === '장소가 저장됐어요!' ? <ToastPlaceSavedIcon width={22} height={19} /> : undefined}
       />
 
-      {/* 줌 버튼 — 바텀시트가 닫혀있을 때만 표시 */}
-      {!selectedPlace && (
+      {/* 줌 버튼 — 테스트용, 개발 빌드에서만 표시. 바텀시트가 닫혀있을 때만 표시 */}
+      {__DEV__ && !selectedPlace && (
         <View style={styles.zoomContainer}>
           <TouchableOpacity
             style={styles.zoomBtn}

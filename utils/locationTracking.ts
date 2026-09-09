@@ -621,6 +621,50 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
   });
 }
 
+/** 개발/테스트용: 실제로 걸어가지 않아도, 진행 중인 일정의 다음 목적지에 "방금 도착한 것"으로
+ * 처리한다. 그 장소 자신의 좌표를 위치로 써서 실제 도착 판정 로직(스탬프 지급, 방문 기록,
+ * 알림)을 그대로 태운다. 진행 중인 일정이 없거나 남은 목적지가 없으면 null. */
+export async function simulateArrivalAtNextPlace(): Promise<string | null> {
+  if (!__DEV__) return null;
+  const active = await getActiveSchedule();
+  if (!active || active.state.places.length === 0) return null;
+  const target = active.state.places[0];
+  const { scheduleId } = active;
+  const accessToken = await getAccessToken();
+  const point: LatLng = { lat: target.lat, lng: target.lng };
+
+  const earnedStampIndices = await getEarnedStampIndices();
+  for (const attraction of GEOFENCE_ATTRACTIONS) {
+    if (earnedStampIndices.has(attraction.stampIndex)) continue;
+    if (haversineMeters(point.lat, point.lng, attraction.latitude, attraction.longitude) <= ARRIVAL_RADIUS_METERS) {
+      await awardAttractionStamp(attraction, scheduleId, accessToken);
+    }
+  }
+
+  const isNew = await markArrived(scheduleId, target.id);
+  if (isNew) {
+    await notify('도착했어요! 🐾', `${target.name}에 도착했어요.`);
+    await removePendingPlace(scheduleId, target.id);
+    if (accessToken) {
+      try {
+        await visitPlace(
+          Number(target.id),
+          { scheduleId: Number(scheduleId), latitude: point.lat, longitude: point.lng },
+          accessToken
+        );
+      } catch {
+        // 방문 기록 서버 저장 실패는 무시 — 로컬 도착 표시는 이미 반영됐다.
+      }
+    }
+    const remaining = await getActiveSchedule();
+    if ((!remaining || remaining.state.places.length === 0) && active.state.totalPlaceCount > 0) {
+      const awarded = await awardStamp(PERFECT_TRIP_STAMP_INDEX);
+      await notifyPerfectTrip(awarded);
+    }
+  }
+  return target.name;
+}
+
 /** 백그라운드 위치 추적을 시작한다 (발자국 누적 + 관광지 스탬프 + 일정 도착 감지 전부 포함). 이미 켜져 있으면 그대로 둔다. */
 export async function startLocationTracking(): Promise<boolean> {
   const granted = await ensureLocationPermissions();
