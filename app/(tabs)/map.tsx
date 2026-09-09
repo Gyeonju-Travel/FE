@@ -22,6 +22,7 @@ import { searchPlaces, getPlaceDetail, getBookmarks, saveBookmark, deleteBookmar
 import { getAccessToken } from '@/utils/authStorage';
 import { onTabReset } from '@/utils/tabReset';
 import { toMapPlace, toMapPlaceDetail } from '@/utils/placeMappers';
+import { isMainAttraction, isBestAttraction } from '@/constants/mainAttractions';
 import { getRecentSearches, addRecentSearch, removeRecentSearch, clearRecentSearches } from '@/utils/recentSearches';
 import KakaoMap, { KakaoMapHandle } from '@/components/map/KakaoMap';
 import MapPlaceSheet, { SHEET_HEIGHT } from '@/components/map/MapPlaceSheet';
@@ -212,27 +213,31 @@ export default function MapScreen() {
     }
   };
 
-  // 지도 검색 화면 "추천 목적지"는 지정된 장소(RECOMMENDED_PLACE_NAMES) 이름으로 하나씩
-  // 검색해서 채운다. 이름 검색이라 유사한 이름이 여러 개 걸릴 수 있어(예: "범외양간"→
-  // "범외양간 황리단길본점"), 정확히 일치하는 이름을 우선하고 없으면 첫 검색 결과를 쓴다.
+  // 지정된 장소 이름 목록으로 하나씩 검색해서 채운다. 이름 검색이라 유사한 이름이 여러 개
+  // 걸릴 수 있어(예: "범외양간"→"범외양간 황리단길본점"), 정확히 일치하는 이름을 우선하고
+  // 없으면 이름이 포함된 결과를 쓴다(백엔드 저장명이 "경주 계림"처럼 접두어가 붙기도 함).
+  // 이름 검색 특성상 엉뚱한 첫 결과가 나올 수 있어, 포함 관계가 전혀 없으면 아예 건너뛴다.
+  const resolvePlacesByName = async (names: string[], token: string): Promise<MapPlace[]> => {
+    const results = await Promise.all(
+      names.map((name) => searchPlaces({ keyword: name, size: 5 }, token).catch(() => null))
+    );
+    return results
+      .map((result, i) => {
+        if (!result || result.places.length === 0) return null;
+        const name = names[i];
+        const match =
+          result.places.find((p) => p.name === name) ?? result.places.find((p) => p.name.includes(name));
+        return match ? toMapPlace(match) : null;
+      })
+      .filter((p): p is MapPlace => p !== null);
+  };
+
+  // 지도 검색 화면 "추천 목적지"는 지정된 장소(RECOMMENDED_PLACE_NAMES) 이름으로 채운다.
   const fetchRecommendedPlaces = async () => {
     const token = await getAccessToken();
     if (!token) return;
     try {
-      const results = await Promise.all(
-        RECOMMENDED_PLACE_NAMES.map((name) =>
-          searchPlaces({ keyword: name, size: 5 }, token).catch(() => null)
-        )
-      );
-      const places = results
-        .map((result, i) => {
-          if (!result || result.places.length === 0) return null;
-          const name = RECOMMENDED_PLACE_NAMES[i];
-          const exact = result.places.find((p) => p.name === name);
-          return toMapPlace(exact ?? result.places[0]);
-        })
-        .filter((p): p is MapPlace => p !== null);
-      setRecommendedPlaces(places);
+      setRecommendedPlaces(await resolvePlacesByName(RECOMMENDED_PLACE_NAMES, token));
     } catch (e) {
       // 추천 목적지 로드 실패는 조용히 무시 — 검색화면 자체는 그대로 쓸 수 있음
     }
@@ -384,7 +389,13 @@ export default function MapScreen() {
         setCategoryResults(bookmarks.map(toMapPlace));
       } else {
         const result = await searchPlaces({ categories: [CATEGORY_CODE[category]], size: 50 }, token);
-        setCategoryResults(result.places.map(toMapPlace));
+        let places = result.places.map(toMapPlace);
+        if (category === '관광지') {
+          // 홈 "관광지 살펴보기"와 동일한 장소 목록·순서로 맞춘다 (BEST 장소를 맨 위로).
+          places = places.filter((p) => isMainAttraction(p.name));
+          places.sort((a, b) => Number(isBestAttraction(b.name)) - Number(isBestAttraction(a.name)));
+        }
+        setCategoryResults(places);
       }
     } catch (e) {
       const message = e instanceof ApiError ? e.message : '장소 목록을 불러오지 못했어요.';
