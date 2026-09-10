@@ -790,6 +790,18 @@ export async function simulateArrivalAtNextPlace(): Promise<string | null> {
   return target.name;
 }
 
+/** 개발/테스트용: 방금 완료 처리한 "여행중" 일정을, 21시(스크랩 알림 시각)가 안 됐어도 바로
+ * "기록보기"로 볼 수 있게 한다. 경주 이탈 자동 종료 때와 같은 저장소(AUTO_ENDED_SCHEDULE_KEY)를
+ * 재사용한다 — 일정 목록의 isEnded 판정이 그 값을 그대로 참조하기 때문. 실제로 경주를 벗어난
+ * 건 아니므로 위치 추적은 멈추지 않는다. */
+export async function markScheduleEndedForTesting(scheduleId: string): Promise<void> {
+  if (!__DEV__) return;
+  await AsyncStorage.setItem(
+    AUTO_ENDED_SCHEDULE_KEY,
+    JSON.stringify({ scheduleId, date: todayIsoDate() })
+  );
+}
+
 /** 백그라운드 위치 추적을 시작한다 (발자국 누적 + 관광지 스탬프 + 일정 도착 감지 전부 포함). 이미 켜져 있으면 그대로 둔다. */
 export async function startLocationTracking(): Promise<boolean> {
   const granted = await ensureLocationPermissions();

@@ -83,6 +83,7 @@ import {
   SCRAP_REMINDER_HOUR,
   ACTIVE_SCHEDULE_AUTO_ENDED_EVENT,
   simulateArrivalAtNextPlace,
+  markScheduleEndedForTesting,
 } from '@/utils/locationTracking';
 import TodayScrapView from '@/components/home/TodayScrapView';
 import ScheduleWaypointIcon from '@/assets/icons/schedule-waypoint.svg';
@@ -183,6 +184,7 @@ function ScheduleCard({
   onViewRecord,
   onTestComplete,
   onSimulateArrival,
+  onSimulateCompleteTrip,
   onCancel,
   isTraveling,
   isEnded,
@@ -201,6 +203,7 @@ function ScheduleCard({
   onViewRecord: () => void;
   onTestComplete: () => void;
   onSimulateArrival: () => void;
+  onSimulateCompleteTrip: () => void;
   onCancel: () => void;
   isTraveling: boolean;
   isEnded: boolean;
@@ -372,6 +375,12 @@ function ScheduleCard({
       {__DEV__ && isTraveling && !isEnded && (
         <TouchableOpacity style={ss.cardTestBtn} activeOpacity={0.7} onPress={onSimulateArrival}>
           <Text style={ss.cardTestBtnText}>테스트: 다음 목적지 도착 처리</Text>
+        </TouchableOpacity>
+      )}
+
+      {__DEV__ && isTraveling && !isEnded && (
+        <TouchableOpacity style={ss.cardTestBtn} activeOpacity={0.7} onPress={onSimulateCompleteTrip}>
+          <Text style={ss.cardTestBtnText}>테스트: 남은 목적지 전부 도착 + 발자국 채우기</Text>
         </TouchableOpacity>
       )}
 
@@ -1477,6 +1486,43 @@ export default function ScheduleScreen() {
     setToastSubtitle(undefined);
   };
 
+  // 개발용: "다음 목적지 도착 처리"를 남은 목적지 수만큼 반복 호출해 전부 도착 처리한 뒤,
+  // simulateArrivalAtNextPlace는 실제로 걷지 않아서 발자국을 안 채워주므로 계획된 경로
+  // (출발지→각 목적지)의 직선거리만큼 발자국도 채운다. "여행중" 상태 그대로 스크랩 화면에서
+  // 발자국·경로까지 한 번에 테스트할 수 있게 하는 용도.
+  const handleSimulateCompleteTrip = async () => {
+    for (let i = 0; i < 20; i++) {
+      const placeName = await simulateArrivalAtNextPlace();
+      if (placeName === null) break;
+    }
+
+    const token = await getAccessToken();
+    if (activeScheduleId && token) {
+      const pending = await getTodaysScrapSchedule(activeScheduleId);
+      if (pending) {
+        const footprintStops = [
+          ...(pending.departure ? [{ lat: pending.departure.lat, lng: pending.departure.lng }] : []),
+          ...pending.places.map((p) => ({ lat: p.lat, lng: p.lng })),
+        ];
+        const totalDistanceMeters = footprintStops
+          .slice(0, -1)
+          .reduce(
+            (sum, from, i) => sum + haversineMeters(from.lat, from.lng, footprintStops[i + 1].lat, footprintStops[i + 1].lng),
+            0
+          );
+        if (totalDistanceMeters > 0) {
+          await addScheduleFootprints(Number(activeScheduleId), Math.round(totalDistanceMeters), token).catch(() => {});
+        }
+      }
+      // 21시가 안 됐어도 바로 "기록보기"로 볼 수 있게 한다(테스트용) — 실제 21시/경주 이탈
+      // 자동 종료 로직은 건드리지 않는다.
+      await markScheduleEndedForTesting(activeScheduleId);
+      setAutoEndedScheduleId(activeScheduleId);
+    }
+    setToastMsg('남은 목적지를 전부 도착 처리하고, 21시 전이라도 기록보기가 되도록 했어요.');
+    setToastSubtitle(undefined);
+  };
+
   const handleViewRecord = async (schedule: Schedule) => {
     const token = await getAccessToken();
     if (!token) {
@@ -1750,6 +1796,7 @@ export default function ScheduleScreen() {
                 onViewRecord={() => handleViewRecord(schedule)}
                 onTestComplete={() => handleTestComplete(schedule)}
                 onSimulateArrival={handleSimulateArrival}
+                onSimulateCompleteTrip={handleSimulateCompleteTrip}
                 onCancel={() => handleCancelSchedule(schedule)}
                 isTraveling={schedule.id === activeScheduleId}
                 // "기록보기"로 바뀌는 조건: (오늘 일정이면) 시작한 채로 21시(스크랩 알림 시각)를
