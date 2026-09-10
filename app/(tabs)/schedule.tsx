@@ -479,7 +479,7 @@ function CreateScheduleView({
           const stillValid = initialSchedule.places.filter((p) => bookmarkedIds.has(p.id));
           setSelectedIds(new Set(stillValid.map((p) => p.id)));
           if (stillValid.length < initialSchedule.places.length) {
-            setToastMsg('일부 장소는 저장이 해제돼 선택에서 빠졌어요.');
+            setToastMsg('저장 해제된 장소는 제외했어요.');
             setToastSubtitle('다시 넣으려면 저장(북마크)부터 해주세요.');
           }
         }

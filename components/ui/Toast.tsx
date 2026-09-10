@@ -56,7 +56,7 @@ export default function Toast({
           {icon ?? <Image source={require('@/assets/icons/pets.png')} style={styles.icon} resizeMode="contain" />}
         </View>
         <View style={styles.textCol}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text style={styles.title} numberOfLines={2}>
             {message}
           </Text>
           {subtitle && (
