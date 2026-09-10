@@ -71,6 +71,8 @@ const SCRAPPED_SCHEDULE_IDS_KEY = 'gyeonjutravel.scrappedScheduleIds';
 const AUTO_ENDED_SCHEDULE_KEY = 'gyeonjutravel.autoEndedSchedule';
 const SCRAP_REMINDER_ID_KEY = 'gyeonjutravel.scrapReminderNotificationId';
 export const SCRAP_REMINDER_HOUR = 21;
+const PENDING_VISITS_KEY = 'gyeonjutravel.pendingVisits';
+const PENDING_FOOTPRINT_METERS_KEY = 'gyeonjutravel.pendingFootprintMeters';
 
 // 백그라운드 위치 추적 태스크가 일정을 자동으로 취소/종료시켰을 때 쏘는 이벤트. 그 태스크는
 // 화면(React 컴포넌트) 밖에서 돌기 때문에, 일정 화면이 계속 켜져 있어도(다른 화면에 갔다
@@ -120,6 +122,91 @@ async function ensureNotificationPermission(): Promise<void> {
   }
 }
 
+// ─── 실패한 서버 동기화 재시도 큐 ─────────────────────────────────────────────────
+// 백그라운드에서 방문 기록(visitPlace)·발자국 동기화(addScheduleFootprints)가 네트워크
+// 문제 등으로 실패하면, 로컬 도착 표시(체크마크)는 이미 됐는데 서버엔 영영 안 남아 21시
+// 스크랩 화면이 "다녀온 곳이 없어요"로 잘못 뜨거나 발자국 수가 실제보다 적게 나오는 문제가
+// 생긴다. 실패한 요청을 여기 남겨뒀다가, 위치 업데이트가 올 때마다·일정이 끝날 때·스크랩
+// 화면에 들어갈 때 다시 시도한다.
+interface PendingVisit {
+  scheduleId: string;
+  placeId: number;
+  latitude: number;
+  longitude: number;
+}
+
+async function getPendingVisits(): Promise<PendingVisit[]> {
+  const raw = await AsyncStorage.getItem(PENDING_VISITS_KEY);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 같은 일정·같은 장소로 이미 대기 중이면 중복으로 쌓지 않는다. */
+async function enqueuePendingVisit(visit: PendingVisit): Promise<void> {
+  const current = await getPendingVisits();
+  if (current.some((v) => v.scheduleId === visit.scheduleId && v.placeId === visit.placeId)) return;
+  await AsyncStorage.setItem(PENDING_VISITS_KEY, JSON.stringify([...current, visit]));
+}
+
+async function addPendingFootprintMeters(scheduleId: string, meters: number): Promise<void> {
+  const raw = await AsyncStorage.getItem(PENDING_FOOTPRINT_METERS_KEY);
+  let map: Record<string, number> = {};
+  try {
+    map = raw ? JSON.parse(raw) ?? {} : {};
+  } catch {
+    map = {};
+  }
+  map[scheduleId] = (map[scheduleId] ?? 0) + meters;
+  await AsyncStorage.setItem(PENDING_FOOTPRINT_METERS_KEY, JSON.stringify(map));
+}
+
+/** 밀려있던 방문 기록·발자국을 다시 서버로 보낸다. 실패한 것만 남기고 나머지는 지운다. */
+export async function flushPendingSync(scheduleId: string, accessToken: string | null): Promise<void> {
+  if (!accessToken) return;
+
+  const footprintRaw = await AsyncStorage.getItem(PENDING_FOOTPRINT_METERS_KEY);
+  if (footprintRaw) {
+    try {
+      const map: Record<string, number> = JSON.parse(footprintRaw) ?? {};
+      const pendingMeters = map[scheduleId];
+      if (pendingMeters > 0) {
+        await addScheduleFootprints(Number(scheduleId), Math.round(pendingMeters), accessToken);
+        delete map[scheduleId];
+        await AsyncStorage.setItem(PENDING_FOOTPRINT_METERS_KEY, JSON.stringify(map));
+      }
+    } catch {
+      // 여전히 실패하면 다음 기회에 다시 시도 — 큐는 그대로 둔다.
+    }
+  }
+
+  const pendingVisits = await getPendingVisits();
+  if (pendingVisits.length === 0) return;
+  const remaining: PendingVisit[] = [];
+  for (const visit of pendingVisits) {
+    if (visit.scheduleId !== scheduleId) {
+      remaining.push(visit);
+      continue;
+    }
+    try {
+      await visitPlace(
+        visit.placeId,
+        { scheduleId: Number(visit.scheduleId), latitude: visit.latitude, longitude: visit.longitude },
+        accessToken
+      );
+    } catch {
+      remaining.push(visit);
+    }
+  }
+  if (remaining.length !== pendingVisits.length) {
+    await AsyncStorage.setItem(PENDING_VISITS_KEY, JSON.stringify(remaining));
+  }
+}
+
 /** 관광지 근접(또는 강제 도착 처리) 시 스탬프를 지급한다. 로컬 저장 + 알림뿐 아니라
  * attraction.placeId로 서버 방문 기록(visitPlace)도 같이 남겨야 한다 — 안 그러면 로컬에는
  * "받음"으로 뜨고 축하 알림까지 오는데, 마이페이지 스탬프 앨범(서버 기준)에는 안 뜨는
@@ -144,7 +231,13 @@ async function awardAttractionStamp(
         accessToken
       );
     } catch {
-      // 서버 방문 기록 실패는 무시 — 로컬 지급/알림은 그대로 진행한다.
+      // 서버 방문 기록 실패는 큐에 남겨서 다음 위치 업데이트 때 다시 시도한다.
+      await enqueuePendingVisit({
+        scheduleId,
+        placeId: attraction.placeId,
+        latitude: attraction.latitude,
+        longitude: attraction.longitude,
+      });
     }
   }
   await notify('축하해요! 🎉', `${attraction.name} 스탬프를 획득했어요!`, STAMP_NOTIFICATION_DATA);
@@ -427,6 +520,24 @@ export async function setActiveSchedule(schedule: Schedule): Promise<StartTracki
     await notifyPerfectTrip(awarded);
   }
 
+  // 출발지 자체가 스탬프 대상 관광지 근처인 경우(예: 교촌마을에서 출발), 이후 실제로 이동하지
+  // 않아도(15m 미만 이동은 위치 업데이트 자체가 안 옴) 그 관광지는 "갔다 온 것"으로 쳐서
+  // 스탬프를 주고 오늘의 도착 기록에도 남긴다.
+  if (departure) {
+    const earnedStampIndices = await getEarnedStampIndices();
+    const departureAttraction = GEOFENCE_ATTRACTIONS.find(
+      (a) =>
+        !earnedStampIndices.has(a.stampIndex) &&
+        haversineMeters(departure!.lat, departure!.lng, a.latitude, a.longitude) <= ARRIVAL_RADIUS_METERS
+    );
+    if (departureAttraction) {
+      const awarded = await awardAttractionStamp(departureAttraction, schedule.id, token);
+      if (awarded && departureAttraction.placeId != null) {
+        await markArrived(schedule.id, String(departureAttraction.placeId));
+      }
+    }
+  }
+
   await startLocationTracking();
   await showTrackingNotification();
   return pendingPlaces.length === 0 ? 'no-places' : 'started';
@@ -459,6 +570,9 @@ export async function getActiveScheduleId(): Promise<string | null> {
  * 막다른 상태로 두는 대신, 취소된 것으로 되돌려서 실제로 경주에 도착하면 같은 일정을 바로
  * 다시 시작할 수 있게 한다 — 매번 새 일정을 만들 필요가 없도록. */
 async function endActiveScheduleDueToExit(scheduleId: string): Promise<void> {
+  // 추적이 멈추면 더 이상 재시도 기회(위치 업데이트)가 없으므로, 밀려있던 방문·발자국
+  // 기록이 있으면 여기서 마지막으로 한 번 더 시도한다.
+  await flushPendingSync(scheduleId, await getAccessToken());
   await stopLocationTracking();
   DeviceEventEmitter.emit(ACTIVE_SCHEDULE_AUTO_ENDED_EVENT);
   const arrivedIds = await getArrivedPlaceIds(scheduleId);
@@ -529,6 +643,8 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
     // 일정이 진행 중일 때만 의미가 있는 값이라, 진행 중인 일정이 없으면 0으로 취급해서
     // 이전 일정에서 남은 값이 다음 일정에 영향을 주지 않게 한다.
     let outsideStreak = scheduleId ? Number((await AsyncStorage.getItem(OUTSIDE_GYEONGJU_STREAK_KEY)) ?? '0') || 0 : 0;
+    // 지난번 위치 업데이트 때 서버 저장이 실패해 밀려있던 방문·발자국 기록이 있으면 먼저 재시도한다.
+    if (scheduleId) await flushPendingSync(scheduleId, accessToken);
 
     for (const loc of locations) {
       const point: LatLng = { lat: loc.coords.latitude, lng: loc.coords.longitude };
@@ -546,7 +662,9 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
               try {
                 await addScheduleFootprints(Number(scheduleId), meters, accessToken);
               } catch {
-                // 서버 동기화 실패는 무시 — 로컬 누적치(total)는 이미 반영됐다.
+                // 서버 동기화 실패는 큐에 남겨서 다음 위치 업데이트 때 다시 시도한다.
+                // 로컬 누적치(total)는 이미 반영됐다.
+                await addPendingFootprintMeters(scheduleId, meters);
               }
             }
           }
@@ -596,7 +714,14 @@ if (!TaskManager.isTaskDefined(LOCATION_TRACKING_TASK_NAME)) {
                     accessToken
                   );
                 } catch {
-                  // 방문 기록 서버 저장 실패는 무시 — 로컬 도착 표시(체크마크)는 이미 반영됐다.
+                  // 방문 기록 서버 저장 실패는 큐에 남겨서 다음 위치 업데이트 때 다시 시도한다.
+                  // 로컬 도착 표시(체크마크)는 이미 반영됐다.
+                  await enqueuePendingVisit({
+                    scheduleId,
+                    placeId: Number(place.id),
+                    latitude: point.lat,
+                    longitude: point.lng,
+                  });
                 }
               }
             }

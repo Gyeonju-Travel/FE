@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet, SafeAreaView } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 import { stampIndexFromBackendName } from '@/constants/stamps';
-import { TodaysScrapSchedule, markScheduleScrapped, getArrivedPlaceIds } from '@/utils/locationTracking';
+import { TodaysScrapSchedule, markScheduleScrapped, getArrivedPlaceIds, flushPendingSync } from '@/utils/locationTracking';
 import { getStampAlbum, ApiError } from '@/utils/api';
 import { ScrapData } from '@/types/stampAlbum';
 import StampAlbumScreen from '@/components/mypage/StampAlbumView';
@@ -37,6 +37,9 @@ export default function TodayScrapView({
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // 스크랩 화면을 보기 직전에, 백그라운드에서 서버 저장이 실패한 채 밀려있던 방문·발자국
+      // 기록이 있으면 마지막으로 한 번 더 시도한다(보통 이 시점엔 포그라운드+와이파이라 성공률이 높다).
+      await flushPendingSync(pending.scheduleId, accessToken).catch(() => {});
       const arrivedIds = await getArrivedPlaceIds(pending.scheduleId);
       if (cancelled) return;
       try {
@@ -83,6 +86,34 @@ export default function TodayScrapView({
         });
       } catch (e) {
         if (cancelled) return;
+        // STAMP_400_7("서버에 방문 기록이 하나도 없는 일정")이어도, 백그라운드 도착 처리 중
+        // 서버 저장(visitPlace)만 조용히 실패하고 로컬 도착 기록(arrivedIds)은 남아있을 수
+        // 있다 — 이 경우 로컬 기록만으로라도 스크랩을 보여준다(거리/사진/스탬프 없이).
+        if (e instanceof ApiError && e.code === 'STAMP_400_7' && arrivedIds.length > 0) {
+          const visitedPlaces = pending.places.filter((p) => arrivedIds.includes(p.id));
+          setScrap({
+            id: pending.scheduleId,
+            title: '오늘의 경주',
+            travelDate: formatTravelDate(pending.date),
+            dogName,
+            dogProfileImageUri,
+            selectedPhotoUris: [],
+            stops: [
+              ...(pending.departure
+                ? [
+                    {
+                      id: 'departure',
+                      name: pending.departure.name,
+                      latitude: pending.departure.lat,
+                      longitude: pending.departure.lng,
+                    },
+                  ]
+                : []),
+              ...visitedPlaces.map((p) => ({ id: p.id, name: p.name, latitude: p.lat, longitude: p.lng })),
+            ],
+          });
+          return;
+        }
         setLoadError(
           e instanceof ApiError && e.code === 'STAMP_400_7'
             ? '이 일정은 다녀온 곳이 없어서 기록할 내용이 없어요.'
