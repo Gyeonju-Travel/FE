@@ -305,8 +305,6 @@ async function requestPhotosMultipart<T>(
   return json.result;
 }
 
-export type Gender = 'FEMALE' | 'MALE';
-
 export interface TermsAgreementRequest {
   termsOfServiceAgreed: boolean;
   privacyPolicyAgreed: boolean;
@@ -329,7 +327,6 @@ export interface SignUpRequest {
   passwordConfirmation: string;
   name: string;
   birthDate: string;
-  gender: Gender;
   phoneNumber: string;
   /** POST /api/auth/terms/agreement 로 발급받은 토큰. */
   termsAgreementToken: string;
@@ -340,7 +337,6 @@ export interface SignUpResult {
   email: string;
   name: string;
   birthDate: string;
-  gender: Gender;
   phoneNumber: string;
   accessToken: string;
   accessTokenExpiresIn: number;

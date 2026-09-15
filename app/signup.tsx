@@ -22,15 +22,11 @@ import PasswordIcon from '@/assets/login/field-password.svg';
 import EyeIcon from '@/assets/login/field-password-eye.svg';
 import NameIcon from '@/assets/login/field-name.svg';
 import PhoneIcon from '@/assets/login/field-phone.svg';
-import GenderMaleIcon from '@/assets/login/field-gender-male.svg';
-import GenderFemaleIcon from '@/assets/login/field-gender-female.svg';
 import { signUp, login, ApiError } from '@/utils/api';
 import { saveTokens, saveAccountEmail } from '@/utils/authStorage';
 import { registerPushToken } from '@/utils/notifications';
 import { clearAccountLocalData } from '@/utils/accountLifecycle';
 import { showAlert } from '@/components/ui/AppAlert';
-
-type Gender = '여성' | '남성';
 
 const BIRTH_YEAR_BASE = 1940;
 const MIN_SIGNUP_AGE = 14;
@@ -154,7 +150,6 @@ export default function SignupScreen() {
   const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [gender, setGender] = useState<Gender | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [emailApiError, setEmailApiError] = useState<string | null>(null);
@@ -191,7 +186,6 @@ export default function SignupScreen() {
     : null;
   const nameError = submitted && !name ? '이름을 입력해 주세요.' : null;
   const birthDateError = submitted && !birthDateConfirmed ? '생년월일을 입력해 주세요.' : null;
-  const genderError = submitted && !gender ? '성별을 선택해주세요.' : null;
 
   const handleSignUp = async () => {
     setSubmitted(true);
@@ -202,7 +196,6 @@ export default function SignupScreen() {
       !name ||
       !phone ||
       !birthDateConfirmed ||
-      !gender ||
       emailError ||
       passwordError ||
       passwordConfirmError ||
@@ -225,7 +218,6 @@ export default function SignupScreen() {
         passwordConfirmation: passwordConfirm,
         name,
         birthDate,
-        gender: gender === '여성' ? 'FEMALE' : 'MALE',
         phoneNumber: phone,
         termsAgreementToken,
       });
@@ -336,26 +328,6 @@ export default function SignupScreen() {
           </View>
           {birthDateError && <Text style={styles.inlineErrorText}>{birthDateError}</Text>}
 
-          <Text style={styles.label}>성별</Text>
-          <View style={styles.genderRow}>
-            {(['여성', '남성'] as Gender[]).map((g) => {
-              const selected = gender === g;
-              const Icon = g === '여성' ? GenderFemaleIcon : GenderMaleIcon;
-              return (
-                <TouchableOpacity
-                  key={g}
-                  style={[styles.genderBtn, selected && styles.genderBtnSelected]}
-                  activeOpacity={0.8}
-                  onPress={() => setGender(g)}
-                >
-                  <Icon width={9} height={12} color={selected ? Colors.white : Colors.textMuted} />
-                  <Text style={[styles.genderBtnText, selected && styles.genderBtnTextSelected]}>{g}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          {genderError && <Text style={styles.inlineErrorText}>{genderError}</Text>}
-
           <FormField
             label="전화번호"
             Icon={PhoneIcon}
@@ -426,21 +398,6 @@ const styles = StyleSheet.create({
   dateSelectText: { fontSize: 14, color: Colors.textMuted },
   dateSelectTextFilled: { color: Colors.textBody1, fontWeight: '600' },
   chevron: { fontSize: 14, color: Colors.textMuted },
-  genderRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.lg },
-  genderBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 52,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.md,
-  },
-  genderBtnSelected: { backgroundColor: Colors.secondary, borderColor: Colors.secondary },
-  genderBtnText: { fontSize: 14, color: Colors.textMuted },
-  genderBtnTextSelected: { color: Colors.white, fontWeight: '600' },
   bottomBar: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.md },
   primaryBtn: {
     backgroundColor: Colors.coral,
