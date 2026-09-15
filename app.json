@@ -55,7 +55,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "여행 사진을 선택하려면 사진 보관함 접근 권한이 필요해요."
+          "photosPermission": "여행 사진을 선택하려면 사진 보관함 접근 권한이 필요해요.",
+          "microphonePermission": false
         }
       ],
       [

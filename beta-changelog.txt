@@ -154,3 +154,6 @@
   지급 및 방문 처리
 - 일정 수정 시 "저장 해제된 장소" 안내 토스트 메시지가 잘려서 "..."으로 뜨던
   문제 수정 (문구 축약 + 토스트가 2줄까지 표시되도록 개선)
+- iOS 앱스토어 심사 거절 대응: 사용하지 않는 마이크 권한(NSMicrophoneUsageDescription)
+  안내 문구 제거, expo-image-picker 플러그인에 microphonePermission: false 설정해
+  다음 prebuild부터 재생성되지 않도록 방지
