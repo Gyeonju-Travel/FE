@@ -7,6 +7,7 @@ import { AppAlertHost } from '@/components/ui/AppAlert';
 import * as Notifications from 'expo-notifications';
 import { getAccessToken } from '@/utils/authStorage';
 import { registerPushToken } from '@/utils/notifications';
+import { Colors } from '@/constants/theme';
 
 // api.ts가 실패한 요청마다 console.error로 [API ✕ ...] 로그를 남기는데(디버깅용, Metro 로그엔
 // 계속 남음), 개발 모드에서 화면 하단에 뜨는 LogBox 알림 배너는 거슬리니 꺼둔다.
@@ -47,7 +48,10 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false }}>
+      {/* 하단 탭 바가 둥근 위쪽 모서리를 가질 때, 리액트 내비게이션 기본 배경색(연회색)이 그
+          모서리 틈으로 비쳐서 앱 배경색(크림색)과 다르게 보이는 문제가 있었다. 화면 배경을
+          앱 배경색으로 맞춰서 그 틈이 자연스럽게(사실상 투명하게) 보이도록 한다. */}
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.background } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
