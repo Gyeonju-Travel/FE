@@ -1825,6 +1825,12 @@ export default function ScheduleScreen() {
             <Text style={ss.emptySubtitle}>하단 + 버튼을 누른 후 새 일정을 만들어 보세요</Text>
           </View>
         )}
+        {daySchedules.length > 0 && !isEditMode && !daySchedules.some((s) => s.id === expandedId) && (
+          <View style={ss.startHintBar}>
+            <InfoCircleIcon width={14} height={14} />
+            <Text style={ss.startHintText}>시작 버튼을 누르면 일정이 시작됩니다</Text>
+          </View>
+        )}
         </ScrollView>
       </View>
 
@@ -1842,13 +1848,6 @@ export default function ScheduleScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <>
-          {daySchedules.length > 0 && !daySchedules.some((s) => s.id === expandedId) && (
-            <View style={ss.startHintBar}>
-              <InfoCircleIcon width={14} height={14} />
-              <Text style={ss.startHintText}>시작 버튼을 누르면 일정이 시작됩니다</Text>
-            </View>
-          )}
           <TouchableOpacity
             style={[ss.fab, isSelectedDatePast && ss.fabDisabled]}
             activeOpacity={isSelectedDatePast ? 1 : 0.85}
@@ -1857,7 +1856,6 @@ export default function ScheduleScreen() {
           >
             <Image source={require('@/assets/icons/add.png')} style={ss.fabIcon} resizeMode="contain" />
           </TouchableOpacity>
-        </>
       )}
 
       <Toast

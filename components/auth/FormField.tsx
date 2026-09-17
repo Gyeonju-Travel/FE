@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, TextInput, TextInputProps, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useRef } from 'react';
+import { View, Text, TextInput, TextInputProps, TouchableOpacity, Pressable, StyleSheet } from 'react-native';
 import { Colors, Radius, Spacing } from '@/constants/theme';
 
 type IconComponent = React.FC<{ width?: number; height?: number; color?: string }>;
@@ -13,22 +13,27 @@ interface FormFieldProps extends TextInputProps {
 }
 
 export default function FormField({ label, Icon, trailing, style, error, ...inputProps }: FormFieldProps) {
+  const inputRef = useRef<TextInput>(null);
   return (
     <View style={styles.wrap}>
       {label && <Text style={styles.label}>{label}</Text>}
-      <View style={[styles.row, error && styles.rowError]}>
+      {/* 아이콘/여백 부분은 TextInput 밖이라 그 자리를 눌러도 포커스가 안 잡히던 문제가 있어서,
+          박스 전체를 눌렀을 때 TextInput에 포커스를 주도록 감쌌다. trailing(눈 아이콘 등 버튼)은
+          안쪽 터치 컴포넌트가 자기 터치를 먼저 처리하므로 이 onPress와 겹치지 않는다. */}
+      <Pressable style={[styles.row, error && styles.rowError]} onPress={() => inputRef.current?.focus()}>
         {Icon && (
           <View style={styles.iconBox}>
             <Icon width={16} height={16} color={Colors.textMuted} />
           </View>
         )}
         <TextInput
+          ref={inputRef}
           style={[styles.input, style]}
           placeholderTextColor={Colors.textMuted}
           {...inputProps}
         />
         {trailing}
-      </View>
+      </Pressable>
       {error && <Text style={styles.errorText}>{error}</Text>}
     </View>
   );
