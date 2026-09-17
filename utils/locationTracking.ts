@@ -523,6 +523,12 @@ export async function setActiveSchedule(schedule: Schedule): Promise<StartTracki
   // 출발지 자체가 스탬프 대상 관광지 근처인 경우(예: 교촌마을에서 출발), 이후 실제로 이동하지
   // 않아도(15m 미만 이동은 위치 업데이트 자체가 안 옴) 그 관광지는 "갔다 온 것"으로 쳐서
   // 스탬프를 주고 오늘의 도착 기록에도 남긴다.
+  //
+  // 단, "출발지"는 사용자가 일정을 짤 때 고른 4개 지역 라벨(황리단길/금리단길/첨성대/교촌마을) 중
+  // 하나일 뿐 실시간 GPS가 아니다. 그중 "교촌마을"은 좌표가 스탬프 대상 관광지(GEOFENCE_ATTRACTIONS)와
+  // 정확히 일치해서, 집 등 다른 곳에서 출발지만 "교촌마을"로 고르고 "시작"을 눌러도 실제로 그
+  // 자리에 있는지와 무관하게 스탬프가 지급되는 문제가 있었다. 그래서 여기서는 후보를 좌표로
+  // 먼저 찾되, 실제 현재 GPS 위치가 그 관광지 반경 안에 있을 때만 지급한다.
   if (departure) {
     const earnedStampIndices = await getEarnedStampIndices();
     const departureAttraction = GEOFENCE_ATTRACTIONS.find(
@@ -531,9 +537,22 @@ export async function setActiveSchedule(schedule: Schedule): Promise<StartTracki
         haversineMeters(departure!.lat, departure!.lng, a.latitude, a.longitude) <= ARRIVAL_RADIUS_METERS
     );
     if (departureAttraction) {
-      const awarded = await awardAttractionStamp(departureAttraction, schedule.id, token);
-      if (awarded && departureAttraction.placeId != null) {
-        await markArrived(schedule.id, String(departureAttraction.placeId));
+      const currentPosition = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      }).catch(() => null);
+      const isActuallyThere =
+        currentPosition != null &&
+        haversineMeters(
+          currentPosition.coords.latitude,
+          currentPosition.coords.longitude,
+          departureAttraction.latitude,
+          departureAttraction.longitude
+        ) <= ARRIVAL_RADIUS_METERS;
+      if (isActuallyThere) {
+        const awarded = await awardAttractionStamp(departureAttraction, schedule.id, token);
+        if (awarded && departureAttraction.placeId != null) {
+          await markArrived(schedule.id, String(departureAttraction.placeId));
+        }
       }
     }
   }
