@@ -1815,7 +1815,7 @@ export default function MyPageScreen() {
           </View>
 
           {/* 함께 하는 강아지 */}
-          <View style={[styles.section, styles.sectionBordered]}>
+          <View style={[styles.section, styles.sectionBordered, styles.dogListSection]}>
             <Text style={styles.sectionTitle}>함께 하는 강아지</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dogListRow}>
               {dogProfiles.map((d) => {
@@ -2099,6 +2099,15 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
   },
   stampSection: { marginTop: Spacing.xs },
+  // 카드 윗변만 위로 Spacing.lg 늘린다: marginTop을 그만큼 줄이고 위 여백을 그만큼 늘리되,
+  // 안쪽 내용이 세로 중앙에 오도록 위·아래 여백을 같게(합계 유지) 나눈다. 아래 섹션 위치는 그대로.
+  // 안쪽 요소는 왼쪽 여백을 4px 더 줘서 오른쪽으로 아주 조금 옮긴다.
+  dogListSection: {
+    marginTop: Spacing.xl + Spacing.lg + Spacing.md - Spacing.lg,
+    paddingTop: Spacing.xxl,
+    paddingBottom: Spacing.xxl,
+    paddingLeft: Spacing.lg + 4,
+  },
   sectionBordered: {
     borderWidth: 0.5,
     borderColor: '#EDE8E3',
