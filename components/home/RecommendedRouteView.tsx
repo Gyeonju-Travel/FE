@@ -286,7 +286,7 @@ export default function RecommendedRouteView({
                 activeOpacity={0.85}
                 onPress={() => setCondition(opt.id)}
               >
-                <opt.Icon width={88} height={64} />
+                <opt.Icon width={78} height={56} />
                 <Text style={[s.conditionLabel, selected && s.conditionLabelSelected]}>{opt.label}</Text>
               </TouchableOpacity>
             );
