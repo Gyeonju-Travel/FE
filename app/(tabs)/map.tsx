@@ -662,7 +662,10 @@ export default function MapScreen() {
       {/* 카카오맵 */}
       <KakaoMap
         ref={mapRef}
+        latitude={soloPlace?.latitude}
+        longitude={soloPlace?.longitude}
         markers={visiblePlaces}
+        fitToMarkers={!soloPlace}
         likedPlaceIds={likedPlaceIds}
         currentLocation={myLocation}
         onMarkerPress={handleMarkerPress}

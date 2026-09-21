@@ -98,6 +98,8 @@
 
     var myLocationImageSrc = '';
     var currentOverlays = [];
+    // 하트 토글·내 위치 갱신처럼 마커 좌표가 그대로인 재전송에는 지도를 다시 맞추지 않는다.
+    var lastFitKey = '';
     var pendingData = null; // 지도가 준비되기 전에 init 메시지가 오면 저장해뒀다가 준비되면 적용
 
     function clearOverlays() {
@@ -171,6 +173,27 @@
         var bounds = new kakao.maps.LatLngBounds();
         linePath.forEach(function (pos) { bounds.extend(pos); });
         window.kakaoMap.setBounds(bounds, 80, 80, 80, 80);
+      }
+
+      if (data.fit && routePlaces.length === 0) {
+        var fit = data.fit;
+        var fitKey = JSON.stringify(fit);
+        if (fitKey !== lastFitKey) {
+          lastFitKey = fitKey;
+          window.kakaoMap.setBounds(
+            new kakao.maps.LatLngBounds(
+              new kakao.maps.LatLng(fit.minLat, fit.minLng),
+              new kakao.maps.LatLng(fit.maxLat, fit.maxLng)
+            ),
+            fit.paddingTop, fit.paddingRight, fit.paddingBottom, fit.paddingLeft
+          );
+          var fitLevel = window.kakaoMap.getLevel();
+          if (fitLevel > fit.maxLevel) {
+            window.kakaoMap.setLevel(fit.maxLevel);
+          } else if (fitLevel < fit.minLevel) {
+            window.kakaoMap.setLevel(fit.minLevel);
+          }
+        }
       }
 
       if (data.myLoc && data.myLocLat != null && data.myLocLng != null) {

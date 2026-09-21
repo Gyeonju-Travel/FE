@@ -11,12 +11,66 @@ export interface RoutePathPoint {
   lng: number;
 }
 
+/** 마커 전체가 보이도록 지도 영역을 맞출 때 쓰는 값. setBounds에 그대로 전달된다. */
+export interface MarkerFit {
+  minLat: number;
+  maxLat: number;
+  minLng: number;
+  maxLng: number;
+  /** 상단 검색창·필터칩, 하단 탭 바에 마커가 가려지지 않도록 남기는 여백(px). */
+  paddingTop: number;
+  paddingRight: number;
+  paddingBottom: number;
+  paddingLeft: number;
+  /** 마커가 몇 개 없어도 이보다 더 확대하지 않는다. */
+  minLevel: number;
+  /** 마커가 경주 전역에 퍼져 있어도 이보다 더 축소하지 않는다. */
+  maxLevel: number;
+}
+
+const FIT_MAX_LEVEL = 8;
+// 마커가 이만큼 이상일 때만 좌표 분포의 바깥쪽을 잘라낸다. 감포 같은 외곽 장소 한두 곳이 있다고
+// 나머지 마커가 전부 점처럼 보일 만큼 지도가 축소되는 걸 막는다(잘린 마커도 지도에는 그대로 있다).
+const FIT_TRIM_MIN_COUNT = 20;
+const FIT_TRIM_RATIO = 0.05;
+
+function trimmedRange(values: number[]): [number, number] {
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length < FIT_TRIM_MIN_COUNT) return [sorted[0], sorted[sorted.length - 1]];
+  const trim = Math.floor(sorted.length * FIT_TRIM_RATIO);
+  return [sorted[trim], sorted[sorted.length - 1 - trim]];
+}
+
+/** 마커가 없으면 null. 그때는 지도 기본 중심·줌을 그대로 쓴다. */
+export function computeMarkerFit(
+  markers: Pick<MapPlace, 'latitude' | 'longitude'>[],
+  minLevel: number
+): MarkerFit | null {
+  if (markers.length === 0) return null;
+  const [minLat, maxLat] = trimmedRange(markers.map((m) => m.latitude));
+  const [minLng, maxLng] = trimmedRange(markers.map((m) => m.longitude));
+  return {
+    minLat,
+    maxLat,
+    minLng,
+    maxLng,
+    paddingTop: 170,
+    paddingRight: 40,
+    paddingBottom: 100,
+    paddingLeft: 40,
+    minLevel,
+    maxLevel: FIT_MAX_LEVEL,
+  };
+}
+
 interface BuildKakaoMapHtmlParams {
   kakaoJsKey?: string;
   centerLat: number;
   centerLng: number;
   level: number;
   markers: MapPlace[];
+  /** true면 마커 전체가 화면에 들어오도록 중심·줌을 맞춘다(경로 지도가 아닐 때만 적용). */
+  fitToMarkers?: boolean;
   categoryPinUri: Record<MapPlace['category'], string>;
   categoryPinUriSaved: Record<MapPlace['category'], string>;
   /** 저장(하트)한 장소 id 목록. 여기 포함된 마커는 세이지 그린 핀으로 표시된다. */
@@ -45,6 +99,7 @@ export function buildKakaoMapHtml({
   centerLng,
   level,
   markers,
+  fitToMarkers = false,
   categoryPinUri,
   categoryPinUriSaved,
   likedPlaceIds = [],
@@ -74,6 +129,7 @@ export function buildKakaoMapHtml({
   const routePlacesJson = JSON.stringify(routePlaces);
   const routeNumberPinUrisJson = JSON.stringify(routeNumberPinUris);
   const routePathJson = JSON.stringify(routePath);
+  const markerFit = fitToMarkers && routePlaces.length === 0 ? computeMarkerFit(markers, level) : null;
 
   return `
 <!DOCTYPE html>
@@ -336,6 +392,27 @@ export function buildKakaoMapHtml({
         var bounds = new kakao.maps.LatLngBounds();
         linePath.forEach(function(pos) { bounds.extend(pos); });
         window.kakaoMap.setBounds(bounds, ${routeBoundsPadding}, ${routeBoundsPadding}, ${routeBoundsPadding}, ${routeBoundsPadding});
+      }
+
+      ${
+        markerFit
+          ? `
+      var fit = ${JSON.stringify(markerFit)};
+      window.kakaoMap.setBounds(
+        new kakao.maps.LatLngBounds(
+          new kakao.maps.LatLng(fit.minLat, fit.minLng),
+          new kakao.maps.LatLng(fit.maxLat, fit.maxLng)
+        ),
+        fit.paddingTop, fit.paddingRight, fit.paddingBottom, fit.paddingLeft
+      );
+      var fitLevel = window.kakaoMap.getLevel();
+      if (fitLevel > fit.maxLevel) {
+        window.kakaoMap.setLevel(fit.maxLevel);
+      } else if (fitLevel < fit.minLevel) {
+        window.kakaoMap.setLevel(fit.minLevel);
+      }
+      `
+          : ''
       }
 
       ${

@@ -29,6 +29,8 @@ interface Props {
   longitude?: number;
   level?: number;
   markers?: MapPlace[];
+  /** true면 마커 전체가 화면에 들어오도록 중심·줌을 자동으로 맞춘다. 마커가 없거나 경로 지도(routePlaces)면 무시된다. */
+  fitToMarkers?: boolean;
   /** 저장(하트)한 장소 id 목록. 세이지 그린 핀으로 표시된다. */
   likedPlaceIds?: string[];
   currentLocation?: { lat: number; lng: number } | null;
@@ -49,6 +51,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     longitude = DEFAULT_LNG,
     level = 4,
     markers = [],
+    fitToMarkers = false,
     likedPlaceIds = [],
     currentLocation = null,
     routePlaces = [],
@@ -116,12 +119,10 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, currentLocation?.lat, currentLocation?.lng]);
 
-  const centerLat = routePlaces.length > 0
-    ? routePlaces[0].lat
-    : markers.length > 0 ? markers[0].latitude : latitude;
-  const centerLng = routePlaces.length > 0
-    ? routePlaces[0].lng
-    : markers.length > 0 ? markers[0].longitude : longitude;
+  // 마커 배열의 첫 번째 장소로 중심을 잡으면 API 응답 순서에 따라 지도가 엉뚱한 곳(예: 감포항)으로
+  // 열린다. 그래서 마커와 무관하게 경로 첫 지점 또는 latitude/longitude(기본: 경주 시내)로 고정한다.
+  const centerLat = routePlaces.length > 0 ? routePlaces[0].lat : latitude;
+  const centerLng = routePlaces.length > 0 ? routePlaces[0].lng : longitude;
 
   // currentLocation은 최초 1회만 html에 반영한다. 이후 위치가 갱신될 때마다 이 값을 html에
   // 반영하면 WebView의 source.html이 바뀌어 페이지 전체가 리로드되면서, 같은 타이밍에 호출한
@@ -142,6 +143,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         centerLng,
         level,
         markers,
+        fitToMarkers,
         categoryPinUri,
         categoryPinUriSaved,
         likedPlaceIds: initialLikedPlaceIdsRef.current,
@@ -157,7 +159,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         routeBoundsPadding,
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [centerLat, centerLng, level, markers, routePlaces, routePath, routeLineStyle, routeBoundsPadding]
+    [centerLat, centerLng, level, markers, fitToMarkers, routePlaces, routePath, routeLineStyle, routeBoundsPadding]
   );
 
   // 좋아요 상태가 바뀌면(하트 토글) 리로드 없이 해당 마커 핀 이미지만 갱신한다.

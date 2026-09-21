@@ -8,7 +8,7 @@ import {
   routeStartPinUri,
   routeNumberPinUris,
 } from './kakaoMapAssets';
-import { RouteMapPlace, RoutePathPoint } from './kakaoMapHtml';
+import { computeMarkerFit, RouteMapPlace, RoutePathPoint } from './kakaoMapHtml';
 
 const KAKAO_JS_KEY = process.env.EXPO_PUBLIC_KAKAO_JS_KEY;
 
@@ -27,6 +27,8 @@ interface Props {
   longitude?: number;
   level?: number;
   markers?: MapPlace[];
+  /** true면 마커 전체가 화면에 들어오도록 중심·줌을 자동으로 맞춘다. 마커가 없거나 경로 지도(routePlaces)면 무시된다. */
+  fitToMarkers?: boolean;
   /** 저장(하트)한 장소 id 목록. 세이지 그린 핀으로 표시된다. */
   likedPlaceIds?: string[];
   currentLocation?: { lat: number; lng: number } | null;
@@ -43,6 +45,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     longitude = DEFAULT_LNG,
     level = 4,
     markers = [],
+    fitToMarkers = false,
     likedPlaceIds = [],
     currentLocation = null,
     routePlaces = [],
@@ -74,12 +77,9 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
     },
   }));
 
-  const centerLat = routePlaces.length > 0
-    ? routePlaces[0].lat
-    : markers.length > 0 ? markers[0].latitude : latitude;
-  const centerLng = routePlaces.length > 0
-    ? routePlaces[0].lng
-    : markers.length > 0 ? markers[0].longitude : longitude;
+  // 마커 배열 순서에 따라 지도 중심이 바뀌지 않도록 경로 첫 지점 또는 latitude/longitude로 고정한다.
+  const centerLat = routePlaces.length > 0 ? routePlaces[0].lat : latitude;
+  const centerLng = routePlaces.length > 0 ? routePlaces[0].lng : longitude;
 
   const likedPlaceIdSet = new Set(likedPlaceIds);
   const markersPayload = markers.map((m) => ({
@@ -102,6 +102,8 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       level: String(level),
     }).toString();
 
+  const markerFit = fitToMarkers && routePlaces.length === 0 ? computeMarkerFit(markers, level) : null;
+
   const sendInitData = () => {
     postToIframe({
       type: 'init',
@@ -117,6 +119,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
         routeStartPin: routeStartPinUri,
         routeNumberPins: routeNumberPinUris,
         routePath,
+        fit: markerFit,
       },
     });
   };
@@ -124,12 +127,13 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
   const markersJson = JSON.stringify(markersPayload);
   const routePlacesJson = JSON.stringify(routePlaces);
   const routePathJson = JSON.stringify(routePath);
+  const markerFitJson = JSON.stringify(markerFit);
 
   // src(초기 위치)가 안 바뀌어도 마커/저장 상태/경로/내 위치가 바뀌면 다시 보내준다.
   React.useEffect(() => {
     sendInitData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markersJson, routePlacesJson, routePathJson, currentLocation?.lat, currentLocation?.lng]);
+  }, [markersJson, routePlacesJson, routePathJson, markerFitJson, currentLocation?.lat, currentLocation?.lng]);
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
