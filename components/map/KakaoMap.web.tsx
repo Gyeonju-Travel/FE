@@ -102,7 +102,7 @@ const KakaoMap = forwardRef<KakaoMapHandle, Props>(function KakaoMap(
       level: String(level),
     }).toString();
 
-  const markerFit = fitToMarkers && routePlaces.length === 0 ? computeMarkerFit(markers, level) : null;
+  const markerFit = fitToMarkers && routePlaces.length === 0 ? computeMarkerFit(markers) : null;
 
   const sendInitData = () => {
     postToIframe({

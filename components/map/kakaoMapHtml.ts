@@ -11,7 +11,7 @@ export interface RoutePathPoint {
   lng: number;
 }
 
-/** 마커 전체가 보이도록 지도 영역을 맞출 때 쓰는 값. setBounds에 그대로 전달된다. */
+/** 마커가 밀집한 곳에 지도 영역을 맞출 때 쓰는 값. setBounds에 그대로 전달된다. */
 export interface MarkerFit {
   minLat: number;
   maxLat: number;
@@ -22,44 +22,56 @@ export interface MarkerFit {
   paddingRight: number;
   paddingBottom: number;
   paddingLeft: number;
-  /** 마커가 몇 개 없어도 이보다 더 확대하지 않는다. */
+  /** setBounds 결과가 이 범위를 벗어나면 이 범위로 맞춘다. */
   minLevel: number;
-  /** 마커가 경주 전역에 퍼져 있어도 이보다 더 축소하지 않는다. */
   maxLevel: number;
 }
 
-const FIT_MAX_LEVEL = 8;
-// 마커가 이만큼 이상일 때만 좌표 분포의 바깥쪽을 잘라낸다. 감포 같은 외곽 장소 한두 곳이 있다고
-// 나머지 마커가 전부 점처럼 보일 만큼 지도가 축소되는 걸 막는다(잘린 마커도 지도에는 그대로 있다).
-const FIT_TRIM_MIN_COUNT = 20;
-const FIT_TRIM_RATIO = 0.05;
+// 필터칩마다 마커 분포가 달라(관광지는 경주 전역, 식당은 황리단길 일대) 마커 전체에 맞추면 줌이
+// 제각각이 된다. 카페 필터에서 보이는 줌 레벨을 기준으로 모든 필터를 같은 레벨로 고정한다.
+const FIT_LEVEL = 5;
+// 중심은 이 반경(km) 안에 마커가 가장 많이 모인 곳으로 잡는다. 감포·불국사 같은 외곽 장소가
+// 섞여 있어도 지도가 빈 곳으로 가지 않고 시내(황리단길 일대)를 보여준다.
+const FIT_CLUSTER_RADIUS_KM = 1.5;
+const KM_PER_DEG_LAT = 111;
+// 경주 위도(약 35.8°)에서의 경도 1도 거리.
+const KM_PER_DEG_LNG = 90;
 
-function trimmedRange(values: number[]): [number, number] {
-  const sorted = [...values].sort((a, b) => a - b);
-  if (sorted.length < FIT_TRIM_MIN_COUNT) return [sorted[0], sorted[sorted.length - 1]];
-  const trim = Math.floor(sorted.length * FIT_TRIM_RATIO);
-  return [sorted[trim], sorted[sorted.length - 1 - trim]];
+type LatLng = Pick<MapPlace, 'latitude' | 'longitude'>;
+
+/** 반경 안에 다른 마커가 가장 많은 마커를 기준으로, 그 반경 안의 마커들을 돌려준다. */
+function densestCluster(markers: LatLng[]): LatLng[] {
+  let best: LatLng[] = [];
+  for (const center of markers) {
+    const cluster = markers.filter(
+      (m) =>
+        Math.hypot(
+          (m.latitude - center.latitude) * KM_PER_DEG_LAT,
+          (m.longitude - center.longitude) * KM_PER_DEG_LNG
+        ) <= FIT_CLUSTER_RADIUS_KM
+    );
+    if (cluster.length > best.length) best = cluster;
+  }
+  return best;
 }
 
 /** 마커가 없으면 null. 그때는 지도 기본 중심·줌을 그대로 쓴다. */
-export function computeMarkerFit(
-  markers: Pick<MapPlace, 'latitude' | 'longitude'>[],
-  minLevel: number
-): MarkerFit | null {
+export function computeMarkerFit(markers: LatLng[]): MarkerFit | null {
   if (markers.length === 0) return null;
-  const [minLat, maxLat] = trimmedRange(markers.map((m) => m.latitude));
-  const [minLng, maxLng] = trimmedRange(markers.map((m) => m.longitude));
+  const cluster = densestCluster(markers);
+  const lats = cluster.map((m) => m.latitude);
+  const lngs = cluster.map((m) => m.longitude);
   return {
-    minLat,
-    maxLat,
-    minLng,
-    maxLng,
+    minLat: Math.min(...lats),
+    maxLat: Math.max(...lats),
+    minLng: Math.min(...lngs),
+    maxLng: Math.max(...lngs),
     paddingTop: 170,
     paddingRight: 40,
     paddingBottom: 100,
     paddingLeft: 40,
-    minLevel,
-    maxLevel: FIT_MAX_LEVEL,
+    minLevel: FIT_LEVEL,
+    maxLevel: FIT_LEVEL,
   };
 }
 
@@ -129,7 +141,7 @@ export function buildKakaoMapHtml({
   const routePlacesJson = JSON.stringify(routePlaces);
   const routeNumberPinUrisJson = JSON.stringify(routeNumberPinUris);
   const routePathJson = JSON.stringify(routePath);
-  const markerFit = fitToMarkers && routePlaces.length === 0 ? computeMarkerFit(markers, level) : null;
+  const markerFit = fitToMarkers && routePlaces.length === 0 ? computeMarkerFit(markers) : null;
 
   return `
 <!DOCTYPE html>
