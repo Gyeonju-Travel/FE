@@ -337,7 +337,9 @@ export default function HomeScreen() {
                 key={place.id}
                 style={styles.placeCard}
                 activeOpacity={0.85}
-                onPress={() => router.push({ pathname: '/(tabs)/map', params: { placeId: place.id } })}
+                onPress={() =>
+                  router.push({ pathname: '/(tabs)/map', params: { placeId: place.id, openedAt: String(Date.now()) } })
+                }
               >
                 <PlaceThumbnail uri={place.imageUri} style={styles.placeThumb} />
                 <View style={styles.placeInfo}>

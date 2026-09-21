@@ -80,7 +80,7 @@ export default function SaveScreen() {
       toggleSelect(id);
       return;
     }
-    router.push({ pathname: '/(tabs)/map', params: { placeId: id } });
+    router.push({ pathname: '/(tabs)/map', params: { placeId: id, openedAt: String(Date.now()) } });
   };
 
   const handleFindPlace = () => {

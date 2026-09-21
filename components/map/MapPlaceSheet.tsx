@@ -56,7 +56,12 @@ export default function MapPlaceSheet({ place, liked: likedProp = false, onClose
         toValue: SHEET_HEIGHT,
         duration: 220,
         useNativeDriver: true,
-      }).start(() => setVisible(false));
+      }).start(({ finished }) => {
+        // 지도 화면이 처음 뜰 때(place가 null)도 이 닫기 애니메이션이 한 번 돈다. 그 직후 장소가
+        // 열리면 열기 애니메이션이 이걸 중단시키는데(finished: false), 그때도 숨기면 장소는
+        // 있는데 시트만 안 보이게 된다. 끝까지 닫힌 경우에만 숨긴다.
+        if (finished) setVisible(false);
+      });
     }
   }, [place]);
 

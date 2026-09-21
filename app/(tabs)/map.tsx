@@ -114,8 +114,11 @@ function PlaceRow({ place, onPress }: { place: MapPlace; onPress: () => void }) 
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const { placeId, focusLat, focusLng, focusLabel } = useLocalSearchParams<{
+  const { placeId, openedAt, focusLat, focusLng, focusLabel } = useLocalSearchParams<{
     placeId?: string;
+    // 같은 장소를 다시 눌러도 placeId 값은 그대로라 아래 effect가 안 돌기 때문에, 이동할 때마다
+    // 바뀌는 값(호출 측에서 Date.now())을 함께 받아 매번 상세 시트를 열도록 한다.
+    openedAt?: string;
     focusLat?: string;
     focusLng?: string;
     focusLabel?: string;
@@ -127,6 +130,13 @@ export default function MapScreen() {
   // 카테고리 핀은 숨긴다. 바텀시트를 닫거나 카테고리를 바꾸는 등 사용자가 지도를 다시
   // 탐색하려는 순간 원래대로(카테고리 전체 핀) 복원한다.
   const [soloPlace, setSoloPlace] = useState<MapPlace | null>(null);
+  // 단일 장소 보기를 끝내면(시트를 내리면) 마커가 카테고리 전체로 바뀌면서 지도가 리로드되는데,
+  // 그때 중심이 기본 좌표로 돌아가버린다. 마지막으로 보던 장소 좌표를 기억해뒀다가 그 자리에
+  // 그대로 머문다. 카테고리를 바꾸거나 지도 탭을 다시 누르면 지워서 원래대로 마커 전체에 맞춘다.
+  const [mapFocus, setMapFocus] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    if (soloPlace) setMapFocus({ lat: soloPlace.latitude, lng: soloPlace.longitude });
+  }, [soloPlace]);
   const [places, setPlaces] = useState<MapPlace[]>([]);
   const [keyword, setKeyword] = useState('');
   const [searchResults, setSearchResults] = useState<MapPlace[]>([]);
@@ -289,7 +299,7 @@ export default function MapScreen() {
         setToastMsg(message);
       }
     })();
-  }, [placeId]);
+  }, [placeId, openedAt]);
 
   // 특정 장소가 아니라 좌표(예: 황리단길처럼 단일 장소가 아닌 지역)로 넘어온 경우,
   // 상세 바텀시트 없이 지도만 그 위치로 이동한다.
@@ -485,6 +495,7 @@ export default function MapScreen() {
       onTabReset('map', () => {
         setSelectedPlace(null);
         setSoloPlace(null);
+        setMapFocus(null);
         exitSearchMode();
       }),
     []
@@ -662,10 +673,10 @@ export default function MapScreen() {
       {/* 카카오맵 */}
       <KakaoMap
         ref={mapRef}
-        latitude={soloPlace?.latitude}
-        longitude={soloPlace?.longitude}
+        latitude={soloPlace?.latitude ?? mapFocus?.lat}
+        longitude={soloPlace?.longitude ?? mapFocus?.lng}
         markers={visiblePlaces}
-        fitToMarkers={!soloPlace}
+        fitToMarkers={!soloPlace && !mapFocus}
         likedPlaceIds={likedPlaceIds}
         currentLocation={myLocation}
         onMarkerPress={handleMarkerPress}
@@ -696,6 +707,7 @@ export default function MapScreen() {
                 onPress={() => {
                   setSelectedCategory(label);
                   setSoloPlace(null);
+                  setMapFocus(null);
                 }}
                 style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
                 activeOpacity={0.8}
