@@ -1732,7 +1732,7 @@ export default function MyPageScreen() {
     // 화면 끝까지 그려져야 한다. 기본 SafeAreaView(react-native)는 하단 인셋을 자동으로 패딩으로
     // 넣어버려서 이미지가 그 안쪽에서 멈췄었다 — edges로 위쪽만 안전영역을 적용한다.
     <EdgeSafeAreaView style={styles.safeArea} edges={['top']}>
-      {/* 스크롤 없이 한 화면에 다 보이도록 화면 하단에 고정한다. 아래 ScrollView 콘텐츠보다 먼저
+      {/* 화면 하단에 고정한다(콘텐츠를 스크롤해도 제자리). 아래 ScrollView 콘텐츠보다 먼저
           그려서 뒤쪽에 깔리게 하고(겹치는 글씨가 안 가려지게), 터치도 이 이미지를 그냥 통과한다. */}
       <Image
         source={require('@/assets/mypage/profile-bottom-landscape.png')}
@@ -1748,8 +1748,7 @@ export default function MyPageScreen() {
       />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        scrollEnabled={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 66 + 24 }}
       >
         {/* 타이틀 + 프로필 카드 + 함께 하는 강아지 (배경에 경주 랜드마크 일러스트) */}
         <View style={styles.profileSection}>
@@ -2102,8 +2101,10 @@ const styles = StyleSheet.create({
   // 카드 윗변만 위로 Spacing.lg 늘린다: marginTop을 그만큼 줄이고 위 여백을 그만큼 늘리되,
   // 안쪽 내용이 세로 중앙에 오도록 위·아래 여백을 같게(합계 유지) 나눈다. 아래 섹션 위치는 그대로.
   // 안쪽 요소는 왼쪽 여백을 4px 더 줘서 오른쪽으로 아주 조금 옮긴다.
+  // 좌우를 6px씩 더 좁히고, 이 카드부터 아래 요소 전체를 Spacing.lg만큼 아래로 내린다.
   dogListSection: {
-    marginTop: Spacing.xl + Spacing.lg + Spacing.md - Spacing.lg,
+    marginTop: Spacing.xl + Spacing.lg + Spacing.md,
+    marginHorizontal: Spacing.lg + 6,
     paddingTop: Spacing.xxl,
     paddingBottom: Spacing.xxl,
     paddingLeft: Spacing.lg + 4,
