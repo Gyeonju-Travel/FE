@@ -1,3 +1,4 @@
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { router } from 'expo-router';
 import { clearTokens, getRefreshToken, saveTokens } from './authStorage';
 
@@ -49,6 +50,22 @@ function buildQueryString(params?: QueryParams): string {
   return qs ? `?${qs}` : '';
 }
 
+// 서버 앞단(nginx)이 413 등으로 HTML 에러 페이지를 돌려주면 JSON.parse가 터져서 ApiError가 아닌
+// SyntaxError로 새어나간다(화면엔 "저장에 실패했어요"만 뜸). JSON이 아니면 null로 보고 상태 코드로 처리한다.
+function parseEnvelope<T>(text: string): ApiEnvelope<T> | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as ApiEnvelope<T>;
+  } catch {
+    return null;
+  }
+}
+
+function fallbackErrorMessage(status: number): string {
+  if (status === 413) return '사진 용량이 너무 커요. 다른 사진으로 다시 시도해주세요.';
+  return `요청에 실패했어요. (${status})`;
+}
+
 // accessToken은 60분, refreshToken은 14일짜리다. accessToken이 만료돼 401이 나면 여기서
 // refreshToken으로 자동 재발급받아 원래 요청을 한 번 재시도한다 — 사용자가 자동로그인처럼
 // 느끼도록, 60분마다 로그인 화면으로 튕기지 않게 하는 게 목적. refreshToken마저 무효/만료면
@@ -72,7 +89,7 @@ async function refreshAccessTokenOrThrow(): Promise<string> {
       body: JSON.stringify({ refreshToken }),
     });
     const text = await response.text();
-    const json: ApiEnvelope<{ accessToken: string; refreshToken: string }> | null = text ? JSON.parse(text) : null;
+    const json = parseEnvelope<{ accessToken: string; refreshToken: string }>(text);
     console.log(`[API ←] ${response.status} POST /api/auth/token/refresh`, json ?? text);
 
     if (!response.ok || !json || !json.isSuccess) {
@@ -121,7 +138,7 @@ async function request<T>(
   }
 
   const text = await response.text();
-  const json: ApiEnvelope<T> | null = text ? JSON.parse(text) : null;
+  const json = parseEnvelope<T>(text);
 
   console.log(`[API ←] ${response.status} ${method} ${path}`, json ?? text);
 
@@ -147,7 +164,7 @@ async function request<T>(
       await clearTokens();
       router.replace('/login');
     }
-    throw new ApiError(json?.message ?? `요청에 실패했어요. (${response.status})`, json?.code ?? String(response.status));
+    throw new ApiError(json?.message ?? fallbackErrorMessage(response.status), json?.code ?? String(response.status));
   }
 
   return json.result;
@@ -165,6 +182,45 @@ function readLocalFileAsBlob(uri: string): Promise<Blob> {
     xhr.open('GET', uri, true);
     xhr.send(null);
   });
+}
+
+// 서버(nginx) 업로드 한도가 요청 전체 약 1MB라 원본 사진(보통 2~5MB)은 413으로 거부된다.
+// 한도보다 크거나 JPEG/PNG가 아니면(HEIC 등) 긴 변을 줄이고 JPEG로 다시 압축한다.
+// 한 번으로 부족하면 더 작게 줄여가며 재시도한다. 여러 장을 한 요청에 보낼 땐 maxBytes를 나눠 준다.
+const UPLOAD_MAX_BYTES = 900 * 1024;
+const UPLOAD_RESIZE_STEPS = [
+  { maxSide: 1600, compress: 0.8 },
+  { maxSide: 1280, compress: 0.7 },
+  { maxSide: 1024, compress: 0.6 },
+  { maxSide: 800, compress: 0.5 },
+];
+
+async function prepareUploadImage(
+  uri: string,
+  maxBytes = UPLOAD_MAX_BYTES
+): Promise<{ blob: Blob; extension: string }> {
+  const extension = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
+  const original = await readLocalFileAsBlob(uri);
+  if (original.size <= maxBytes && ['jpg', 'jpeg', 'png'].includes(extension)) {
+    const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
+    return { blob: new Blob([original], { type: mimeType }), extension };
+  }
+
+  const source = await ImageManipulator.manipulate(uri).renderAsync();
+  const longestSide = Math.max(source.width, source.height);
+  let blob = original;
+  for (const { maxSide, compress } of UPLOAD_RESIZE_STEPS) {
+    const context = ImageManipulator.manipulate(uri);
+    if (longestSide > maxSide) {
+      context.resize(source.width >= source.height ? { width: maxSide } : { height: maxSide });
+    }
+    const image = await context.renderAsync();
+    const saved = await image.saveAsync({ format: SaveFormat.JPEG, compress });
+    blob = await readLocalFileAsBlob(saved.uri);
+    console.log(`[API] 업로드 사진 리사이즈 ${original.size}B → ${blob.size}B (${saved.width}x${saved.height}, q${compress})`);
+    if (blob.size <= maxBytes) break;
+  }
+  return { blob: new Blob([blob], { type: 'image/jpeg' }), extension: 'jpg' };
 }
 
 // multipart/form-data 전용 요청. "request" 파트는 서버가 application/json Content-Type을
@@ -189,12 +245,9 @@ async function requestMultipart<T>(
   const form = new FormData();
   form.append('request', new Blob([JSON.stringify(requestPart)], { type: 'application/json' }));
   if (imageUri) {
-    const extension = imageUri.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
     // 위 "request" 파트와 마찬가지로 실제 Blob이어야 한다. 로컬 파일 uri를 읽어
     // Blob으로 변환한 뒤 붙인다 ({uri, name, type} 객체 트릭은 더 이상 통하지 않는다).
-    const rawBlob = await readLocalFileAsBlob(imageUri);
-    const imageBlob = new Blob([rawBlob], { type: mimeType });
+    const { blob: imageBlob, extension } = await prepareUploadImage(imageUri);
     form.append('image', imageBlob, `photo.${extension}`);
   }
 
@@ -211,7 +264,7 @@ async function requestMultipart<T>(
   }
 
   const text = await response.text();
-  const json: ApiEnvelope<T> | null = text ? JSON.parse(text) : null;
+  const json = parseEnvelope<T>(text);
 
   console.log(`[API ←] ${response.status} ${method} ${path}`, json ?? text);
 
@@ -234,7 +287,7 @@ async function requestMultipart<T>(
       await clearTokens();
       router.replace('/login');
     }
-    throw new ApiError(json?.message ?? `요청에 실패했어요. (${response.status})`, json?.code ?? String(response.status));
+    throw new ApiError(json?.message ?? fallbackErrorMessage(response.status), json?.code ?? String(response.status));
   }
 
   return json.result;
@@ -255,11 +308,9 @@ async function requestPhotosMultipart<T>(
   console.log(`[API →] POST ${path} (multipart, photos: ${photoUris.length})`);
 
   const form = new FormData();
+  const perPhotoMaxBytes = Math.floor(UPLOAD_MAX_BYTES / Math.max(photoUris.length, 1));
   for (const uri of photoUris) {
-    const extension = uri.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-    const rawBlob = await readLocalFileAsBlob(uri);
-    const photoBlob = new Blob([rawBlob], { type: mimeType });
+    const { blob: photoBlob, extension } = await prepareUploadImage(uri, perPhotoMaxBytes);
     form.append('photos', photoBlob, `photo.${extension}`);
   }
 
@@ -276,7 +327,7 @@ async function requestPhotosMultipart<T>(
   }
 
   const text = await response.text();
-  const json: ApiEnvelope<T> | null = text ? JSON.parse(text) : null;
+  const json = parseEnvelope<T>(text);
 
   console.log(`[API ←] ${response.status} POST ${path}`, json ?? text);
 
@@ -299,7 +350,7 @@ async function requestPhotosMultipart<T>(
       await clearTokens();
       router.replace('/login');
     }
-    throw new ApiError(json?.message ?? `요청에 실패했어요. (${response.status})`, json?.code ?? String(response.status));
+    throw new ApiError(json?.message ?? fallbackErrorMessage(response.status), json?.code ?? String(response.status));
   }
 
   return json.result;
