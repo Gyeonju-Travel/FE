@@ -90,7 +90,9 @@ import { getAccessToken, getAccountEmail } from '@/utils/authStorage';
 import { unregisterPushToken } from '@/utils/notifications';
 import { clearAccountLocalData } from '@/utils/accountLifecycle';
 import FormField, { EyeToggle, InlineActionButton } from '@/components/auth/FormField';
+import Svg, { Circle, Line } from 'react-native-svg';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
+import PersonalityChip from '@/components/ui/PersonalityChip';
 import { onTabReset } from '@/utils/tabReset';
 import {
   toDogSummary,
@@ -130,6 +132,9 @@ const PROFILE_BOTTOM_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 90) / 390;
 // 탭 바 뒤로 살짝 들어가게 띄운다. 이미지를 늘리지 않고 원래 비율 그대로 유지하면서, 탭 바
 // 몸통 전체에 가려지지 않고 대부분 그 위로 보이게 하기 위함.
 const TAB_BAR_CORNER_RADIUS = 20;
+// '함께 하는 강아지' 목록의 프로필 사진·추가하기 버튼 지름
+const DOG_ITEM_SIZE = 64;
+const ADD_DOG_COLOR = '#A89E9C';
 const REPORT_HERO_WIDTH = SCREEN_WIDTH - Spacing.xl * 2;
 const REPORT_HERO_LANDSCAPE_HEIGHT = (REPORT_HERO_WIDTH * 71) / 365;
 
@@ -1576,6 +1581,9 @@ export default function MyPageScreen() {
     openReportPlace?: string;
   }>();
   const [dogProfiles, setDogProfiles] = useState<DogProfile[]>([]);
+  // 목록 API는 성격 등 상세 정보가 비어 있는 요약본이라, 목록을 새로 받을 때마다(선택된 강아지가
+  // 그대로여도) 상세를 다시 불러오도록 이 값을 올려 아래 상세 조회 effect를 다시 돌린다.
+  const [petListVersion, setPetListVersion] = useState(0);
   const [selectedDogId, setSelectedDogId] = useState<string | null>(null);
   const [loadingPets, setLoadingPets] = useState(true);
   const [petsError, setPetsError] = useState<string | null>(null);
@@ -1646,6 +1654,7 @@ export default function MyPageScreen() {
       if (list.representativePet) summaries.push(toDogFromRepresentative(list.representativePet));
       list.otherPets.forEach((p) => summaries.push(toDogSummary(p, false)));
       setDogProfiles(summaries);
+      setPetListVersion((v) => v + 1);
       setSelectedDogId(newPrimaryId);
       setPrimarySwitchSuccess(true);
     } catch (e) {
@@ -1670,6 +1679,7 @@ export default function MyPageScreen() {
       }
       list.otherPets.forEach((p) => summaries.push(toDogSummary(p, false)));
       setDogProfiles(summaries);
+      setPetListVersion((v) => v + 1);
       setSelectedDogId((prev) =>
         prev && summaries.some((d) => d.id === prev) ? prev : primaryId ?? summaries[0]?.id ?? null
       );
@@ -1698,7 +1708,7 @@ export default function MyPageScreen() {
         // 상세 조회 실패는 조용히 무시 — 목록의 기본 정보는 이미 표시돼 있음
       }
     })();
-  }, [selectedDogId]);
+  }, [selectedDogId, petListVersion]);
 
   if (loadingPets && dogProfiles.length === 0) {
     return (
@@ -1732,23 +1742,13 @@ export default function MyPageScreen() {
     // 화면 끝까지 그려져야 한다. 기본 SafeAreaView(react-native)는 하단 인셋을 자동으로 패딩으로
     // 넣어버려서 이미지가 그 안쪽에서 멈췄었다 — edges로 위쪽만 안전영역을 적용한다.
     <EdgeSafeAreaView style={styles.safeArea} edges={['top']}>
-      {/* 화면 하단에 고정한다(콘텐츠를 스크롤해도 제자리). 아래 ScrollView 콘텐츠보다 먼저
-          그려서 뒤쪽에 깔리게 하고(겹치는 글씨가 안 가려지게), 터치도 이 이미지를 그냥 통과한다. */}
-      <Image
-        source={require('@/assets/mypage/profile-bottom-landscape.png')}
-        style={[
-          styles.profileBottomLandscape,
-          {
-            width: SCREEN_WIDTH,
-            height: PROFILE_BOTTOM_LANDSCAPE_HEIGHT,
-            bottom: 66 + insets.bottom - TAB_BAR_CORNER_RADIUS,
-          },
-        ]}
-        resizeMode="stretch"
-      />
+      {/* 끝에서 더 당기면(바운스) 하단 일러스트의 잘린 아랫변이 드러나서, 콘텐츠 끝 너머로는
+          스크롤되지 않게 막는다. */}
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 66 + 24 }}
+        bounces={false}
+        overScrollMode="never"
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 66 + insets.bottom - TAB_BAR_CORNER_RADIUS + 6 }}
       >
         {/* 타이틀 + 프로필 카드 + 함께 하는 강아지 (배경에 경주 랜드마크 일러스트) */}
         <View style={styles.profileSection}>
@@ -1773,7 +1773,7 @@ export default function MyPageScreen() {
                 uri={dog.photoUri}
                 style={styles.avatar}
                 placeholderStyle={styles.avatarPlaceholderRing}
-                size={88}
+                size={75}
               />
               {dog.isPrimary && (
                 <View style={styles.primaryBadge}>
@@ -1801,14 +1801,7 @@ export default function MyPageScreen() {
                 </TouchableOpacity>
               </View>
               {personalityComboLabel && (
-                <View style={styles.personalityChip}>
-                  <Image
-                    source={require('@/assets/mypage/personality-tag-icon.png')}
-                    style={styles.personalityChipIcon}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.personalityChipText}>{personalityComboLabel}</Text>
-                </View>
+                <PersonalityChip label={personalityComboLabel} style={styles.personalityChip} />
               )}
             </View>
           </View>
@@ -1834,7 +1827,7 @@ export default function MyPageScreen() {
                         styles.dogItemAvatarPlaceholder,
                         selected && styles.dogItemAvatarSelected,
                       ]}
-                      size={60}
+                      size={DOG_ITEM_SIZE}
                     />
                     <Text style={[styles.dogItemName, selected && styles.dogItemNameSelected]}>{d.name}</Text>
                   </TouchableOpacity>
@@ -1845,9 +1838,37 @@ export default function MyPageScreen() {
                 activeOpacity={0.8}
                 onPress={() => setProfileEditorMode('add')}
               >
-                <View style={styles.addDogCircle}>
-                  <Text style={styles.addDogPlus}>+</Text>
-                </View>
+                {/* RN의 borderStyle 'dashed'는 점선 간격을 조절할 수 없어서 SVG로 직접 그린다. */}
+                <Svg width={DOG_ITEM_SIZE} height={DOG_ITEM_SIZE}>
+                  <Circle
+                    cx={DOG_ITEM_SIZE / 2}
+                    cy={DOG_ITEM_SIZE / 2}
+                    r={DOG_ITEM_SIZE / 2 - 0.3}
+                    fill={ADD_DOG_COLOR}
+                    fillOpacity={0.12}
+                    stroke={ADD_DOG_COLOR}
+                    strokeWidth={0.6}
+                    strokeDasharray="3 2"
+                  />
+                  <Line
+                    x1={DOG_ITEM_SIZE / 2 - 6}
+                    y1={DOG_ITEM_SIZE / 2}
+                    x2={DOG_ITEM_SIZE / 2 + 6}
+                    y2={DOG_ITEM_SIZE / 2}
+                    stroke={ADD_DOG_COLOR}
+                    strokeWidth={1.5}
+                    strokeLinecap="round"
+                  />
+                  <Line
+                    x1={DOG_ITEM_SIZE / 2}
+                    y1={DOG_ITEM_SIZE / 2 - 6}
+                    x2={DOG_ITEM_SIZE / 2}
+                    y2={DOG_ITEM_SIZE / 2 + 6}
+                    stroke={ADD_DOG_COLOR}
+                    strokeWidth={1.5}
+                    strokeLinecap="round"
+                  />
+                </Svg>
                 <Text style={styles.dogItemName}>추가하기</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -1898,6 +1919,15 @@ export default function MyPageScreen() {
             isLast
           />
         </View>
+
+        {/* 배경에 고정하지 않고 콘텐츠 맨 끝에 붙여서, 끝까지 스크롤해야 보이게 한다. 콘텐츠가
+            화면보다 짧으면 남는 공간을 spacer가 채워 이미지가 화면 하단에 붙는다. */}
+        <View style={styles.profileBottomSpacer} />
+        <Image
+          source={require('@/assets/mypage/profile-bottom-landscape.png')}
+          style={{ width: SCREEN_WIDTH, height: PROFILE_BOTTOM_LANDSCAPE_HEIGHT }}
+          resizeMode="stretch"
+        />
       </ScrollView>
 
       <Toast message={petsError} onHide={() => setPetsError(null)} />
@@ -2041,25 +2071,26 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 60,
     borderBottomRightRadius: 60,
   },
-  profileBottomLandscape: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  profileBottomSpacer: { flexGrow: 1, minHeight: Spacing.sm },
   profileCard: {
     flexDirection: 'row',
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.lg,
     gap: Spacing.md,
   },
-  avatarWrap: { position: 'relative' },
+  // 오른쪽 정보 줄(성격 칩 유무)에 따라 행 높이가 바뀌어도 대표 배지가 사진에 붙어 있도록, 사진 크기만큼만 차지하게 한다.
+  avatarWrap: { position: 'relative', alignSelf: 'flex-start' },
   avatar: {
-    width: 88,
-    height: 88,
+    width: 75,
+    height: 75,
     borderRadius: Radius.full,
     borderWidth: 3,
     borderColor: Colors.background,
     backgroundColor: Colors.bgWarm,
   },
   avatarPlaceholderRing: {
-    width: 88,
-    height: 88,
+    width: 75,
+    height: 75,
     borderRadius: Radius.full,
     borderWidth: 3,
     borderColor: Colors.background,
@@ -2069,8 +2100,8 @@ const styles = StyleSheet.create({
   },
   primaryBadge: {
     position: 'absolute',
-    right: -2,
-    bottom: -6,
+    right: -8,
+    bottom: -2,
     height: 20,
     justifyContent: 'center',
     backgroundColor: Colors.secondary,
@@ -2084,21 +2115,7 @@ const styles = StyleSheet.create({
   pawIcon: { width: 20, height: 20 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dogMeta: { fontSize: 14, fontWeight: '300', color: '#6B6260' },
-  personalityChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-    height: 25,
-    backgroundColor: Colors.secondaryTint,
-    borderWidth: 0.5,
-    borderColor: '#C0DDD0',
-    borderRadius: Radius.full,
-    paddingHorizontal: 10,
-    marginTop: 4,
-  },
-  personalityChipIcon: { width: 10, height: 14 },
-  personalityChipText: { fontSize: 12, fontWeight: '600', color: Colors.secondaryDark },
+  personalityChip: { marginTop: 4 },
   section: {
     marginTop: Spacing.xl + Spacing.lg + Spacing.md,
     marginHorizontal: Spacing.lg,
@@ -2112,7 +2129,8 @@ const styles = StyleSheet.create({
   // 안쪽 요소는 왼쪽 여백을 4px 더 줘서 오른쪽으로 아주 조금 옮긴다.
   // 좌우를 6px씩 더 좁히고, 이 카드부터 아래 요소 전체를 Spacing.lg만큼 아래로 내린다.
   dogListSection: {
-    marginTop: Spacing.xl + Spacing.lg + Spacing.md,
+    // 상단 첨성대 일러스트의 아래쪽 끝만 살짝 덮이도록 충분히 띄운다.
+    marginTop: 100,
     marginHorizontal: Spacing.lg + 6,
     paddingTop: Spacing.xxl,
     paddingBottom: Spacing.xxl,
@@ -2133,14 +2151,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing.md,
   },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.textBody1, marginBottom: Spacing.md },
+  sectionTitle: { fontSize: 15, fontWeight: '500', color: Colors.textBody1, marginBottom: Spacing.md },
   sectionMoreRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   sectionMoreText: { fontSize: 13, color: Colors.textMuted },
   dogListRow: { gap: Spacing.lg },
-  dogItem: { alignItems: 'center', gap: 6, width: 64 },
+  dogItem: { alignItems: 'center', gap: 6, width: DOG_ITEM_SIZE },
   dogItemAvatar: {
-    width: 60,
-    height: 60,
+    width: DOG_ITEM_SIZE,
+    height: DOG_ITEM_SIZE,
     borderRadius: Radius.full,
     backgroundColor: Colors.bgWarm,
   },
@@ -2151,17 +2169,6 @@ const styles = StyleSheet.create({
   dogItemAvatarPlaceholder: { overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   dogItemName: { fontSize: 12, color: Colors.textBody2 },
   dogItemNameSelected: { color: Colors.coral, fontWeight: '600' },
-  addDogCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: Radius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addDogPlus: { fontSize: 22, color: Colors.textMuted, fontWeight: '300' },
   stampRow: { flexDirection: 'row', gap: Spacing.md },
   stampCircle: {
     width: 56,
@@ -2194,7 +2201,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   menuTextCol: { flex: 1, gap: 2 },
-  menuTitle: { fontSize: 15, fontWeight: '600', color: Colors.textBody1 },
+  menuTitle: { fontSize: 15, fontWeight: '500', color: Colors.textBody1 },
   menuSubtitle: { fontSize: 12, color: Colors.textMuted },
 });
 

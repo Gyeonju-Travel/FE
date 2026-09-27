@@ -38,6 +38,7 @@ import {
 import { getPendingScrapSchedule, TodaysScrapSchedule } from '@/utils/locationTracking';
 import { hasUnreadUpdateNews } from '@/constants/updateNews';
 import { getPersonalityComboLabel } from '@/constants/personalityCombo';
+import PersonalityChip from '@/components/ui/PersonalityChip';
 import { isMainAttraction, isBestAttraction } from '@/constants/mainAttractions';
 import { getHome, getStampAlbum, getTravelRecords } from '@/utils/api';
 import { getAccessToken } from '@/utils/authStorage';
@@ -249,16 +250,7 @@ export default function HomeScreen() {
                   <Text style={styles.dogName}>{dogName}</Text>
                   <ChevronRightIcon width={7} height={13} color={Colors.textMuted} />
                 </View>
-                {personalityLabel && (
-                  <View style={styles.tagChip}>
-                    <Image
-                      source={require('@/assets/mypage/personality-tag-icon.png')}
-                      style={styles.tagIcon}
-                      resizeMode="contain"
-                    />
-                    <Text style={styles.tagText}>{personalityLabel}</Text>
-                  </View>
-                )}
+                {personalityLabel && <PersonalityChip label={personalityLabel} />}
               </View>
               <View style={styles.trophyBadge}>
                 <Image source={require('@/assets/home/trophy.png')} style={styles.trophyIcon} resizeMode="contain" />
@@ -518,18 +510,6 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1, gap: 6 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   dogName: { fontSize: 17, fontWeight: '700', color: Colors.textBody1 },
-  tagChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-    backgroundColor: Colors.secondaryTint,
-    borderRadius: Radius.full,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  tagIcon: { width: 10, height: 14 },
-  tagText: { fontSize: 12, fontWeight: '600', color: Colors.secondaryDark },
   trophyBadge: {
     width: 40,
     height: 40,
