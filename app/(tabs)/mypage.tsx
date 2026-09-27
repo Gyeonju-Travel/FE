@@ -122,9 +122,9 @@ import {
 import { searchPlaceByName } from '@/utils/scheduleMappers';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const PROFILE_TOP_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 350) / 390;
-// 이미지 상단 여백을 당겨서 첨성대 탑 전체(꼭대기~받침대)가 카드에 가리지 않고 보이게 한다.
-const PROFILE_TOP_LANDSCAPE_OFFSET = -PROFILE_TOP_LANDSCAPE_HEIGHT * 0.32;
+const PROFILE_TOP_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 266) / 419;
+// 히어로 이미지를 타이틀 아래쪽으로 내려서 첨성대가 프로필 카드 뒤에 자연스럽게 깔리게 한다.
+const PROFILE_TOP_LANDSCAPE_OFFSET = SCREEN_WIDTH * 0.1;
 const PROFILE_BOTTOM_LANDSCAPE_HEIGHT = (SCREEN_WIDTH * 90) / 390;
 // 탭 바(마이페이지에서만 화면 위에 떠있음)의 둥근 위쪽 모서리(반지름 20)만큼만 이미지 아래쪽이
 // 탭 바 뒤로 살짝 들어가게 띄운다. 이미지를 늘리지 않고 원래 비율 그대로 유지하면서, 탭 바
@@ -2033,7 +2033,14 @@ const styles = StyleSheet.create({
   },
   pageTitle: { fontSize: 22, fontWeight: '700', color: Colors.textBody1 },
   profileSection: { position: 'relative' },
-  profileTopLandscape: { position: 'absolute', left: 0, right: 0, top: 0 },
+  profileTopLandscape: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    borderBottomLeftRadius: 60,
+    borderBottomRightRadius: 60,
+  },
   profileBottomLandscape: { position: 'absolute', left: 0, right: 0, bottom: 0 },
   profileCard: {
     flexDirection: 'row',
@@ -2072,20 +2079,22 @@ const styles = StyleSheet.create({
   },
   primaryBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.white },
   profileInfo: { flex: 1, justifyContent: 'center', gap: 6, paddingTop: 8 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dogName: { fontSize: 20, fontWeight: '700', color: Colors.textBody1 },
-  pawIcon: { width: 16, height: 16 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -3 },
+  dogName: { fontSize: 22, fontWeight: '700', color: Colors.textBody1 },
+  pawIcon: { width: 20, height: 20 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  dogMeta: { fontSize: 13, color: Colors.textBody2 },
+  dogMeta: { fontSize: 14, fontWeight: '300', color: '#6B6260' },
   personalityChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     alignSelf: 'flex-start',
+    height: 25,
     backgroundColor: Colors.secondaryTint,
+    borderWidth: 0.5,
+    borderColor: '#C0DDD0',
     borderRadius: Radius.full,
     paddingHorizontal: 10,
-    paddingVertical: 4,
     marginTop: 4,
   },
   personalityChipIcon: { width: 10, height: 14 },
